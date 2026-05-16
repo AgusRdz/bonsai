@@ -144,6 +144,67 @@ func TestValidateRejectsInvalidValidationMode(t *testing.T) {
 	}
 }
 
+func TestResolveEditor(t *testing.T) {
+	t.Run("from config", func(t *testing.T) {
+		cfg := &Config{Editor: EditorConfig{Command: "code"}}
+		if got := ResolveEditor(cfg); got != "code" {
+			t.Errorf("ResolveEditor(cfg.code) = %q, want code", got)
+		}
+	})
+	t.Run("from VISUAL", func(t *testing.T) {
+		t.Setenv("VISUAL", "nano")
+		t.Setenv("EDITOR", "vim")
+		if got := ResolveEditor(&Config{}); got != "nano" {
+			t.Errorf("ResolveEditor(VISUAL=nano) = %q, want nano", got)
+		}
+	})
+	t.Run("from EDITOR", func(t *testing.T) {
+		t.Setenv("VISUAL", "")
+		t.Setenv("EDITOR", "emacs")
+		if got := ResolveEditor(&Config{}); got != "emacs" {
+			t.Errorf("ResolveEditor(EDITOR=emacs) = %q, want emacs", got)
+		}
+	})
+	t.Run("fallback vi", func(t *testing.T) {
+		t.Setenv("VISUAL", "")
+		t.Setenv("EDITOR", "")
+		if got := ResolveEditor(&Config{}); got != "vi" {
+			t.Errorf("ResolveEditor(fallback) = %q, want vi", got)
+		}
+	})
+	t.Run("nil config", func(t *testing.T) {
+		t.Setenv("VISUAL", "")
+		t.Setenv("EDITOR", "")
+		if got := ResolveEditor(nil); got != "vi" {
+			t.Errorf("ResolveEditor(nil) = %q, want vi", got)
+		}
+	})
+}
+
+func TestApplyKeybindingDefaults(t *testing.T) {
+	// all empty -> gets all defaults
+	cfg := &Config{}
+	applyKeybindingDefaults(cfg)
+	if cfg.Keybindings.Graph == "" {
+		t.Error("Graph should not be empty after defaults")
+	}
+	if cfg.Keybindings.Quit == "" {
+		t.Error("Quit should not be empty after defaults")
+	}
+	if cfg.Keybindings.Commit == "" {
+		t.Error("Commit should not be empty after defaults")
+	}
+	// existing value must not be overwritten
+	cfg2 := &Config{Keybindings: KeybindingsConfig{Graph: "G"}}
+	applyKeybindingDefaults(cfg2)
+	if cfg2.Keybindings.Graph != "G" {
+		t.Errorf("Graph overwritten: got %q, want G", cfg2.Keybindings.Graph)
+	}
+	if cfg2.Keybindings.Quit == "" {
+		t.Error("Quit should be filled by defaults even when Graph is set")
+	}
+}
+
 func TestLoadReadsExistingGlobalConfig(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -218,4 +219,68 @@ func TestCheckBinaryMagic(t *testing.T) {
 			t.Error("expected error for file too small, got nil")
 		}
 	})
+}
+
+func TestHashFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.bin")
+	if err := os.WriteFile(path, []byte("hello bonsai"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	got, err := hashFile(path)
+	if err != nil {
+		t.Fatalf("hashFile: %v", err)
+	}
+	if len(got) != 64 {
+		t.Errorf("hash length = %d, want 64 (SHA256 hex)", len(got))
+	}
+	// deterministic
+	got2, _ := hashFile(path)
+	if got != got2 {
+		t.Error("hashFile not deterministic")
+	}
+	// different content -> different hash
+	path2 := filepath.Join(t.TempDir(), "other.bin")
+	if err := os.WriteFile(path2, []byte("different content"), 0644); err != nil {
+		t.Fatalf("WriteFile path2: %v", err)
+	}
+	got3, _ := hashFile(path2)
+	if got == got3 {
+		t.Error("different files should produce different hashes")
+	}
+}
+
+func TestHashFileMissing(t *testing.T) {
+	if _, err := hashFile("/nonexistent/missing.bin"); err == nil {
+		t.Error("expected error for missing file, got nil")
+	}
+}
+
+func TestReplaceBinary(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "new.bin")
+	dst := filepath.Join(dir, "current.bin")
+
+	if err := os.WriteFile(src, []byte("new binary"), 0755); err != nil {
+		t.Fatalf("WriteFile src: %v", err)
+	}
+	if err := os.WriteFile(dst, []byte("old binary"), 0755); err != nil {
+		t.Fatalf("WriteFile dst: %v", err)
+	}
+
+	if err := replaceBinary(dst, src); err != nil {
+		t.Fatalf("replaceBinary: %v", err)
+	}
+
+	content, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("ReadFile after replace: %v", err)
+	}
+	if string(content) != "new binary" {
+		t.Errorf("dst content = %q, want 'new binary'", content)
+	}
+	// src should have been moved (not copied)
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Error("src should not exist after replaceBinary (it was moved)")
+	}
 }

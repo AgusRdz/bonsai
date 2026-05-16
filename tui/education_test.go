@@ -224,3 +224,41 @@ func TestNewEduPanelError(t *testing.T) {
 		t.Errorf("title = %q, want Action failed", p.title)
 	}
 }
+
+func TestMasteryThreshold(t *testing.T) {
+	if got := masteryThreshold("commit"); got != 20 {
+		t.Errorf("masteryThreshold(commit) = %d, want 20", got)
+	}
+	if got := masteryThreshold("tag"); got != 5 {
+		t.Errorf("masteryThreshold(tag) = %d, want 5", got)
+	}
+	if got := masteryThreshold("unknown-command"); got != 10 {
+		t.Errorf("masteryThreshold(unknown) = %d, want 10", got)
+	}
+	if got := masteryThreshold(""); got != 10 {
+		t.Errorf("masteryThreshold('') = %d, want 10", got)
+	}
+}
+
+func TestIsProComplex(t *testing.T) {
+	complex := []string{
+		"rebase", "cherry-pick", "amend", "restore",
+		"reset-soft", "reset-mixed", "reset-hard",
+		"worktree", "submodule", "notes", "remote",
+		"clean", "branch-rename", "branch-delete", "remote-branch-delete",
+	}
+	for _, k := range complex {
+		if !isProComplex(k) {
+			t.Errorf("isProComplex(%q) = false, want true", k)
+		}
+	}
+	simple := []string{"add", "commit", "push", "pull", "fetch", "switch", "branch", "stash", "merge", "tag"}
+	for _, k := range simple {
+		if isProComplex(k) {
+			t.Errorf("isProComplex(%q) = true, want false", k)
+		}
+	}
+	if isProComplex("") {
+		t.Error("isProComplex('') = true, want false")
+	}
+}

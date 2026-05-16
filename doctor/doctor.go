@@ -124,6 +124,16 @@ func runGlobalChecks() []Check {
 
 const explainGitVersion = "git 2.28+ introduced init.defaultBranch and other settings bonsai depends on; older versions may silently ignore them."
 
+func isGitVersionSupported(ver string) bool {
+	parts := strings.SplitN(ver, ".", 3)
+	major, _ := strconv.Atoi(parts[0])
+	minor := 0
+	if len(parts) >= 2 {
+		minor, _ = strconv.Atoi(parts[1])
+	}
+	return major > 2 || (major == 2 && minor >= 28)
+}
+
 func checkGitVersion() Check {
 	out, err := gitOutput("--version")
 	if err != nil {
@@ -135,15 +145,8 @@ func checkGitVersion() Check {
 			Explain: explainGitVersion,
 		}
 	}
-	// "git version 2.39.0" - parse major.minor
 	ver := strings.TrimPrefix(out, "git version ")
-	parts := strings.SplitN(ver, ".", 3)
-	major, _ := strconv.Atoi(parts[0])
-	minor := 0
-	if len(parts) >= 2 {
-		minor, _ = strconv.Atoi(parts[1])
-	}
-	if major > 2 || (major == 2 && minor >= 28) {
+	if isGitVersionSupported(ver) {
 		return Check{Level: OK, Label: "git version", Message: ver, Explain: explainGitVersion}
 	}
 	return Check{
@@ -818,12 +821,8 @@ func checkSSHConnectivity() Check {
 
 const explainLargeRepo = "Large pack sizes (> 100 MB) slow down clone, fetch, and CI. Common causes are accidentally committed binaries or build artifacts; git lfs or a cleanup rewrite can help."
 
-func checkLargeRepo() Check {
-	out, err := gitOutput("count-objects", "-v")
-	if err != nil {
-		return Check{Level: OK, Label: "repo size", Message: "could not determine", Explain: explainLargeRepo}
-	}
-	for _, line := range strings.Split(out, "\n") {
+func parseSizePack(output string) (int64, bool) {
+	for _, line := range strings.Split(output, "\n") {
 		if strings.HasPrefix(line, "size-pack:") {
 			parts := strings.Fields(line)
 			if len(parts) < 2 {
@@ -833,18 +832,30 @@ func checkLargeRepo() Check {
 			if err != nil {
 				continue
 			}
-			if kb > 100000 {
-				mb := kb / 1024
-				return Check{
-					Level:   Warn,
-					Label:   "repo size",
-					Message: fmt.Sprintf("pack size is %d MB (> 100 MB)", mb),
-					Fix:     "consider git gc or git lfs for large files",
-					Explain: explainLargeRepo,
-				}
-			}
-			return Check{Level: OK, Label: "repo size", Message: fmt.Sprintf("%d KB packed", kb), Explain: explainLargeRepo}
+			return kb, true
 		}
 	}
-	return Check{Level: OK, Label: "repo size", Message: "OK", Explain: explainLargeRepo}
+	return 0, false
+}
+
+func checkLargeRepo() Check {
+	out, err := gitOutput("count-objects", "-v")
+	if err != nil {
+		return Check{Level: OK, Label: "repo size", Message: "could not determine", Explain: explainLargeRepo}
+	}
+	kb, ok := parseSizePack(out)
+	if !ok {
+		return Check{Level: OK, Label: "repo size", Message: "OK", Explain: explainLargeRepo}
+	}
+	if kb > 100000 {
+		mb := kb / 1024
+		return Check{
+			Level:   Warn,
+			Label:   "repo size",
+			Message: fmt.Sprintf("pack size is %d MB (> 100 MB)", mb),
+			Fix:     "consider git gc or git lfs for large files",
+			Explain: explainLargeRepo,
+		}
+	}
+	return Check{Level: OK, Label: "repo size", Message: fmt.Sprintf("%d KB packed", kb), Explain: explainLargeRepo}
 }

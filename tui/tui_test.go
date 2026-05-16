@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/AgusRdz/bonsai/config"
 	"github.com/AgusRdz/bonsai/git"
 	"github.com/AgusRdz/bonsai/usage"
 )
@@ -256,5 +257,81 @@ func TestRenderStatLine(t *testing.T) {
 	got2 := renderStatLine("3 files changed, 5 insertions(+), 2 deletions(-)")
 	if !strings.Contains(got2, "3 files changed") {
 		t.Errorf("renderStatLine summary missing content: %q", got2)
+	}
+}
+
+func TestContextTipNilStatus(t *testing.T) {
+	m := model{cfg: &config.Config{}}
+	if got := contextTip(m); got != "" {
+		t.Errorf("contextTip(nil status) = %q, want empty", got)
+	}
+}
+
+func TestContextTipBehind(t *testing.T) {
+	m := model{
+		cfg:    &config.Config{},
+		status: &git.Status{Behind: 3},
+	}
+	got := contextTip(m)
+	if !strings.Contains(got, "3") || !strings.Contains(got, "pull") {
+		t.Errorf("contextTip(behind=3) = %q, want pull tip", got)
+	}
+}
+
+func TestContextTipChangedUnstaged(t *testing.T) {
+	m := model{
+		cfg:    &config.Config{},
+		status: &git.Status{Changed: []git.FileEntry{{Code: " M", Path: "a.go"}}},
+	}
+	got := contextTip(m)
+	if !strings.Contains(got, "stage") {
+		t.Errorf("contextTip(changed only) = %q, want stage tip", got)
+	}
+}
+
+func TestContextTipStagedAndChanged(t *testing.T) {
+	m := model{
+		cfg: &config.Config{},
+		status: &git.Status{
+			Staged:  []git.FileEntry{{Code: "M ", Path: "a.go"}},
+			Changed: []git.FileEntry{{Code: " M", Path: "b.go"}},
+		},
+	}
+	got := contextTip(m)
+	if !strings.Contains(got, "commit") {
+		t.Errorf("contextTip(staged+changed) = %q, want commit tip", got)
+	}
+}
+
+func TestContextTipStagedOnly(t *testing.T) {
+	m := model{
+		cfg:    &config.Config{},
+		status: &git.Status{Staged: []git.FileEntry{{Code: "M ", Path: "a.go"}}},
+	}
+	got := contextTip(m)
+	if !strings.Contains(got, "commit") {
+		t.Errorf("contextTip(staged only) = %q, want commit tip", got)
+	}
+}
+
+func TestContextTipAheadDefault(t *testing.T) {
+	m := model{
+		cfg:    &config.Config{Flow: config.FlowConfig{Type: "trunk"}},
+		status: &git.Status{Ahead: 2},
+	}
+	got := contextTip(m)
+	if !strings.Contains(got, "2") {
+		t.Errorf("contextTip(ahead=2, trunk) = %q, want ahead tip", got)
+	}
+}
+
+func TestContextTipClean(t *testing.T) {
+	m := model{
+		cfg:    &config.Config{},
+		status: &git.Status{},
+	}
+	got := contextTip(m)
+	if !strings.Contains(got, "clean") {
+		t.Errorf("contextTip(clean) = %q, want clean tip", got)
 	}
 }
