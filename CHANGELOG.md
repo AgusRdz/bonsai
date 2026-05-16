@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.41.0] - 2026-05-16
+
+### Features
+- GPG signing, LFS CLI, one-click undo, PR diff, fork, metrics CLI
+([efb5cf5](https://github.com/AgusRdz/bonsai/commit/efb5cf5771e61aef614242acf08a55191bf7d486))
 ## [0.40.0] - 2026-05-16
 
 ### Features
