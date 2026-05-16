@@ -236,6 +236,53 @@ After resolving all conflicts, stage the files and commit (or `git rebase --cont
 
 Press `a` from the main panel to abort an in-progress operation entirely.
 
+## File history (`H`)
+
+Shows the commit history for a single file - every commit that touched it, oldest at the bottom.
+
+1. Select any tracked file in the main panel.
+2. Press `H` to open the file history panel.
+3. Each line shows the hash, date, author, and subject of the commit.
+4. Press `enter` on a commit to open the commit detail panel for that commit.
+5. From the commit detail panel press `d` to see the full diff, or `esc` to return to file history.
+
+## Branch graph (`g`)
+
+Opens a full `git log --graph --all --oneline --decorate` view showing the commit and branch topology of the whole repository.
+
+Scroll with `↑`/`↓` and press `esc` to close.
+
+## Commit diff (`d` in commit detail)
+
+From the log panel (`l`), open any commit with `enter`. In the commit detail panel press `d` to view the complete diff for that commit (`git show`). Useful for reviewing a specific change without leaving bonsai.
+
+## Branch operations (from branch list `B`)
+
+| Key | Action |
+|-----|--------|
+| `enter` | Switch to selected branch |
+| `m` | Merge selected branch into current |
+| `r` | Rebase current onto selected branch |
+| `d` | Delete selected local branch |
+| `n` | Rename selected branch |
+| `D` | Delete the remote tracking branch for the selected branch |
+
+`d` uses `git branch -d` (safe delete - fails on unmerged work). `D` uses `git push <remote> --delete <branch>` and requires the branch to have a configured upstream. Both require confirmation.
+
+## Stash operations (from stash list `S`)
+
+| Key | Action |
+|-----|--------|
+| `enter` | Pop the selected stash (`git stash pop`) |
+| `a` | Apply without removing (`git stash apply`) |
+| `d` | Drop the selected stash (`git stash drop`) |
+
+Use `a` when you want to apply a stash to multiple branches. Use `d` to discard a stash permanently. Both `d` require confirmation.
+
+## Tag push (`p` in tag list `t`)
+
+Select a tag in the tag list and press `p` to push it to `origin` (`git push origin <tag>`). Requires confirmation. Useful after creating an annotated release tag locally.
+
 ## Configuration manager (`C`)
 
 The configuration manager panel gives you a read/edit view of all config files without leaving bonsai.

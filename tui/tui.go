@@ -53,7 +53,6 @@ const (
 	panelConfigProfiles
 	panelFetch
 	panelRestore
-	panelClean
 	panelReflog
 	panelRemoteList
 	panelRemoteAdd
@@ -488,6 +487,15 @@ func (m model) doDeleteBranch(name string) tea.Cmd {
 				err: fmt.Errorf("%w (branch has unmerged work - use force delete)", err)}
 		}
 		return actionDoneMsg{cmd: "git branch -d " + name, err: nil}
+	}
+}
+
+func (m model) doDeleteRemoteBranch(remote, branch string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.DeleteRemoteBranch(ctx, remote, branch)
+		return actionDoneMsg{cmd: "git push " + remote + " --delete " + branch, err: err}
 	}
 }
 
@@ -2615,6 +2623,25 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.branchRenameTarget = b.Name
 		m.panel = panelBranch
 		m.actionErr = nil
+	case "D":
+		if len(m.branches) == 0 {
+			break
+		}
+		b := m.branches[m.branchCursor]
+		if b.Upstream == "" {
+			m.actionErr = fmt.Errorf("branch %s has no remote tracking ref", b.Name)
+			break
+		}
+		idx := strings.Index(b.Upstream, "/")
+		if idx < 0 {
+			m.actionErr = fmt.Errorf("could not parse upstream %q", b.Upstream)
+			break
+		}
+		remote := b.Upstream[:idx]
+		remoteBranch := b.Upstream[idx+1:]
+		m.confirmPrompt = fmt.Sprintf("delete %s from remote %s?", remoteBranch, remote)
+		m.confirmCmd = m.doDeleteRemoteBranch(remote, remoteBranch)
+		m.panel = panelConfirm
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
 	case "ctrl+c":
@@ -4208,7 +4235,10 @@ func (m model) branchListView() string {
 			if br.Current {
 				name = styleBranch.Render(" "+br.Name+" ") + "  " + styleDim.Render("current")
 			} else {
-				name = styleDim.Render(br.Name)
+				name = br.Name
+			}
+			if br.Upstream != "" {
+				name += "  " + styleDim.Render("<- "+br.Upstream)
 			}
 			b.WriteString(cursor + "  " + name + "\n")
 		}
@@ -4220,7 +4250,7 @@ func (m model) branchListView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [enter] switch  [m] merge  [r] rebase  [esc] cancel") + "\n"
+	return content + styleDim.Render("  [enter] switch  [m] merge  [r] rebase  [d] delete  [n] rename  [D] delete remote  [esc] back") + "\n"
 }
 
 func (m model) confirmView() string {

@@ -63,18 +63,24 @@ In **guided** mode the education panel appears after the commit and explains wha
 
 ## Pushing and pulling
 
-| Key | Action |
-|-----|--------|
-| `p` | Push to remote |
-| `P` | Pull from remote |
-| `f` | Fetch menu - choose origin/--all/--prune |
+Press `p` to open the **push menu** instead of pushing immediately. Choose between:
+
+| Option | Command | When to use |
+|--------|---------|-------------|
+| Push | `git push` | Normal push |
+| Force with lease | `git push --force-with-lease` | After a rebase; fails safely if the remote has new commits |
+| Set upstream | `git push --set-upstream origin <branch>` | First push of a new branch |
+
+Press `P` to pull, `f` to open the fetch menu (origin / all / prune).
 
 ## Branches
 
 | Key | Action |
 |-----|--------|
 | `b` | Create a new branch (or open the flow picker in gitflow mode) |
-| `B` | List all branches - switch, rename, delete |
+| `B` | List all branches - switch, merge, rebase, delete, rename, delete remote |
+
+The branch list shows the remote tracking ref next to each branch name (`<- origin/feat/login`). See [advanced-git.md](advanced-git.md) for the full key reference.
 
 ## Log
 
@@ -84,6 +90,7 @@ Press `l` to open the commit log. From there:
 |-----|--------|
 | `↑`/`↓` | Scroll |
 | `enter` | Open commit detail (diff stat, author, date, body) |
+| `d` | View the full diff for the selected commit |
 | `m` | Merge the selected commit into the current branch |
 | `ctrl+/` or `ctrl+r` | Search / filter commits |
 | `esc` | Back |
@@ -92,8 +99,8 @@ Press `l` to open the commit log. From there:
 
 | Key | Action |
 |-----|--------|
-| `s` | Stash all current changes |
-| `S` | Open stash list - pop, apply, drop an entry |
+| `s` | Stash all current changes (opens a message input so you can name the stash) |
+| `S` | Open stash list - pop, apply, or drop an entry |
 
 ## Advanced operations
 
@@ -176,7 +183,7 @@ After every action bonsai briefly shows a feedback panel:
 
 - **standard** mode: shows the command that ran (e.g. `git commit -m "..."`)
 - **guided** mode: shows the command plus a plain-language explanation and any relevant tips
-- **pro** mode: no panel
+- **pro** mode: shows the panel only for complex operations (rebase, cherry-pick, amend, bisect, worktrees, etc.)
 
 Press any key to dismiss the panel immediately. The duration is configurable:
 
@@ -184,3 +191,26 @@ Press any key to dismiss the panel immediately. The duration is configurable:
 [education]
 panel_duration = 4   # seconds; 0 disables it entirely
 ```
+
+### Usage tracking and mastery
+
+bonsai tracks how many times you run each command in `~/.config/bonsai/usage.json`. When you reach the mastery threshold for a command, it asks you once whether you want to keep seeing the education panel for that command or suppress it.
+
+Thresholds vary by complexity:
+
+| Command | Threshold |
+|---------|-----------|
+| `add`, `commit` | 20 uses |
+| `push`, `pull` | 15 uses |
+| `branch`, `checkout` | 12 uses |
+| `stash`, `merge` | 10 uses |
+| `rebase`, `cherry-pick` | 8 uses |
+| `reset`, `restore` | 6 uses |
+| `bisect`, `worktree`, `notes` | 5 uses |
+
+Choosing "suppress" sets a flag for that command in `usage.json`. You can re-enable it at any time from the **Education & Usage** section of the configuration manager (`C`).
+
+### Education manager (`C` → Education & Usage)
+
+The education manager shows every command bonsai has recorded, your current usage count, the mastery threshold, and whether the panel is suppressed. Select a command and press `enter` to toggle suppression.
+

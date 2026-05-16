@@ -131,6 +131,7 @@
 | `r` | Rebase current onto selected branch (confirm required) |
 | `d` | Delete the selected branch (confirm required) |
 | `n` | Rename the selected branch |
+| `D` | Delete the remote tracking branch for the selected branch (confirm required) |
 | `esc` | Back |
 
 ## Stash list panel

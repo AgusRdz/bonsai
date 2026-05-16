@@ -75,8 +75,9 @@ type CommitDetail struct {
 
 // Branch represents a local git branch.
 type Branch struct {
-	Name    string
-	Current bool
+	Name     string
+	Current  bool
+	Upstream string // remote tracking ref, e.g. "origin/feat/login"; empty if not set
 }
 
 // StashEntry is one entry from `git stash list`.
@@ -381,7 +382,7 @@ func (r *Runner) ShowStat(ctx context.Context, hash string) (*CommitDetail, erro
 
 // Branches returns all local branches.
 func (r *Runner) Branches(ctx context.Context) ([]Branch, error) {
-	out, err := r.run(ctx, "branch")
+	out, err := r.run(ctx, "branch", "--format=%(refname:short)\t%(HEAD)\t%(upstream:short)")
 	if err != nil {
 		return nil, err
 	}
@@ -1220,13 +1221,20 @@ func (r *Runner) LocalConfigRawPath() string {
 func parseBranches(output string) []Branch {
 	var branches []Branch
 	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		current := strings.HasPrefix(line, "* ")
-		name := strings.TrimPrefix(strings.TrimPrefix(line, "* "), "  ")
-		branches = append(branches, Branch{Name: name, Current: current})
+		parts := strings.Split(line, "\t")
+		name := strings.TrimSpace(parts[0])
+		if name == "" {
+			continue
+		}
+		current := len(parts) > 1 && strings.TrimSpace(parts[1]) == "*"
+		upstream := ""
+		if len(parts) > 2 {
+			upstream = strings.TrimSpace(parts[2])
+		}
+		branches = append(branches, Branch{Name: name, Current: current, Upstream: upstream})
 	}
 	return branches
 }

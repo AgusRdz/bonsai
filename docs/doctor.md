@@ -29,6 +29,9 @@ Global
   ✓  core.editor             using vim
   ✓  global gitignore        /Users/jane/.gitignore
   ✓  gpg signing             enabled, key: /Users/jane/.ssh/id_ed25519.pub
+  ✓  ssh key                 /Users/jane/.ssh/id_ed25519
+  ✓  ssh-agent               running (2 key(s) loaded)
+  ✓  ssh github.com          Hi jane! You've successfully authenticated...
 
 Local  (my-project)
   ✓  remote origin           git@github.com:org/my-project.git
@@ -40,7 +43,7 @@ Local  (my-project)
   ✓  branch conventions      'feat/login' matches 'feature'
   ✓  repo size               142 KB packed
 
-Summary: 0 errors, 2 warnings, 14 passed
+Summary: 0 errors, 2 warnings, 17 passed
 ```
 
 Exit code is `1` if any check has level **error** (✗), `0` otherwise.
@@ -61,6 +64,9 @@ Exit code is `1` if any check has level **error** (✗), `0` otherwise.
 | `core.editor` | Checks `$VISUAL`, `$EDITOR`, and `core.editor`; warns if falling back to `vi` |
 | `global gitignore` | Checks `core.excludesfile` and standard locations |
 | `gpg signing` | If `commit.gpgsign=true`, verifies `user.signingkey` is set |
+| `ssh key` | Looks for an SSH key in `~/.ssh` (ed25519, ecdsa, rsa, dsa) |
+| `ssh-agent` | Checks `SSH_AUTH_SOCK` is set and at least one key is loaded |
+| `ssh <host>` | Tests SSH connectivity against the repo's remote host (or `github.com` if not in a repo); recognises GitHub, GitLab, Bitbucket, and Gitea/Forgejo success messages |
 
 ## Local checks
 
