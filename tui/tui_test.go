@@ -534,7 +534,7 @@ func TestResolveConflictFileOurs(t *testing.T) {
 		{context: []string{"after"}},
 	}
 	res := []int{hunkOurs}
-	got := resolveConflictFile(parts, res)
+	got := resolveConflictFile(parts, res, nil)
 	want := []string{"before", "ours", "after"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("resolveConflict(ours) = %v, want %v", got, want)
@@ -546,7 +546,7 @@ func TestResolveConflictFileTheirs(t *testing.T) {
 		{ours: []string{"ours"}, theirs: []string{"theirs"}},
 	}
 	res := []int{hunkTheirs}
-	got := resolveConflictFile(parts, res)
+	got := resolveConflictFile(parts, res, nil)
 	if len(got) != 1 || got[0] != "theirs" {
 		t.Errorf("resolveConflict(theirs) = %v, want [theirs]", got)
 	}
@@ -557,7 +557,7 @@ func TestResolveConflictFileBoth(t *testing.T) {
 		{ours: []string{"ours"}, theirs: []string{"theirs"}},
 	}
 	res := []int{hunkBoth}
-	got := resolveConflictFile(parts, res)
+	got := resolveConflictFile(parts, res, nil)
 	if len(got) != 2 || got[0] != "ours" || got[1] != "theirs" {
 		t.Errorf("resolveConflict(both) = %v, want [ours theirs]", got)
 	}

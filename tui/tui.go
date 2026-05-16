@@ -157,13 +157,20 @@ func parseConflictFile(lines []string) []conflictPart {
 	return parts
 }
 
-// resolveConflictFile rebuilds file content from parts and per-hunk resolutions.
-func resolveConflictFile(parts []conflictPart, res []int) []string {
+// resolveConflictFile rebuilds file content from parts, per-hunk resolutions,
+// and optional custom content (manually edited hunks override res[i]).
+func resolveConflictFile(parts []conflictPart, res []int, custom []string) []string {
 	var out []string
 	hi := 0
 	for _, p := range parts {
 		if !p.isConflict() {
 			out = append(out, p.context...)
+			continue
+		}
+		// Custom edit takes priority over ours/theirs/both.
+		if hi < len(custom) && custom[hi] != "" {
+			out = append(out, strings.Split(custom[hi], "\n")...)
+			hi++
 			continue
 		}
 		r := hunkUnresolved
@@ -307,7 +314,10 @@ type model struct {
 	conflictScroll     int
 	conflictParts      []conflictPart
 	conflictHunkCursor int
-	conflictHunkRes    []int // parallel to conflict-only parts; hunkUnresolved/Ours/Theirs/Both
+	conflictHunkRes    []int    // parallel to conflict-only parts; hunkUnresolved/Ours/Theirs/Both
+	conflictCustom     []string // per-hunk custom content when edited manually (nil = not edited)
+	conflictEditMode   bool
+	conflictEditInput  textinput.Model
 	tags               []git.TagEntry
 	tagCursor          int
 	tagFilter          string
@@ -2125,6 +2135,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.conflictHunkRes = make([]int, nHunks)
+		m.conflictCustom = make([]string, nHunks)
+		m.conflictEditMode = false
 		m.panel = panelConflict
 		return m, m.doLoadConflictVersions(msg.path)
 
@@ -4603,9 +4615,9 @@ func (m model) updateHelpPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) doWriteResolved(path string, parts []conflictPart, res []int) tea.Cmd {
+func (m model) doWriteResolved(path string, parts []conflictPart, res []int, custom []string) tea.Cmd {
 	return func() tea.Msg {
-		lines := resolveConflictFile(parts, res)
+		lines := resolveConflictFile(parts, res, custom)
 		content := strings.Join(lines, "\n")
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			return actionDoneMsg{cmd: "write " + path, err: err}
@@ -4622,6 +4634,31 @@ func (m model) doWriteResolved(path string, parts []conflictPart, res []int) tea
 }
 
 func (m model) updateConflictPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle edit input mode first.
+	if m.conflictEditMode {
+		switch msg.String() {
+		case "enter":
+			value := m.conflictEditInput.Value()
+			if m.conflictHunkCursor < len(m.conflictCustom) {
+				m.conflictCustom[m.conflictHunkCursor] = value
+				m.conflictHunkRes[m.conflictHunkCursor] = hunkOurs // mark resolved
+				m.conflictHunkCursor = nextUnresolved(m.conflictHunkRes, m.conflictHunkCursor)
+			}
+			m.conflictEditMode = false
+			if allResolved(m.conflictHunkRes) {
+				m.panel = panelMain
+				return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes, m.conflictCustom)
+			}
+		case "esc":
+			m.conflictEditMode = false
+		default:
+			var cmd tea.Cmd
+			m.conflictEditInput, cmd = m.conflictEditInput.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
+
 	// Find the conflict code for the current file.
 	code := ""
 	if m.status != nil {
@@ -4672,7 +4709,7 @@ func (m model) updateConflictPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.conflictHunkCursor = nextUnresolved(m.conflictHunkRes, m.conflictHunkCursor)
 		if allResolved(m.conflictHunkRes) {
 			m.panel = panelMain
-			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes)
+			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes, m.conflictCustom)
 		}
 	case "t":
 		if code == "DD" {
@@ -4686,7 +4723,7 @@ func (m model) updateConflictPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.conflictHunkCursor = nextUnresolved(m.conflictHunkRes, m.conflictHunkCursor)
 		if allResolved(m.conflictHunkRes) {
 			m.panel = panelMain
-			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes)
+			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes, m.conflictCustom)
 		}
 	case "b":
 		if code != "DD" && nHunks > 0 {
@@ -4694,13 +4731,13 @@ func (m model) updateConflictPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.conflictHunkCursor = nextUnresolved(m.conflictHunkRes, m.conflictHunkCursor)
 			if allResolved(m.conflictHunkRes) {
 				m.panel = panelMain
-				return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes)
+				return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes, m.conflictCustom)
 			}
 		}
 	case "enter":
 		if allResolved(m.conflictHunkRes) && nHunks > 0 {
 			m.panel = panelMain
-			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes)
+			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes, m.conflictCustom)
 		}
 	case "r":
 		if code == "DD" {
@@ -4714,7 +4751,7 @@ func (m model) updateConflictPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.conflictHunkRes[i] = hunkOurs
 			}
 			m.panel = panelMain
-			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes)
+			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes, m.conflictCustom)
 		}
 		if nHunks == 0 {
 			m.panel = panelMain
@@ -4727,11 +4764,35 @@ func (m model) updateConflictPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.conflictHunkRes[i] = hunkTheirs
 			}
 			m.panel = panelMain
-			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes)
+			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes, m.conflictCustom)
 		}
 		if nHunks == 0 {
 			m.panel = panelMain
 			return m, m.doAcceptTheirs(m.conflictPath)
+		}
+	case "e":
+		// Open current hunk in manual edit mode (single-line input with ours as default).
+		if code != "DD" && nHunks > 0 && m.conflictHunkCursor < len(m.conflictParts) {
+			// Find the current hunk's ours content as the default edit value.
+			hi := -1
+			defaultVal := ""
+			for _, p := range m.conflictParts {
+				if !p.isConflict() {
+					continue
+				}
+				hi++
+				if hi == m.conflictHunkCursor {
+					defaultVal = strings.Join(p.ours, "\n")
+					break
+				}
+			}
+			ti := textinput.New()
+			ti.SetValue(defaultVal)
+			ti.Focus()
+			ti.CharLimit = 4000
+			ti.Width = m.width - 6
+			m.conflictEditInput = ti
+			m.conflictEditMode = true
 		}
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
@@ -6128,7 +6189,45 @@ func (m model) conflictView() string {
 		b.WriteString("  " + styleChanged.Render(l) + "\n")
 	}
 
-	b.WriteString("\n")
+	// Manual edit input - shown when e is pressed.
+	if m.conflictEditMode {
+		b.WriteString("\n  " + lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Render("--- edit result (one line; \\n for newlines)") + "\n")
+		b.WriteString("  " + m.conflictEditInput.View() + "\n")
+		content := b.String()
+		if pad := m.height - strings.Count(content, "\n") - 1; pad > 0 {
+			content += strings.Repeat("\n", pad)
+		}
+		return content + styleDim.Render("  [enter] confirm  [esc] cancel") + "\n"
+	}
+
+	// Result preview - shows up to 3 resolved lines from the merged output.
+	if len(m.conflictHunkRes) > 0 {
+		preview := resolveConflictFile(m.conflictParts, m.conflictHunkRes, m.conflictCustom)
+		resolved := 0
+		for _, r := range m.conflictHunkRes {
+			if r != hunkUnresolved {
+				resolved++
+			}
+		}
+		total := len(m.conflictHunkRes)
+		b.WriteString("\n  " + styleDim.Render(fmt.Sprintf("--- result preview  (%d/%d hunks resolved, %d lines total)",
+			resolved, total, len(preview))) + "\n")
+		previewLines := preview
+		if len(previewLines) > 4 {
+			previewLines = previewLines[:4]
+		}
+		for _, l := range previewLines {
+			if strings.HasPrefix(l, "<<<<<<<") || strings.HasPrefix(l, ">>>>>>>") {
+				b.WriteString("  " + styleChanged.Render(l) + "\n")
+			} else {
+				b.WriteString("  " + styleDim.Render(l) + "\n")
+			}
+		}
+		if len(preview) > 4 {
+			b.WriteString("  " + styleDim.Render(fmt.Sprintf("... (%d more lines)", len(preview)-4)) + "\n")
+		}
+	}
+
 	content := b.String()
 	if pad := m.height - strings.Count(content, "\n") - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
@@ -6138,7 +6237,7 @@ func (m model) conflictView() string {
 	if allResolved(m.conflictHunkRes) {
 		bar = "  [enter] write and stage  [n/N] prev/next hunk  [esc] back"
 	} else {
-		bar = "  [o] keep yours  [t] keep incoming  [b] keep both  [n/N] next/prev  [O/T] all  [esc] back"
+		bar = "  [o] yours  [t] incoming  [b] both  [e] edit  [n/N] next/prev  [O/T] all  [esc] back"
 	}
 	return content + styleDim.Render(bar) + "\n"
 }
