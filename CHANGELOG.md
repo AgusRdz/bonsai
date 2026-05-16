@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.21.1] - 2026-05-16
+
+### Bug Fixes
+- Hide scroll position indicator when content fits on screen
+([ef360bf](https://github.com/AgusRdz/bonsai/commit/ef360bf5a3c1583d3af502673ccc5d26a41c5935))
 ## [0.21.0] - 2026-05-16
 
 ### Features
