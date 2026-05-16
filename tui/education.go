@@ -45,6 +45,8 @@ func commandKey(cmd string) string {
 		return "amend"
 	case strings.HasPrefix(cmd, "git commit"):
 		return "commit"
+	case strings.HasPrefix(cmd, "git push") && strings.Contains(cmd, "--delete"):
+		return "remote-branch-delete"
 	case strings.HasPrefix(cmd, "git push"):
 		return "push"
 	case strings.HasPrefix(cmd, "git pull"):
@@ -57,8 +59,14 @@ func commandKey(cmd string) string {
 		return "branch-rename"
 	case strings.HasPrefix(cmd, "git stash pop"):
 		return "stash-pop"
+	case strings.HasPrefix(cmd, "git stash apply"):
+		return "stash-apply"
+	case strings.HasPrefix(cmd, "git stash drop"):
+		return "stash-drop"
 	case strings.HasPrefix(cmd, "git stash"):
 		return "stash"
+	case strings.HasPrefix(cmd, "git branch -d"), strings.HasPrefix(cmd, "git branch -D"):
+		return "branch-delete"
 	case strings.HasPrefix(cmd, "git rebase"):
 		return "rebase"
 	case strings.HasPrefix(cmd, "git merge"):
@@ -95,32 +103,36 @@ func commandKey(cmd string) string {
 // masteryThresholds defines how many successful uses are needed before the
 // user is considered familiar with a command.
 var masteryThresholds = map[string]int{
-	"add":           20,
-	"unstage":       20,
-	"commit":        20,
-	"push":          15,
-	"pull":          15,
-	"branch":        12,
-	"switch":        12,
-	"stash":         10,
-	"stash-pop":     10,
-	"fetch":         10,
-	"merge":         8,
-	"rebase":        8,
-	"restore":       8,
-	"amend":         8,
-	"cherry-pick":   8,
-	"reset-soft":    6,
-	"reset-mixed":   6,
-	"reset-hard":    6,
-	"apply":         5,
-	"branch-rename": 5,
-	"tag":           5,
-	"worktree":      5,
-	"clean":         5,
-	"remote":        5,
-	"submodule":     5,
-	"notes":         5,
+	"add":                  20,
+	"unstage":              20,
+	"commit":               20,
+	"push":                 15,
+	"pull":                 15,
+	"branch":               12,
+	"switch":               12,
+	"stash":                10,
+	"stash-pop":            10,
+	"fetch":                10,
+	"merge":                8,
+	"rebase":               8,
+	"restore":              8,
+	"amend":                8,
+	"cherry-pick":          8,
+	"reset-soft":           6,
+	"reset-mixed":          6,
+	"reset-hard":           6,
+	"apply":                5,
+	"branch-rename":        5,
+	"branch-delete":        8,
+	"remote-branch-delete": 5,
+	"stash-apply":          8,
+	"stash-drop":           5,
+	"tag":                  5,
+	"worktree":             5,
+	"clean":                5,
+	"remote":               5,
+	"submodule":            5,
+	"notes":                5,
 }
 
 // masteryThreshold returns the number of uses needed to master a command.
@@ -135,20 +147,22 @@ func masteryThreshold(key string) int {
 // users who have rarely run them. Day-to-day commands (add, commit, push...)
 // are omitted because a pro user does not need a reminder for those.
 var proComplexCommands = map[string]bool{
-	"rebase":        true,
-	"cherry-pick":   true,
-	"amend":         true,
-	"restore":       true,
-	"reset-soft":    true,
-	"reset-mixed":   true,
-	"reset-hard":    true,
-	"apply":         true,
-	"worktree":      true,
-	"submodule":     true,
-	"notes":         true,
-	"remote":        true,
-	"clean":         true,
-	"branch-rename": true,
+	"rebase":               true,
+	"cherry-pick":          true,
+	"amend":                true,
+	"restore":              true,
+	"reset-soft":           true,
+	"reset-mixed":          true,
+	"reset-hard":           true,
+	"apply":                true,
+	"worktree":             true,
+	"submodule":            true,
+	"notes":                true,
+	"remote":               true,
+	"clean":                true,
+	"branch-rename":        true,
+	"branch-delete":        true,
+	"remote-branch-delete": true,
 }
 
 // isProComplex reports whether a command key should show education in pro mode
@@ -176,6 +190,8 @@ func actionTitle(cmd string, err error) string {
 		return "Commit amended"
 	case strings.HasPrefix(cmd, "git commit"):
 		return "Commit created"
+	case strings.HasPrefix(cmd, "git push") && strings.Contains(cmd, "--delete"):
+		return "Remote branch deleted"
 	case strings.HasPrefix(cmd, "git push"):
 		return "Changes pushed"
 	case strings.HasPrefix(cmd, "git pull"):
@@ -187,9 +203,15 @@ func actionTitle(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git branch -m"):
 		return "Branch renamed"
 	case strings.HasPrefix(cmd, "git stash pop"):
+		return "Stash popped"
+	case strings.HasPrefix(cmd, "git stash apply"):
 		return "Stash applied"
+	case strings.HasPrefix(cmd, "git stash drop"):
+		return "Stash dropped"
 	case strings.HasPrefix(cmd, "git stash"):
 		return "Changes stashed"
+	case strings.HasPrefix(cmd, "git branch -d"), strings.HasPrefix(cmd, "git branch -D"):
+		return "Branch deleted"
 	case strings.HasPrefix(cmd, "git rebase --continue"):
 		return "Rebase continued"
 	case strings.HasPrefix(cmd, "git rebase --abort"):
@@ -271,6 +293,12 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git stash pop"):
 		return "The stash was applied to your working tree and removed from the stash list. " +
 			"If there are conflicts you will need to resolve them manually before committing."
+	case strings.HasPrefix(cmd, "git stash apply"):
+		return "The stash was applied to your working tree but kept in the stash list. " +
+			"Use apply instead of pop when you want to apply the same stash to multiple branches."
+	case strings.HasPrefix(cmd, "git stash drop"):
+		return "The stash entry was permanently removed from the stash list. " +
+			"This cannot be undone - use drop only when you are sure you no longer need those changes."
 	case strings.HasPrefix(cmd, "git stash"):
 		return "Your uncommitted changes were saved to the stash and the working tree was cleaned. " +
 			"The stash is a temporary shelf - use [S] to view stashes and pop them when you are ready to continue."
@@ -366,6 +394,12 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git notes remove"):
 		return "The note was removed from the commit. " +
 			"The commit itself is unchanged - notes are metadata stored separately from the commit object."
+	case strings.HasPrefix(cmd, "git push") && strings.Contains(cmd, "--delete"):
+		return "The branch was deleted from the remote. " +
+			"The local branch still exists - delete it separately with 'git branch -d <branch>' if you no longer need it."
+	case strings.HasPrefix(cmd, "git branch -d"), strings.HasPrefix(cmd, "git branch -D"):
+		return "The local branch was deleted. " +
+			"If the branch was pushed to a remote, it still exists there - use [D] in the branch list to delete it remotely."
 	default:
 		return ""
 	}

@@ -62,7 +62,8 @@ func TestParseStatusEmpty(t *testing.T) {
 }
 
 func TestParseBranches(t *testing.T) {
-	output := "  main\n* feat/login\n  fix/bug-123\n"
+	// Format: %(refname:short)\t%(HEAD)\t%(upstream:short)
+	output := "main\t \t\nfeat/login\t*\torigin/feat/login\nfix/bug-123\t \t\n"
 	branches := parseBranches(output)
 
 	if len(branches) != 3 {
@@ -70,12 +71,13 @@ func TestParseBranches(t *testing.T) {
 	}
 
 	cases := []struct {
-		name    string
-		current bool
+		name     string
+		current  bool
+		upstream string
 	}{
-		{"main", false},
-		{"feat/login", true},
-		{"fix/bug-123", false},
+		{"main", false, ""},
+		{"feat/login", true, "origin/feat/login"},
+		{"fix/bug-123", false, ""},
 	}
 	for i, c := range cases {
 		if branches[i].Name != c.name {
@@ -83,6 +85,9 @@ func TestParseBranches(t *testing.T) {
 		}
 		if branches[i].Current != c.current {
 			t.Errorf("branches[%d].Current = %v, want %v", i, branches[i].Current, c.current)
+		}
+		if branches[i].Upstream != c.upstream {
+			t.Errorf("branches[%d].Upstream = %q, want %q", i, branches[i].Upstream, c.upstream)
 		}
 	}
 }
