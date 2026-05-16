@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.28.0] - 2026-05-16
+
+### Features
+- Configuration manager panel (block 7)
+([7c3ea9d](https://github.com/AgusRdz/bonsai/commit/7c3ea9d1b0191e9bdeb48043133ed6a678a45688))
 ## [0.27.0] - 2026-05-16
 
 ### Features
