@@ -1823,9 +1823,11 @@ type StandupEntry struct {
 // author may be a name substring (case-insensitive); pass "" to skip filter.
 func (r *Runner) StandupLog(ctx context.Context, author string, days int) ([]StandupEntry, error) {
 	since := fmt.Sprintf("%d.days.ago", days)
+	// Use git's %x1f (unit separator) escape so the argument contains no
+	// special bytes - git expands %xNN in the output, not in the argument.
 	args := []string{
 		"log", "--no-merges",
-		"--pretty=format:%h\x00%s\x00%as\x00%an",
+		"--pretty=tformat:%h%x1f%s%x1f%as%x1f%an",
 		"--since=" + since,
 	}
 	if author != "" {
@@ -1840,7 +1842,7 @@ func (r *Runner) StandupLog(ctx context.Context, author string, days int) ([]Sta
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\x00", 4)
+		parts := strings.SplitN(line, "\x1f", 4)
 		if len(parts) < 4 {
 			continue
 		}

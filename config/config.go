@@ -180,6 +180,19 @@ func DefaultKeybindings() KeybindingsConfig {
 	return defaults().Keybindings
 }
 
+// LoadFile decodes a single config file at the given path without merging
+// any other files. Returns nil if the file does not exist.
+func LoadFile(path string) (*Config, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil, nil
+	}
+	cfg := defaults()
+	if _, err := toml.DecodeFile(path, &cfg); err != nil {
+		return nil, fmt.Errorf("config: %s: %w", path, err)
+	}
+	return &cfg, nil
+}
+
 func applyKeybindingDefaults(cfg *Config) {
 	d := defaults().Keybindings
 	kb := &cfg.Keybindings

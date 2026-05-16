@@ -19,7 +19,10 @@ func RunGlobal() error {
 	fmt.Println()
 	fmt.Println("bonsai setup - configure your global defaults")
 	fmt.Println(strings.Repeat("-", 46))
-	cfg, err := wizard(false)
+
+	existing, _ := config.LoadFile(p) // nil on first run
+
+	cfg, err := wizard(false, existing)
 	if err != nil {
 		return err
 	}
@@ -41,7 +44,10 @@ func RunLocal() error {
 	fmt.Println(strings.Repeat("-", 42))
 	fmt.Println("press enter on any question to inherit from your global config")
 	fmt.Println()
-	cfg, err := wizard(true)
+
+	existing, _ := config.LoadFile(".bonsai.toml") // nil if no local config yet
+
+	cfg, err := wizard(true, existing)
 	if err != nil {
 		return err
 	}
@@ -55,7 +61,8 @@ func RunLocal() error {
 
 // wizard collects answers and returns a Config. When local is true, empty
 // answers are left as zero-values so the global config takes precedence.
-func wizard(local bool) (*config.Config, error) {
+// existing is the previously saved config (nil on first run).
+func wizard(local bool, existing *config.Config) (*config.Config, error) {
 	sc := bufio.NewScanner(os.Stdin)
 	cfg := &config.Config{}
 
@@ -71,6 +78,9 @@ func wizard(local bool) (*config.Config, error) {
 	flowDefault := "1"
 	if local {
 		flowDefault = "5"
+	}
+	if existing != nil {
+		flowDefault = flowTypeToNumber(existing.Flow.Type, local)
 	}
 	flowChoice := ask(sc, "choice", flowDefault)
 	flowMap := map[string]string{
@@ -108,7 +118,13 @@ func wizard(local bool) (*config.Config, error) {
 
 	if !local || cfg.Flow.Type != "auto" {
 		for _, t := range types {
-			val := ask(sc, fmt.Sprintf("  %-8s prefix", t.name), t.prefix)
+			prefix := t.prefix
+			if existing != nil {
+				if rule, ok := existing.Conventions.Branches[t.name]; ok && rule.Prefix != "" {
+					prefix = rule.Prefix
+				}
+			}
+			val := ask(sc, fmt.Sprintf("  %-8s prefix", t.name), prefix)
 			if val != "" {
 				cfg.Conventions.Branches[t.name] = config.BranchRule{
 					Prefix:  val,
@@ -117,9 +133,27 @@ func wizard(local bool) (*config.Config, error) {
 			}
 		}
 
-		// custom types
+		// custom types - include any existing branches not in the default set
 		fmt.Println()
 		fmt.Println("additional branch types? (e.g. chore, docs - leave empty to skip)")
+		if existing != nil {
+			knownTypes := make(map[string]bool)
+			for _, t := range types {
+				knownTypes[t.name] = true
+			}
+			for name, rule := range existing.Conventions.Branches {
+				if knownTypes[name] {
+					continue
+				}
+				prefix := ask(sc, fmt.Sprintf("  %-8s prefix", name), rule.Prefix)
+				if prefix != "" {
+					cfg.Conventions.Branches[name] = config.BranchRule{
+						Prefix:  prefix,
+						Example: buildExample(prefix, "description"),
+					}
+				}
+			}
+		}
 		for {
 			name := ask(sc, "  type name", "")
 			if name == "" {
@@ -145,6 +179,9 @@ func wizard(local bool) (*config.Config, error) {
 	modeDefault := "1"
 	if local {
 		modeDefault = "4"
+	}
+	if existing != nil {
+		modeDefault = modeToNumber(existing.Modes.Default, local)
 	}
 	modeChoice := ask(sc, "choice", modeDefault)
 	modeMap := map[string]string{
@@ -172,6 +209,9 @@ func wizard(local bool) (*config.Config, error) {
 	if local {
 		valDefault = "4"
 	}
+	if existing != nil {
+		valDefault = validationToNumber(existing.Conventions.Validation.Mode, local)
+	}
 	valChoice := ask(sc, "choice", valDefault)
 	valMap := map[string]string{
 		"1": "strict",
@@ -190,7 +230,11 @@ func wizard(local bool) (*config.Config, error) {
 		fmt.Println()
 		fmt.Println("preferred editor command (used by 'bonsai config')")
 		fmt.Println("leave empty to use $VISUAL / $EDITOR / vi")
-		cfg.Editor.Command = ask(sc, "editor", "")
+		editorDefault := ""
+		if existing != nil {
+			editorDefault = existing.Editor.Command
+		}
+		cfg.Editor.Command = ask(sc, "editor", editorDefault)
 	}
 
 	// Fill required fields that weren't set so config.Write produces valid TOML.
@@ -210,6 +254,65 @@ func wizard(local bool) (*config.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func flowTypeToNumber(flowType string, local bool) string {
+	switch flowType {
+	case "trunk":
+		return "1"
+	case "gitflow":
+		return "2"
+	case "githubflow":
+		return "3"
+	case "forking":
+		return "4"
+	case "auto":
+		if local {
+			return "5"
+		}
+		return "1"
+	default:
+		if local {
+			return "5"
+		}
+		return "1"
+	}
+}
+
+func modeToNumber(mode string, local bool) string {
+	switch mode {
+	case "standard":
+		return "1"
+	case "guided":
+		return "2"
+	case "pro":
+		return "3"
+	case "":
+		if local {
+			return "4"
+		}
+		return "1"
+	default:
+		return "1"
+	}
+}
+
+func validationToNumber(mode string, local bool) string {
+	switch mode {
+	case "strict":
+		return "1"
+	case "warn":
+		return "2"
+	case "off":
+		return "3"
+	case "":
+		if local {
+			return "4"
+		}
+		return "2"
+	default:
+		return "2"
+	}
 }
 
 // ask prints the prompt with the default value and reads a line from sc.
