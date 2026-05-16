@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.35.2] - 2026-05-16
+
+### Bug Fixes
+- Stash footer, help panel, command bar, usage tests, README
+([4efdb05](https://github.com/AgusRdz/bonsai/commit/4efdb05b947518609a36482b0fb0d241706f1926))
 ## [0.35.1] - 2026-05-16
 
 ### Bug Fixes
