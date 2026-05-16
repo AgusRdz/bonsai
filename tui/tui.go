@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -44,6 +46,10 @@ const (
 	panelBisect
 	panelRebaseInteractive
 	panelAmend
+	panelConfigMenu
+	panelConfigFile
+	panelConfigRecommend
+	panelConfigProfiles
 )
 
 type branchMode int
@@ -62,6 +68,28 @@ type rebaseTodo struct {
 	action string // "pick", "reword", "edit", "squash", "fixup", "drop"
 	hash   string // abbreviated commit hash
 	msg    string // commit subject
+}
+
+type configSection int
+
+const (
+	configSectionGlobal configSection = iota
+	configSectionLocal
+	configSectionGlobalIgnore
+	configSectionLocalIgnore
+)
+
+type configRecommend struct {
+	key       string // git config key
+	value     string // recommended value
+	desc      string // short description
+	reasoning string // why this is recommended
+	applied   bool   // whether already set to this value
+}
+
+type configProfile struct {
+	gitdir string // e.g. ~/work/
+	path   string // path to include config
 }
 
 const (
@@ -135,6 +163,20 @@ type model struct {
 	amendInput         textinput.Model
 	amendField         int               // 0=menu, 1=message, 2=author, 3=date
 	amendDetail        *git.CommitDetail // HEAD commit shown in the panel
+
+	configMenuCursor      int
+	configSection         configSection
+	configFileLines       []string
+	configFileScroll      int
+	configFilePath        string
+	configEntries         []git.ConfigEntry
+	configRecommendations []configRecommend
+	configRecommendCursor int
+	configProfiles        []configProfile
+	configProfileCursor   int
+	configProfileInput    textinput.Model
+	configProfileStep     int
+	configProfileNewPath  string
 }
 
 // --- messages ---
@@ -187,6 +229,16 @@ type rebaseTodosMsg struct {
 }
 
 type amendDetailMsg *git.CommitDetail
+
+type configFileMsg struct {
+	section configSection
+	lines   []string
+	path    string
+	entries []git.ConfigEntry
+}
+type configRecommendMsg []configRecommend
+type configProfilesMsg []configProfile
+type editorDoneMsg struct{ err error }
 
 // --- commands ---
 
@@ -721,6 +773,214 @@ func (m model) doAmendNoEdit() tea.Cmd {
 	}
 }
 
+func (m model) doLoadConfigSection(sec configSection) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+
+		var lines []string
+		var path string
+		var entries []git.ConfigEntry
+
+		switch sec {
+		case configSectionGlobal:
+			var err error
+			entries, err = m.git.GlobalConfigList(ctx)
+			if err != nil {
+				entries = nil
+			}
+			path, _ = m.git.GlobalConfigRawPath()
+			if data, err := os.ReadFile(path); err == nil {
+				lines = strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+			}
+
+		case configSectionLocal:
+			var err error
+			entries, err = m.git.LocalConfigList(ctx)
+			if err != nil {
+				entries = nil
+			}
+			path = m.git.LocalConfigRawPath()
+			if data, err := os.ReadFile(path); err == nil {
+				lines = strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+			}
+
+		case configSectionGlobalIgnore:
+			ignorePath, err := m.git.GlobalGitignorePath(ctx)
+			if err != nil {
+				ignorePath = ""
+			}
+			path = ignorePath
+			if path != "" {
+				if data, err := os.ReadFile(path); err == nil {
+					lines = strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+				}
+			}
+
+		case configSectionLocalIgnore:
+			path = ".gitignore"
+			if data, err := os.ReadFile(path); err == nil {
+				lines = strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+			}
+		}
+
+		return configFileMsg{
+			section: sec,
+			lines:   lines,
+			path:    path,
+			entries: entries,
+		}
+	}
+}
+
+func (m model) doOpenEditor(path string) tea.Cmd {
+	editorStr := config.ResolveEditor(m.cfg)
+	parts := strings.Fields(editorStr)
+	if len(parts) == 0 {
+		parts = []string{"vi"}
+	}
+	args := append(parts[1:], path)
+	cmd := exec.Command(parts[0], args...)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return editorDoneMsg{err: err}
+	})
+}
+
+func (m model) doLoadRecommendations() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+
+		recs := []configRecommend{
+			{
+				key: "pull.rebase", value: "true",
+				desc:      "pull.rebase = true",
+				reasoning: "Rebases instead of merging on pull, keeping history linear.",
+			},
+			{
+				key: "init.defaultBranch", value: "main",
+				desc:      "init.defaultBranch = main",
+				reasoning: "New repos start with 'main' instead of 'master'.",
+			},
+			{
+				key: "fetch.prune", value: "true",
+				desc:      "fetch.prune = true",
+				reasoning: "Automatically removes remote-tracking refs for deleted branches.",
+			},
+			{
+				key: "push.autoSetupRemote", value: "true",
+				desc:      "push.autoSetupRemote = true",
+				reasoning: "Sets upstream automatically on first push - no more --set-upstream.",
+			},
+			{
+				key: "rerere.enabled", value: "true",
+				desc:      "rerere.enabled = true",
+				reasoning: "Remembers how you resolved conflicts and replays the resolution automatically.",
+			},
+			{
+				key: "diff.colorMoved", value: "default",
+				desc:      "diff.colorMoved = default",
+				reasoning: "Highlights moved code blocks differently from added/removed lines.",
+			},
+			{
+				key: "core.whitespace", value: "fix",
+				desc:      "core.whitespace = fix",
+				reasoning: "Automatically fixes trailing whitespace on commit.",
+			},
+			{
+				key: "branch.sort", value: "-committerdate",
+				desc:      "branch.sort = -committerdate",
+				reasoning: "Lists branches by most recently used first.",
+			},
+		}
+
+		for i, rec := range recs {
+			current, err := m.git.GlobalConfigGet(ctx, rec.key)
+			if err == nil && current == rec.value {
+				recs[i].applied = true
+			}
+		}
+
+		return configRecommendMsg(recs)
+	}
+}
+
+func (m model) doApplyRecommendation(key, value string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.SetGlobalConfig(ctx, key, value)
+		return actionDoneMsg{cmd: "git config --global " + key + " " + value, err: err}
+	}
+}
+
+func (m model) doLoadProfiles() tea.Cmd {
+	return func() tea.Msg {
+		path, err := m.git.GlobalConfigRawPath()
+		if err != nil {
+			return configProfilesMsg(nil)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return configProfilesMsg(nil)
+		}
+
+		var profiles []configProfile
+		lines := strings.Split(string(data), "\n")
+		var currentGitdir string
+		inIncludeIf := false
+
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "[includeIf \"gitdir:") {
+				rest := strings.TrimPrefix(trimmed, "[includeIf \"gitdir:")
+				rest = strings.TrimSuffix(rest, "\"]")
+				rest = strings.TrimSuffix(rest, "\"]")
+				// strip trailing `"]`
+				if idx := strings.Index(rest, "\""); idx >= 0 {
+					rest = rest[:idx]
+				}
+				currentGitdir = rest
+				inIncludeIf = true
+				continue
+			}
+			if inIncludeIf {
+				if strings.HasPrefix(trimmed, "path") {
+					parts := strings.SplitN(trimmed, "=", 2)
+					if len(parts) == 2 {
+						includePath := strings.TrimSpace(parts[1])
+						profiles = append(profiles, configProfile{gitdir: currentGitdir, path: includePath})
+					}
+					inIncludeIf = false
+					currentGitdir = ""
+				} else if strings.HasPrefix(trimmed, "[") {
+					inIncludeIf = false
+					currentGitdir = ""
+				}
+			}
+		}
+
+		return configProfilesMsg(profiles)
+	}
+}
+
+func (m model) doAddProfile(gitdir, includePath string) tea.Cmd {
+	return func() tea.Msg {
+		path, err := m.git.GlobalConfigRawPath()
+		if err != nil {
+			return actionDoneMsg{cmd: "git config profile add", err: err}
+		}
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o644)
+		if err != nil {
+			return actionDoneMsg{cmd: "git config profile add", err: err}
+		}
+		defer f.Close()
+		entry := fmt.Sprintf("\n[includeIf \"gitdir:%s\"]\n\tpath = %s\n", gitdir, includePath)
+		_, err = f.WriteString(entry)
+		return actionDoneMsg{cmd: "git config --global includeIf", err: err}
+	}
+}
+
 // --- init ---
 
 func (m model) Init() tea.Cmd {
@@ -864,6 +1124,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case amendDetailMsg:
 		m.amendDetail = (*git.CommitDetail)(msg)
 
+	case configFileMsg:
+		m.configSection = msg.section
+		m.configFileLines = msg.lines
+		m.configFilePath = msg.path
+		m.configEntries = msg.entries
+		m.configFileScroll = 0
+		m.panel = panelConfigFile
+
+	case configRecommendMsg:
+		m.configRecommendations = []configRecommend(msg)
+		m.configRecommendCursor = 0
+		m.panel = panelConfigRecommend
+
+	case configProfilesMsg:
+		m.configProfiles = []configProfile(msg)
+		m.configProfileCursor = 0
+		m.configProfileStep = 0
+		m.panel = panelConfigProfiles
+
+	case editorDoneMsg:
+		if m.panel == panelConfigFile {
+			return m, m.doLoadConfigSection(m.configSection)
+		}
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -990,6 +1274,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelAmend {
 			return m.updateAmendPanel(msg)
+		}
+		if m.panel == panelConfigMenu {
+			return m.updateConfigMenuPanel(msg)
+		}
+		if m.panel == panelConfigFile {
+			return m.updateConfigFilePanel(msg)
+		}
+		if m.panel == panelConfigRecommend {
+			return m.updateConfigRecommendPanel(msg)
+		}
+		if m.panel == panelConfigProfiles {
+			if m.configProfileStep > 0 {
+				switch msg.String() {
+				case "enter", "esc", "ctrl+c":
+					// fall through to updateConfigProfilesPanel
+				default:
+					var cmd tea.Cmd
+					m.configProfileInput, cmd = m.configProfileInput.Update(msg)
+					return m, cmd
+				}
+			}
+			return m.updateConfigProfilesPanel(msg)
 		}
 		return m.updateMainPanel(msg)
 	}
@@ -1255,6 +1561,11 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.panel = panelAmend
 		m.actionErr = nil
 		return m, m.doFetchAmendDetail()
+
+	case "C":
+		m.configMenuCursor = 0
+		m.panel = panelConfigMenu
+		m.actionErr = nil
 	}
 
 	return m, nil
@@ -1828,6 +2139,170 @@ func (m model) updateAmendPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateConfigMenuPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	const numItems = 6
+	switch msg.String() {
+	case "up", "k":
+		if m.configMenuCursor > 0 {
+			m.configMenuCursor--
+		}
+	case "down", "j":
+		if m.configMenuCursor < numItems-1 {
+			m.configMenuCursor++
+		}
+	case "enter":
+		switch m.configMenuCursor {
+		case 0:
+			return m, m.doLoadConfigSection(configSectionGlobal)
+		case 1:
+			return m, m.doLoadConfigSection(configSectionLocal)
+		case 2:
+			return m, m.doLoadConfigSection(configSectionGlobalIgnore)
+		case 3:
+			return m, m.doLoadConfigSection(configSectionLocalIgnore)
+		case 4:
+			return m, m.doLoadRecommendations()
+		case 5:
+			return m, m.doLoadProfiles()
+		}
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) updateConfigFilePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	visibleLines := m.height - 5
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+	contentLines := m.configFileLines
+	if m.configEntries != nil {
+		contentLines = formatConfigEntries(m.configEntries)
+	}
+	maxScroll := len(contentLines) - visibleLines
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	switch msg.String() {
+	case "up", "k":
+		if m.configFileScroll > 0 {
+			m.configFileScroll--
+		}
+	case "down", "j":
+		if m.configFileScroll < maxScroll {
+			m.configFileScroll++
+		}
+	case "e":
+		if m.configFilePath != "" {
+			return m, m.doOpenEditor(m.configFilePath)
+		}
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelConfigMenu
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) updateConfigRecommendPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.configRecommendCursor > 0 {
+			m.configRecommendCursor--
+		}
+	case "down", "j":
+		if m.configRecommendCursor < len(m.configRecommendations)-1 {
+			m.configRecommendCursor++
+		}
+	case "enter", "a":
+		if m.configRecommendCursor < len(m.configRecommendations) {
+			rec := m.configRecommendations[m.configRecommendCursor]
+			if !rec.applied {
+				return m, tea.Batch(
+					m.doApplyRecommendation(rec.key, rec.value),
+					m.doLoadRecommendations(),
+				)
+			}
+		}
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelConfigMenu
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) updateConfigProfilesPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.configProfileStep == 0 {
+		switch msg.String() {
+		case "up", "k":
+			if m.configProfileCursor > 0 {
+				m.configProfileCursor--
+			}
+		case "down", "j":
+			if m.configProfileCursor < len(m.configProfiles)-1 {
+				m.configProfileCursor++
+			}
+		case "n":
+			ti := textinput.New()
+			ti.Placeholder = "../work/"
+			ti.Focus()
+			ti.CharLimit = 256
+			ti.Width = m.width - 6
+			m.configProfileInput = ti
+			m.configProfileStep = 1
+		case "esc", m.cfg.Keybindings.Quit:
+			m.panel = panelConfigMenu
+		case "ctrl+c":
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
+	if m.configProfileStep == 1 {
+		switch msg.String() {
+		case "enter":
+			m.configProfileNewPath = strings.TrimSpace(m.configProfileInput.Value())
+			ti := textinput.New()
+			ti.Placeholder = "~/.gitconfig-work"
+			ti.Focus()
+			ti.CharLimit = 256
+			ti.Width = m.width - 6
+			m.configProfileInput = ti
+			m.configProfileStep = 2
+		case "esc":
+			m.configProfileStep = 0
+		case "ctrl+c":
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
+	// configProfileStep == 2
+	switch msg.String() {
+	case "enter":
+		includePath := strings.TrimSpace(m.configProfileInput.Value())
+		gitdir := m.configProfileNewPath
+		m.configProfileStep = 0
+		return m, m.doAddProfile(gitdir, includePath)
+	case "esc":
+		ti := textinput.New()
+		ti.Placeholder = "../work/"
+		ti.Focus()
+		ti.CharLimit = 256
+		ti.Width = m.width - 6
+		ti.SetValue(m.configProfileNewPath)
+		m.configProfileInput = ti
+		m.configProfileStep = 1
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 func (m model) updateStashListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up", "k":
@@ -2193,6 +2668,18 @@ func (m model) View() string {
 	if m.panel == panelAmend {
 		return m.amendView()
 	}
+	if m.panel == panelConfigMenu {
+		return m.configMenuView()
+	}
+	if m.panel == panelConfigFile {
+		return m.configFileView()
+	}
+	if m.panel == panelConfigRecommend {
+		return m.configRecommendView()
+	}
+	if m.panel == panelConfigProfiles {
+		return m.configProfilesView()
+	}
 	return m.mainView()
 }
 
@@ -2552,6 +3039,7 @@ func (m model) helpView() string {
 	b.WriteString("\n")
 
 	section("Config")
+	row("C", "open configuration manager (git config, gitignore, profiles)")
 	b.WriteString("    " + styleDim.Render("bonsai config          open global config in editor") + "\n")
 	b.WriteString("    " + styleDim.Render("bonsai config local    open per-project .bonsai.toml") + "\n")
 	b.WriteString("    " + styleDim.Render("bonsai init            create .bonsai.toml template") + "\n")
@@ -3329,6 +3817,245 @@ func (m model) amendView() string {
 		content += strings.Repeat("\n", pad)
 	}
 	return content + styleDim.Render("  [enter] apply  [esc] back") + "\n"
+}
+
+// formatConfigEntries converts parsed config entries into display lines grouped
+// by the prefix before the first dot.
+func formatConfigEntries(entries []git.ConfigEntry) []string {
+	var lines []string
+	lastGroup := ""
+	for _, e := range entries {
+		group := e.Key
+		if idx := strings.IndexByte(e.Key, '.'); idx >= 0 {
+			group = e.Key[:idx]
+		}
+		if group != lastGroup {
+			if lastGroup != "" {
+				lines = append(lines, "")
+			}
+			lastGroup = group
+		}
+		lines = append(lines, e.Key+"  =  "+e.Value)
+	}
+	return lines
+}
+
+func (m model) configMenuView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Configuration Manager") + "\n\n")
+
+	items := []struct {
+		label string
+		hint  string
+	}{
+		{"Global config", "(~/.gitconfig)"},
+		{"Local config", "(.git/config)"},
+		{"Global gitignore", "(core.excludesfile)"},
+		{"Local gitignore", "(.gitignore)"},
+		{"Recommendations", "(best practices)"},
+		{"Profiles", "(includeIf conditionals)"},
+	}
+
+	for i, item := range items {
+		cursor := "  "
+		if m.configMenuCursor == i {
+			cursor = styleSelected.Render("> ")
+		}
+		label := item.label
+		if m.configMenuCursor == i {
+			label = styleSelected.Render(label)
+		}
+		hint := styleDim.Render(item.hint)
+		b.WriteString(cursor + "  " + label + "  " + hint + "\n")
+	}
+	b.WriteString("\n")
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [enter] open  [esc] back") + "\n"
+}
+
+func (m model) configFileView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+
+	var title string
+	switch m.configSection {
+	case configSectionGlobal:
+		title = "Global Config"
+	case configSectionLocal:
+		title = "Local Config"
+	case configSectionGlobalIgnore:
+		title = "Global Gitignore"
+	case configSectionLocalIgnore:
+		title = "Local Gitignore"
+	}
+
+	pathHint := ""
+	if m.configFilePath != "" {
+		pathHint = "  " + styleDim.Render(m.configFilePath)
+	}
+	b.WriteString("  " + styleSection.Render(title) + pathHint + "\n\n")
+
+	visibleLines := m.height - 5
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+
+	isGitignore := m.configSection == configSectionGlobalIgnore || m.configSection == configSectionLocalIgnore
+	isConfig := m.configSection == configSectionGlobal || m.configSection == configSectionLocal
+
+	var displayLines []string
+	if isConfig && len(m.configEntries) > 0 {
+		displayLines = formatConfigEntries(m.configEntries)
+	} else {
+		displayLines = m.configFileLines
+	}
+
+	if len(displayLines) == 0 {
+		b.WriteString("  " + styleDim.Render("(empty or file not found)") + "\n")
+	} else {
+		end := m.configFileScroll + visibleLines
+		if end > len(displayLines) {
+			end = len(displayLines)
+		}
+		for _, line := range displayLines[m.configFileScroll:end] {
+			if isConfig {
+				// color key = value
+				if idx := strings.Index(line, "  =  "); idx >= 0 {
+					key := line[:idx]
+					val := line[idx+5:]
+					b.WriteString("  " + styleCmd.Render(key) + "  " + styleDim.Render("=") + "  " + val + "\n")
+				} else if line == "" {
+					b.WriteString("\n")
+				} else {
+					b.WriteString("  " + styleDim.Render(line) + "\n")
+				}
+			} else if isGitignore {
+				if strings.HasPrefix(strings.TrimSpace(line), "#") {
+					b.WriteString("  " + styleDim.Render(line) + "\n")
+				} else if line == "" {
+					b.WriteString("\n")
+				} else {
+					b.WriteString("  " + line + "\n")
+				}
+			} else {
+				b.WriteString("  " + line + "\n")
+			}
+		}
+	}
+
+	if isGitignore {
+		b.WriteString("\n")
+		b.WriteString("  " + styleDim.Render("Common patterns to consider:") + "\n")
+		b.WriteString("  " + styleDim.Render(".DS_Store  Thumbs.db  .env  *.log  .idea/  .vscode/  node_modules/  *.swp") + "\n")
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+
+	bar := "  [e] open in editor  [↑↓] scroll  [esc] back"
+	total := len(displayLines)
+	if total > visibleLines {
+		bar += fmt.Sprintf("  (%d/%d)", m.configFileScroll+1, total)
+	}
+	return content + styleDim.Render(bar) + "\n"
+}
+
+func (m model) configRecommendView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Recommendations") + "\n\n")
+
+	for i, rec := range m.configRecommendations {
+		cursor := "  "
+		if m.configRecommendCursor == i {
+			cursor = styleSelected.Render("> ")
+		}
+		var check string
+		if rec.applied {
+			check = styleStaged.Render("[+]")
+		} else {
+			check = styleDim.Render("[ ]")
+		}
+		desc := rec.desc
+		if m.configRecommendCursor == i {
+			desc = styleSelected.Render(desc)
+		}
+		b.WriteString(cursor + "  " + check + "  " + desc + "\n")
+	}
+	b.WriteString("\n")
+
+	if m.configRecommendCursor < len(m.configRecommendations) {
+		rec := m.configRecommendations[m.configRecommendCursor]
+		b.WriteString("  " + styleDim.Render(rec.reasoning) + "\n\n")
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [enter/a] apply selected  [esc] back") + "\n"
+}
+
+func (m model) configProfilesView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Git Profiles (includeIf)") + "\n\n")
+
+	if m.configProfileStep == 0 {
+		b.WriteString("  " + styleDim.Render("Conditionally load different configs based on working directory.") + "\n")
+		b.WriteString("  " + styleDim.Render("Example: different email for work vs personal projects.") + "\n\n")
+
+		if len(m.configProfiles) == 0 {
+			b.WriteString("  " + styleDim.Render("(none configured)") + "\n")
+		} else {
+			b.WriteString("  " + styleDim.Render("Configured profiles:") + "\n")
+			for _, p := range m.configProfiles {
+				b.WriteString("    " + styleDim.Render("gitdir: "+p.gitdir) + "  " + styleDim.Render("->  "+p.path) + "\n")
+			}
+		}
+		b.WriteString("\n")
+
+		content := b.String()
+		lines := strings.Count(content, "\n")
+		if pad := m.height - lines - 1; pad > 0 {
+			content += strings.Repeat("\n", pad)
+		}
+		return content + styleDim.Render("  [n] add profile  [esc] back") + "\n"
+	}
+
+	if m.configProfileStep == 1 {
+		b.WriteString("  " + styleDim.Render("Step 1/2 - Enter the gitdir pattern (e.g. ~/work/):") + "\n\n")
+		b.WriteString("  " + m.configProfileInput.View() + "\n\n")
+
+		content := b.String()
+		lines := strings.Count(content, "\n")
+		if pad := m.height - lines - 1; pad > 0 {
+			content += strings.Repeat("\n", pad)
+		}
+		return content + styleDim.Render("  [enter] next  [esc] cancel") + "\n"
+	}
+
+	// step == 2
+	b.WriteString("  " + styleDim.Render("Step 2/2 - Enter the path to include (e.g. ~/.gitconfig-work):") + "\n")
+	b.WriteString("  " + styleDim.Render("gitdir: "+m.configProfileNewPath) + "\n\n")
+	b.WriteString("  " + m.configProfileInput.View() + "\n\n")
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [enter] save  [esc] back") + "\n"
 }
 
 func contextTip(m model) string {

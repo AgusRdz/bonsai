@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -907,6 +908,106 @@ func parseStatus(branch, porcelain string) *Status {
 		}
 	}
 	return s
+}
+
+// ConfigEntry is one key=value pair from git config --list.
+type ConfigEntry struct {
+	Key   string
+	Value string
+}
+
+// GlobalConfigList returns all entries from the global git config.
+func (r *Runner) GlobalConfigList(ctx context.Context) ([]ConfigEntry, error) {
+	out, err := r.run(ctx, "config", "--global", "--list")
+	if err != nil {
+		return nil, err
+	}
+	return parseConfigList(string(out)), nil
+}
+
+// LocalConfigList returns all entries from the local repo git config.
+// On error (not in a repo) returns nil, nil.
+func (r *Runner) LocalConfigList(ctx context.Context) ([]ConfigEntry, error) {
+	out, err := r.run(ctx, "config", "--local", "--list")
+	if err != nil {
+		return nil, nil
+	}
+	return parseConfigList(string(out)), nil
+}
+
+func parseConfigList(output string) []ConfigEntry {
+	var entries []ConfigEntry
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if line == "" {
+			continue
+		}
+		idx := strings.IndexByte(line, '=')
+		if idx < 0 {
+			entries = append(entries, ConfigEntry{Key: line, Value: ""})
+			continue
+		}
+		entries = append(entries, ConfigEntry{Key: line[:idx], Value: line[idx+1:]})
+	}
+	return entries
+}
+
+// GlobalConfigGet returns the value of a single global config key, or "" if unset.
+func (r *Runner) GlobalConfigGet(ctx context.Context, key string) (string, error) {
+	out, err := r.run(ctx, "config", "--global", "--get", key)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// SetGlobalConfig sets or updates a global git config key.
+func (r *Runner) SetGlobalConfig(ctx context.Context, key, value string) error {
+	_, err := r.run(ctx, "config", "--global", key, value)
+	return err
+}
+
+// GlobalGitignorePath returns the path to the global gitignore file.
+// Checks core.excludesfile; falls back to ~/.config/git/ignore.
+func (r *Runner) GlobalGitignorePath(ctx context.Context) (string, error) {
+	p, err := r.GlobalConfigGet(ctx, "core.excludesfile")
+	if err != nil {
+		return "", err
+	}
+	if p == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, ".config", "git", "ignore"), nil
+	}
+	// Expand leading ~
+	if strings.HasPrefix(p, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		p = filepath.Join(home, p[2:])
+	}
+	return p, nil
+}
+
+// GlobalConfigRawPath returns the absolute path to ~/.gitconfig.
+func (r *Runner) GlobalConfigRawPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".gitconfig"), nil
+}
+
+// LocalConfigRawPath returns the path to .git/config in the current repo.
+func (r *Runner) LocalConfigRawPath() string {
+	return ".git/config"
 }
 
 // parseBranches converts `git branch` output into a slice of Branch.
