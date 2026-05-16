@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/AgusRdz/bonsai/gitcheck"
 	"github.com/AgusRdz/bonsai/updater"
 )
 
@@ -17,8 +18,10 @@ var version = "dev"
 
 func main() {
 	updater.CleanupStaleUpdate()
+	gitcheck.EnsureInstalled()
 
 	if len(os.Args) < 2 {
+		gitcheck.SuggestUpdate()
 		runTUI()
 		return
 	}
