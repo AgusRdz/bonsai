@@ -390,11 +390,19 @@ func (m model) doRestore(path string) tea.Cmd {
 }
 
 func (m model) doCommit(msg string) tea.Cmd {
+	branch := ""
+	if m.status != nil {
+		branch = m.status.Branch
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.Commit(ctx, msg)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "committed to " + branch
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -415,11 +423,28 @@ func (m model) doPushWithOpts() tea.Cmd {
 	if m.status != nil {
 		branch = m.status.Branch
 	}
+	ahead := 0
+	if m.status != nil {
+		ahead = m.status.Ahead
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 		defer cancel()
 		err := m.git.PushWithOptions(ctx, opt.force, opt.setUpstream, remote, branch)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			switch {
+			case opt.force:
+				info = fmt.Sprintf("force-pushed %s to %s", branch, remote)
+			case opt.setUpstream:
+				info = fmt.Sprintf("pushed and set upstream to %s/%s", remote, branch)
+			case ahead > 0:
+				info = fmt.Sprintf("pushed %d commit(s) to %s/%s", ahead, remote, branch)
+			default:
+				info = fmt.Sprintf("pushed to %s/%s", remote, branch)
+			}
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -437,7 +462,11 @@ func (m model) doStashWithMsg(msg string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.StashWithMessage(ctx, msg)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "stashed changes"
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -470,7 +499,11 @@ func (m model) doStashApply(ref string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.StashApply(ctx, ref)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "applied " + ref + " (stash kept)"
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -479,7 +512,11 @@ func (m model) doStashDrop(ref string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.StashDrop(ctx, ref)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "dropped " + ref
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -489,11 +526,10 @@ func (m model) doDeleteBranch(name string) tea.Cmd {
 		defer cancel()
 		err := m.git.DeleteBranch(ctx, name, false)
 		if err != nil {
-			// if safe delete fails because branch is unmerged, suggest -D
 			return actionDoneMsg{cmd: "git branch -d " + name,
 				err: fmt.Errorf("%w (branch has unmerged work - use force delete)", err)}
 		}
-		return actionDoneMsg{cmd: "git branch -d " + name, err: nil}
+		return actionDoneMsg{cmd: "git branch -d " + name, err: nil, info: "deleted branch " + name}
 	}
 }
 
@@ -502,7 +538,11 @@ func (m model) doDeleteRemoteBranch(remote, branch string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.DeleteRemoteBranch(ctx, remote, branch)
-		return actionDoneMsg{cmd: "git push " + remote + " --delete " + branch, err: err}
+		var info string
+		if err == nil {
+			info = "deleted " + remote + "/" + branch
+		}
+		return actionDoneMsg{cmd: "git push " + remote + " --delete " + branch, err: err, info: info}
 	}
 }
 
@@ -511,7 +551,11 @@ func (m model) doRenameBranch(oldName, newName string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.RenameBranch(ctx, oldName, newName)
-		return actionDoneMsg{cmd: "git branch -m " + oldName + " " + newName, err: err}
+		var info string
+		if err == nil {
+			info = "renamed " + oldName + " to " + newName
+		}
+		return actionDoneMsg{cmd: "git branch -m " + oldName + " " + newName, err: err, info: info}
 	}
 }
 
@@ -520,7 +564,11 @@ func (m model) doPushTag(remote, tag string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 		defer cancel()
 		err := m.git.PushTag(ctx, remote, tag)
-		return actionDoneMsg{cmd: "git push " + remote + " " + tag, err: err}
+		var info string
+		if err == nil {
+			info = "pushed tag " + tag + " to " + remote
+		}
+		return actionDoneMsg{cmd: "git push " + remote + " " + tag, err: err, info: info}
 	}
 }
 
@@ -568,16 +616,28 @@ func (m model) doCreateBranch(name string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.CreateBranch(ctx, name)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "created and switched to " + name
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
 func (m model) doRename(name string) tea.Cmd {
+	old := ""
+	if m.status != nil {
+		old = m.status.Branch
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.Rename(ctx, name)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "renamed " + old + " to " + name
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -690,7 +750,11 @@ func (m model) doSwitch(name string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.Switch(ctx, name)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "switched to " + name
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -728,7 +792,11 @@ func (m model) doStashPop(ref string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.StashPop(ctx, ref)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "popped " + ref
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -819,7 +887,11 @@ func (m model) doCreateTag(name string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.CreateTag(ctx, name)
-		return actionDoneMsg{cmd: "git tag " + name, err: err}
+		var info string
+		if err == nil {
+			info = "created tag " + name
+		}
+		return actionDoneMsg{cmd: "git tag " + name, err: err, info: info}
 	}
 }
 
@@ -828,7 +900,11 @@ func (m model) doDeleteTag(name string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.DeleteTag(ctx, name)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "deleted tag " + name
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -849,7 +925,11 @@ func (m model) doAddWorktree(path, branch string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.AddWorktree(ctx, path, branch)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "created worktree " + branch + " at " + path
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -858,7 +938,11 @@ func (m model) doRemoveWorktree(path string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.RemoveWorktree(ctx, path)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "removed worktree at " + path
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -879,7 +963,11 @@ func (m model) doMerge(branch string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.Merge(ctx, branch)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "merged " + branch
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -888,7 +976,11 @@ func (m model) doCherryPick(hash string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.CherryPick(ctx, hash)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "cherry-picked " + hash
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -897,7 +989,11 @@ func (m model) doReset(mode string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.Reset(ctx, mode)
-		return actionDoneMsg{cmd: "git reset --" + mode + " HEAD~1", err: err}
+		var info string
+		if err == nil {
+			info = "reset last commit (--" + mode + ")"
+		}
+		return actionDoneMsg{cmd: "git reset --" + mode + " HEAD~1", err: err, info: info}
 	}
 }
 
@@ -906,7 +1002,11 @@ func (m model) doRebase(branch string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.Rebase(ctx, branch)
-		return actionDoneMsg{cmd: "git rebase " + branch, err: err}
+		var info string
+		if err == nil {
+			info = "rebased onto " + branch
+		}
+		return actionDoneMsg{cmd: "git rebase " + branch, err: err, info: info}
 	}
 }
 
@@ -1033,7 +1133,11 @@ func (m model) doRebaseInteractive() tea.Cmd {
 			todoLines[i] = fmt.Sprintf("%s %s %s", todo.action, todo.hash, todo.msg)
 		}
 		err := m.git.RebaseInteractive(ctx, base, todoLines)
-		return actionDoneMsg{cmd: "git rebase -i " + base, err: err}
+		var info string
+		if err == nil {
+			info = fmt.Sprintf("interactive rebase of %d commit(s) onto %s complete", len(todos), base)
+		}
+		return actionDoneMsg{cmd: "git rebase -i " + base, err: err, info: info}
 	}
 }
 
@@ -1054,7 +1158,11 @@ func (m model) doAmendMessage(msg string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.AmendMessage(ctx, msg)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "amended commit message"
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -1063,7 +1171,11 @@ func (m model) doAmendAuthor(author string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.AmendAuthor(ctx, author)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "amended commit author to " + author
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -1072,7 +1184,11 @@ func (m model) doAmendDate(date string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.AmendDate(ctx, date)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "amended commit date to " + date
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -1081,7 +1197,11 @@ func (m model) doAmendNoEdit() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.AmendNoEdit(ctx)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "amended last commit (staged changes added)"
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -1222,7 +1342,11 @@ func (m model) doApplyRecommendation(key, value string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.SetGlobalConfig(ctx, key, value)
-		return actionDoneMsg{cmd: "git config --global " + key + " " + value, err: err}
+		var info string
+		if err == nil {
+			info = "applied " + key + " = " + value
+		}
+		return actionDoneMsg{cmd: "git config --global " + key + " " + value, err: err, info: info}
 	}
 }
 
@@ -1305,7 +1429,20 @@ func (m model) doFetch(all, prune bool) tea.Cmd {
 		if prune {
 			cmd += " --prune"
 		}
-		return actionDoneMsg{cmd: cmd, err: err}
+		var info string
+		if err == nil {
+			switch {
+			case all && prune:
+				info = "fetched all remotes (pruned stale branches)"
+			case all:
+				info = "fetched all remotes"
+			case prune:
+				info = "fetched from remote (pruned stale branches)"
+			default:
+				info = "fetched from remote"
+			}
+		}
+		return actionDoneMsg{cmd: cmd, err: err, info: info}
 	}
 }
 
@@ -1314,7 +1451,11 @@ func (m model) doRestoreFile(path, source string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.RestoreFile(ctx, path, source, false)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = "restored " + path + " from " + source
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -1335,7 +1476,11 @@ func (m model) doClean() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.Clean(ctx)
-		return actionDoneMsg{cmd: "git clean -fd", err: err}
+		var info string
+		if err == nil {
+			info = "removed untracked files and directories"
+		}
+		return actionDoneMsg{cmd: "git clean -fd", err: err, info: info}
 	}
 }
 
@@ -1368,7 +1513,11 @@ func (m model) doRemoteAdd(name, url string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.RemoteAdd(ctx, name, url)
-		return actionDoneMsg{cmd: "git remote add " + name + " " + url, err: err}
+		var info string
+		if err == nil {
+			info = "added remote " + name
+		}
+		return actionDoneMsg{cmd: "git remote add " + name + " " + url, err: err, info: info}
 	}
 }
 
@@ -1377,7 +1526,11 @@ func (m model) doRemoteRemove(name string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.RemoteRemove(ctx, name)
-		return actionDoneMsg{cmd: "git remote remove " + name, err: err}
+		var info string
+		if err == nil {
+			info = "removed remote " + name
+		}
+		return actionDoneMsg{cmd: "git remote remove " + name, err: err, info: info}
 	}
 }
 
@@ -1386,7 +1539,11 @@ func (m model) doRemoteRename(oldName, newName string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.RemoteRename(ctx, oldName, newName)
-		return actionDoneMsg{cmd: "git remote rename " + oldName + " " + newName, err: err}
+		var info string
+		if err == nil {
+			info = "renamed remote " + oldName + " to " + newName
+		}
+		return actionDoneMsg{cmd: "git remote rename " + oldName + " " + newName, err: err, info: info}
 	}
 }
 
@@ -1407,7 +1564,11 @@ func (m model) doSubmoduleAdd(url, path string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 		defer cancel()
 		err := m.git.SubmoduleAdd(ctx, url, path)
-		return actionDoneMsg{cmd: "git submodule add " + url, err: err}
+		var info string
+		if err == nil {
+			info = "added submodule at " + path
+		}
+		return actionDoneMsg{cmd: "git submodule add " + url, err: err, info: info}
 	}
 }
 
@@ -1420,7 +1581,15 @@ func (m model) doSubmoduleUpdate(init bool) tea.Cmd {
 		if init {
 			cmd += " --init"
 		}
-		return actionDoneMsg{cmd: cmd, err: err}
+		var info string
+		if err == nil {
+			if init {
+				info = "submodules initialized and updated"
+			} else {
+				info = "submodules updated"
+			}
+		}
+		return actionDoneMsg{cmd: cmd, err: err, info: info}
 	}
 }
 
@@ -1429,7 +1598,11 @@ func (m model) doSubmoduleDeinit(path string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.SubmoduleDeinit(ctx, path)
-		return actionDoneMsg{cmd: "git submodule deinit " + path, err: err}
+		var info string
+		if err == nil {
+			info = "removed submodule " + path
+		}
+		return actionDoneMsg{cmd: "git submodule deinit " + path, err: err, info: info}
 	}
 }
 
@@ -1450,7 +1623,11 @@ func (m model) doNoteAdd(commit, message string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.NoteAdd(ctx, commit, message)
-		return actionDoneMsg{cmd: "git notes add -m " + commit, err: err}
+		var info string
+		if err == nil {
+			info = "note saved on " + commit
+		}
+		return actionDoneMsg{cmd: "git notes add -m " + commit, err: err, info: info}
 	}
 }
 
@@ -1459,7 +1636,11 @@ func (m model) doNoteRemove(commit string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.NoteRemove(ctx, commit)
-		return actionDoneMsg{cmd: "git notes remove " + commit, err: err}
+		var info string
+		if err == nil {
+			info = "note removed from " + commit
+		}
+		return actionDoneMsg{cmd: "git notes remove " + commit, err: err, info: info}
 	}
 }
 
@@ -3251,7 +3432,7 @@ func (m model) updateReflogPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if err != nil {
 				return actionDoneMsg{cmd: "git reset --mixed " + hash, err: fmt.Errorf("%s", strings.TrimSpace(string(out)))}
 			}
-			return actionDoneMsg{cmd: "git reset --mixed " + hash, err: nil}
+			return actionDoneMsg{cmd: "git reset --mixed " + hash, err: nil, info: "reset HEAD to " + hash}
 		}
 		m.panel = panelConfirm
 	case "y":
