@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.21.0] - 2026-05-16
+
+### Features
+- Reset, merge, cherry-pick, and tags (block 1)
+([5ad3837](https://github.com/AgusRdz/bonsai/commit/5ad3837bbc673ccb483ce7e724739a8ef83dba9c))
 ## [0.20.2] - 2026-05-16
 
 ### Bug Fixes
