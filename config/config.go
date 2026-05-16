@@ -11,6 +11,12 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// GlobalConfigPath returns the path to the global config file.
+// It is exported so CLI commands can open it directly.
+func GlobalConfigPath() (string, error) {
+	return globalConfigPath()
+}
+
 type Config struct {
 	Flow        FlowConfig        `toml:"flow"`
 	Conventions ConventionsConfig `toml:"conventions"`
@@ -18,6 +24,13 @@ type Config struct {
 	Education   EducationConfig   `toml:"education"`
 	Keybindings KeybindingsConfig `toml:"keybindings"`
 	Metrics     MetricsConfig     `toml:"metrics"`
+	Editor      EditorConfig      `toml:"editor"`
+}
+
+type EditorConfig struct {
+	// Command is the editor binary (e.g. "vim", "nano", "code --wait").
+	// When empty, bonsai falls back to $VISUAL, then $EDITOR, then "vi".
+	Command string `toml:"command"`
 }
 
 type FlowConfig struct {
@@ -115,6 +128,57 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("config: conventions.validation.mode must be strict, warn, or off (got %q)", cfg.Conventions.Validation.Mode)
 	}
 	return nil
+}
+
+// ResolveEditor returns the editor command to use, checking cfg.Editor.Command,
+// then $VISUAL, then $EDITOR, then falling back to "vi".
+func ResolveEditor(cfg *Config) string {
+	if cfg != nil && cfg.Editor.Command != "" {
+		return cfg.Editor.Command
+	}
+	if v := os.Getenv("VISUAL"); v != "" {
+		return v
+	}
+	if v := os.Getenv("EDITOR"); v != "" {
+		return v
+	}
+	return "vi"
+}
+
+// WriteLocalTemplate writes a commented .bonsai.toml template to path.
+// It does not overwrite an existing file.
+func WriteLocalTemplate(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("%s already exists", path)
+	}
+	const tmpl = `# bonsai per-project configuration
+# All fields are optional. Values here override the global config.
+# Global config: ~/.config/bonsai/config.toml
+
+# [modes]
+# default = "novice"   # novice | pro | learning
+
+# [flow]
+# type = "auto"        # auto | gitflow | trunk | githubflow | forking
+
+# [conventions.branches.feature]
+# prefix  = "feat/"
+# pattern = "feat/{ticket-id}-{description}"
+# example = "feat/PROJ-123-login-oauth"
+
+# [conventions.branches.bugfix]
+# prefix  = "fix/"
+
+# [conventions.validation]
+# mode = "strict"      # strict | warn | off
+
+# [education]
+# panel_duration = 4   # seconds; 0 disables the panel
+
+# [editor]
+# command = ""         # e.g. "vim", "nano", "code --wait"
+`
+	return os.WriteFile(path, []byte(tmpl), 0o644)
 }
 
 func globalConfigPath() (string, error) {

@@ -876,6 +876,7 @@ func (m model) mainView() string {
 		if flow := detectFlow(m.cfg); flow != "auto" {
 			header += "  " + styleDim.Render("["+flow+"]")
 		}
+		header += "  " + styleDim.Render("[mode:"+m.cfg.Modes.Default+"]")
 		b.WriteString("  " + header + "\n\n")
 
 		m.renderSection(&b, "Staged", m.status.Staged, catStaged, styleStaged)
@@ -897,7 +898,7 @@ func (m model) mainView() string {
 	} else if m.cfg.Modes.Default != "pro" {
 		b.WriteString("  " + styleDim.Render(contextTip(m)) + "\n")
 	} else {
-		b.WriteString("  " + styleDim.Render("mode: pro") + "\n")
+		b.WriteString("  " + styleDim.Render("run 'bonsai config' to change mode or flow") + "\n")
 	}
 
 	content := b.String()
@@ -1160,6 +1161,12 @@ func (m model) helpView() string {
 	row(kb.Quit+" / ctrl+c", "quit")
 	b.WriteString("\n")
 
+	section("Config")
+	b.WriteString("    " + styleDim.Render("bonsai config          open global config in editor") + "\n")
+	b.WriteString("    " + styleDim.Render("bonsai config local    open per-project .bonsai.toml") + "\n")
+	b.WriteString("    " + styleDim.Render("bonsai init            create .bonsai.toml template") + "\n")
+	b.WriteString("\n")
+
 	content := b.String()
 	lines := strings.Count(content, "\n")
 	if pad := m.height - lines - 1; pad > 0 {
@@ -1285,7 +1292,21 @@ func (m model) logView() string {
 	} else if len(m.logEntries) == 0 {
 		b.WriteString("  " + styleDim.Render("no commits yet") + "\n")
 	} else {
-		for i, e := range m.logEntries {
+		// header (2 lines: blank + section) + footer (1 blank + 1 bar) = 4 overhead
+		visibleLines := m.height - 6
+		if visibleLines < 1 {
+			visibleLines = 1
+		}
+		start := 0
+		if m.logCursor >= visibleLines {
+			start = m.logCursor - visibleLines + 1
+		}
+		end := start + visibleLines
+		if end > len(m.logEntries) {
+			end = len(m.logEntries)
+		}
+		for i := start; i < end; i++ {
+			e := m.logEntries[i]
 			if m.logCursor == i {
 				b.WriteString("  " + styleSelected.Render(">") + " " + styleDim.Render(e.Line) + "\n")
 			} else {
@@ -1300,7 +1321,11 @@ func (m model) logView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [↑↓] scroll  [esc] back") + "\n"
+	pos := ""
+	if len(m.logEntries) > 0 {
+		pos = fmt.Sprintf("  (%d/%d)", m.logCursor+1, len(m.logEntries))
+	}
+	return content + styleDim.Render("  [↑↓] scroll  [esc] back"+pos) + "\n"
 }
 
 func contextTip(m model) string {

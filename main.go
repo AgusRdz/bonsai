@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/AgusRdz/bonsai/config"
@@ -39,6 +40,10 @@ func main() {
 		runUninstall()
 	case "changelog", "--changelog":
 		fmt.Print(changelog)
+	case "config":
+		runConfig(os.Args[2:])
+	case "init":
+		runInit()
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai: unknown command %q\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "Run 'bonsai help' for available commands.")
@@ -66,16 +71,76 @@ Usage:
   bonsai [command]
 
 Commands:
-  help        show this help
-  version     print version
-  update      update to the latest release
-  uninstall   remove bonsai from this system
-  changelog   show the changelog
+  help              show this help
+  version           print version
+  update            update to the latest release
+  uninstall         remove bonsai from this system
+  changelog         show the changelog
+  init              create a .bonsai.toml template in the current directory
+  config            open global config in your editor
+  config local      open (or create) per-project .bonsai.toml in your editor
+  config global     open global config in your editor (same as 'config')
+  config path       print the path to the global config file
 
 Options:
   -h, --help     show help
   -v, --version  print version
 `, version)
+}
+
+func runConfig(args []string) {
+	sub := "global"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+
+	cfg, _ := config.Load()
+	editor := config.ResolveEditor(cfg)
+
+	switch sub {
+	case "path":
+		p, err := config.GlobalConfigPath()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai: config:", err)
+			os.Exit(1)
+		}
+		fmt.Println(p)
+		return
+	case "local":
+		openInEditor(editor, ".bonsai.toml")
+	default:
+		p, err := config.GlobalConfigPath()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai: config:", err)
+			os.Exit(1)
+		}
+		openInEditor(editor, p)
+	}
+}
+
+func openInEditor(editor, path string) {
+	// Split editor string so flags like "code --wait" work correctly.
+	parts := strings.Fields(editor)
+	args := append(parts[1:], path)
+	cmd := exec.Command(parts[0], args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "bonsai: editor %q: %v\n", editor, err)
+		os.Exit(1)
+	}
+}
+
+func runInit() {
+	const local = ".bonsai.toml"
+	if err := config.WriteLocalTemplate(local); err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai: init:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("created %s\n", local)
+	fmt.Println("Edit it to customise conventions, mode, and flow for this project.")
+	fmt.Println("Run 'bonsai config local' to open it in your editor.")
 }
 
 func runUninstall() {
