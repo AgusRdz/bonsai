@@ -30,6 +30,7 @@ const (
 	panelBranchList
 	panelDiff
 	panelStashList
+	panelHelp
 )
 
 type branchMode int
@@ -377,6 +378,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelStashList {
 			return m.updateStashListPanel(msg)
 		}
+		if m.panel == panelHelp {
+			return m.updateHelpPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -500,6 +504,9 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.stashCursor = 0
 		m.panel = panelStashList
 		return m, m.doFetchStashList()
+
+	case "?":
+		m.panel = panelHelp
 	}
 
 	return m, nil
@@ -696,6 +703,16 @@ func (m model) updateStashListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateHelpPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	default:
+		m.panel = panelMain
+	}
+	return m, nil
+}
+
 // --- view ---
 
 func (m model) View() string {
@@ -729,6 +746,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelStashList {
 		return m.stashListView()
+	}
+	if m.panel == panelHelp {
+		return m.helpView()
 	}
 	return m.mainView()
 }
@@ -977,6 +997,52 @@ func (m model) branchListView() string {
 	return content + styleDim.Render("  [enter] switch  [esc] cancel") + "\n"
 }
 
+func (m model) helpView() string {
+	kb := m.cfg.Keybindings
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Keybindings") + "\n\n")
+
+	section := func(title string) {
+		b.WriteString("  " + styleDim.Render(title) + "\n")
+	}
+	row := func(key, desc string) {
+		b.WriteString("    " + styleCmd.Render(fmt.Sprintf("%-14s", key)) + styleDim.Render(desc) + "\n")
+	}
+
+	section("Files")
+	row("↑↓ / k/j", "navigate file list")
+	row("space / enter", "stage or unstage selected file")
+	row("d", "diff selected file (staged or unstaged)")
+	b.WriteString("\n")
+
+	section("Git")
+	row(kb.Commit+" / c", "open commit panel")
+	row(kb.Push+" / p", "push to remote")
+	row("P", "pull from remote")
+	row("s", "stash all changes")
+	row("S", "view stash list and pop")
+	b.WriteString("\n")
+
+	section("Branches")
+	row("b", "create new branch")
+	row("B", "switch to another branch")
+	row("l", "commit log (recent 20)")
+	b.WriteString("\n")
+
+	section("App")
+	row("?", "this help panel")
+	row(kb.Quit+" / ctrl+c", "quit")
+	b.WriteString("\n")
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  press any key to close") + "\n"
+}
+
 func (m model) stashListView() string {
 	var b strings.Builder
 	b.WriteString("\n")
@@ -1097,17 +1163,12 @@ func (m model) commandBar() string {
 	}
 	kb := m.cfg.Keybindings
 	parts := []string{
+		"[space] stage/unstage",
 		fmt.Sprintf("[%s] commit", kb.Commit),
 		fmt.Sprintf("[%s] push", kb.Push),
 		"[P] pull",
-		"[b] branch",
-		"[B] switch",
-		"[s] stash",
-		"[S] stashes",
-		"[d] diff",
-		"[l] log",
-		"[space] stage/unstage",
-		"[↑↓] navigate",
+		"[b/B] branch",
+		"[?] help",
 		fmt.Sprintf("[%s] quit", kb.Quit),
 	}
 	return styleDim.Render("  "+strings.Join(parts, "  ")) + "\n"
