@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.4.0] - 2026-05-16
+
+### Features
+- Git wrapper package and interactive TUI
+([c99d2f8](https://github.com/AgusRdz/bonsai/commit/c99d2f8e714e8b46e777b2302b18eefb872db3f0))
 ## [0.3.1] - 2026-05-16
 
 ### Bug Fixes
