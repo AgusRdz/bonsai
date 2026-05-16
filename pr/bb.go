@@ -115,6 +115,42 @@ func (b *bbProvider) Fork(_ context.Context) error {
 	return fmt.Errorf("bb CLI does not support forking - use the Bitbucket web interface")
 }
 
+func (b *bbProvider) Approve(ctx context.Context, number int) error {
+	if !b.CLIAvailable() {
+		return fmt.Errorf("bb CLI not found")
+	}
+	return exec.CommandContext(ctx, "bb", "pr", "approve", fmt.Sprintf("%d", number)).Run()
+}
+
+func (b *bbProvider) RequestChanges(ctx context.Context, number int, body string) error {
+	if !b.CLIAvailable() {
+		return fmt.Errorf("bb CLI not found")
+	}
+	// Bitbucket's API calls this "request changes" via the decline path with a comment.
+	// bb CLI: bb pr decline <id> [--message <msg>]
+	args := []string{"pr", "decline", fmt.Sprintf("%d", number)}
+	if body != "" {
+		args = append(args, "--message", body)
+	}
+	return exec.CommandContext(ctx, "bb", args...).Run()
+}
+
+func (b *bbProvider) ReviewComment(ctx context.Context, number int, body string) error {
+	if !b.CLIAvailable() {
+		return fmt.Errorf("bb CLI not found")
+	}
+	return exec.CommandContext(ctx, "bb", "pr", "comment", fmt.Sprintf("%d", number),
+		"--content", body).Run()
+}
+
+func (b *bbProvider) ListIssues(_ context.Context) ([]Issue, error) {
+	return nil, fmt.Errorf("bb CLI does not support issue listing")
+}
+
+func (b *bbProvider) CreateIssueBranch(_ context.Context, _ int, _ string) error {
+	return fmt.Errorf("bb CLI does not support create-issue-branch")
+}
+
 func normaliseBBState(s string) string {
 	switch strings.ToUpper(s) {
 	case "OPEN":

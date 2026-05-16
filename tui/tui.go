@@ -6922,6 +6922,10 @@ func (m model) updateGraphPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.graphScroll < maxScroll {
 			m.graphScroll++
 		}
+	case "g":
+		m.graphScroll = 0
+	case "G":
+		m.graphScroll = maxScroll
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
 	case "ctrl+c":
@@ -6933,7 +6937,11 @@ func (m model) updateGraphPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) graphView() string {
 	title := styleTitle.Render("Branch graph")
 	var b strings.Builder
-	b.WriteString("\n  " + title + "\n\n")
+	b.WriteString("\n  " + title)
+	if len(m.graphLines) > 0 {
+		b.WriteString("  " + styleDim.Render(fmt.Sprintf("(%d commits)", len(m.graphLines))))
+	}
+	b.WriteString("\n\n")
 	if m.graphLines == nil {
 		b.WriteString("  " + styleDim.Render("loading...") + "\n")
 		return b.String()
@@ -6941,20 +6949,21 @@ func (m model) graphView() string {
 	if len(m.graphLines) == 0 {
 		b.WriteString("  " + styleDim.Render("no commits found") + "\n")
 	} else {
+		colored := colorizeGraphLines(m.graphLines)
 		visible := m.height - 6
 		if visible < 1 {
 			visible = 1
 		}
 		end := m.graphScroll + visible
-		if end > len(m.graphLines) {
-			end = len(m.graphLines)
+		if end > len(colored) {
+			end = len(colored)
 		}
-		for _, line := range m.graphLines[m.graphScroll:end] {
+		for _, line := range colored[m.graphScroll:end] {
 			b.WriteString("  " + line + "\n")
 		}
 	}
 	b.WriteString("\n")
-	b.WriteString(styleDim.Render("  [↑↓] scroll  [esc] back") + "\n")
+	b.WriteString(styleDim.Render("  [↑↓/jk] scroll  [g/G] top/bottom  [esc] back") + "\n")
 	return b.String()
 }
 
@@ -6989,6 +6998,162 @@ func buildEduMgrKeys(u *usage.Data) []string {
 		keys[i] = it.key
 	}
 	return keys
+}
+
+// graphPalette is the set of ANSI colors assigned to branches in the graph view.
+var graphPalette = []lipgloss.Color{"9", "10", "12", "13", "14", "208", "11", "201"}
+
+// colorizeGraphLines applies per-branch terminal colors to git --graph output.
+// Branch colors are derived from the column of each '*' commit marker so
+// parallel branches stay consistently colored across lines.
+func colorizeGraphLines(lines []string) []string {
+	colColor := map[int]lipgloss.Color{}
+	nextIdx := 0
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		out[i] = colorizeGraphLine(line, colColor, &nextIdx)
+	}
+	return out
+}
+
+func colorizeGraphLine(line string, colColor map[int]lipgloss.Color, nextIdx *int) string {
+	runes := []rune(line)
+	// First pass: assign colors to new '*' columns.
+	for col, ch := range runes {
+		if ch == '*' {
+			if _, ok := colColor[col]; !ok {
+				colColor[col] = graphPalette[*nextIdx%len(graphPalette)]
+				*nextIdx++
+			}
+		}
+	}
+	// Find where the graph prefix ends (first non-graph character run).
+	graphEnd := graphPrefixEnd(runes)
+
+	var b strings.Builder
+	for col, ch := range runes {
+		if col >= graphEnd {
+			// Colorize refs: (HEAD -> branch, origin/branch).
+			b.WriteRune(ch)
+			continue
+		}
+		switch ch {
+		case '*':
+			b.WriteString(lipgloss.NewStyle().Foreground(colColor[col]).Bold(true).Render("*"))
+		case '|':
+			b.WriteString(lipgloss.NewStyle().Foreground(graphNearestColor(colColor, col)).Render("|"))
+		case '/', '\\':
+			b.WriteString(lipgloss.NewStyle().Foreground(graphNearestColor(colColor, col)).Render(string(ch)))
+		case '-', '_':
+			b.WriteString(styleDim.Render(string(ch)))
+		default:
+			b.WriteRune(ch)
+		}
+	}
+	// Color decorations in the commit info portion.
+	info := string(runes[min(graphEnd, len(runes)):])
+	b.Reset()
+	prefix := string(runes[:min(graphEnd, len(runes))])
+	_ = prefix
+	// Re-build: graph prefix already written above — but we reset b.
+	// Rebuild cleanly.
+	var out strings.Builder
+	for col, ch := range runes {
+		if col >= graphEnd {
+			break
+		}
+		switch ch {
+		case '*':
+			out.WriteString(lipgloss.NewStyle().Foreground(colColor[col]).Bold(true).Render("*"))
+		case '|':
+			out.WriteString(lipgloss.NewStyle().Foreground(graphNearestColor(colColor, col)).Render("|"))
+		case '/', '\\':
+			out.WriteString(lipgloss.NewStyle().Foreground(graphNearestColor(colColor, col)).Render(string(ch)))
+		case '-', '_':
+			out.WriteString(styleDim.Render(string(ch)))
+		default:
+			out.WriteRune(ch)
+		}
+	}
+	out.WriteString(colorizeGraphInfo(info))
+	return out.String()
+}
+
+// graphPrefixEnd returns the index in runes where the commit info starts.
+// The graph area contains only: * | / \ - _ and spaces.
+func graphPrefixEnd(runes []rune) int {
+	graphChars := "*|/\\-_ "
+	for i, ch := range runes {
+		if !strings.ContainsRune(graphChars, ch) {
+			return i
+		}
+	}
+	return len(runes)
+}
+
+// graphNearestColor returns the color of the nearest column that has one,
+// falling back to dim gray when no columns are colored yet.
+func graphNearestColor(colColor map[int]lipgloss.Color, col int) lipgloss.Color {
+	if c, ok := colColor[col]; ok {
+		return c
+	}
+	best := lipgloss.Color("8")
+	bestDist := 1000
+	for k, v := range colColor {
+		d := k - col
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist {
+			bestDist = d
+			best = v
+		}
+	}
+	return best
+}
+
+// colorizeGraphInfo colors the commit info part of a --graph line.
+// It dims the hash, styles HEAD and branch refs distinctively.
+func colorizeGraphInfo(info string) string {
+	if info == "" {
+		return ""
+	}
+	// Format: <space>hash<space>(refs) message
+	// Just pass through - keep simple, hash already styled by log panel.
+	// Color branch decorations: text between ( ) after hash.
+	open := strings.Index(info, "(")
+	close := strings.Index(info, ")")
+	if open < 0 || close < 0 || close < open {
+		return styleDim.Render(info)
+	}
+	before := info[:open]
+	refs := info[open+1 : close]
+	after := info[close+1:]
+
+	var b strings.Builder
+	b.WriteString(styleDim.Render(before))
+	b.WriteString(styleDim.Render("("))
+	// Color each ref.
+	parts := strings.Split(refs, ", ")
+	for i, ref := range parts {
+		if i > 0 {
+			b.WriteString(styleDim.Render(", "))
+		}
+		ref = strings.TrimSpace(ref)
+		switch {
+		case strings.HasPrefix(ref, "HEAD"):
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Bold(true).Render(ref))
+		case strings.HasPrefix(ref, "tag:"):
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Render(ref))
+		case strings.HasPrefix(ref, "origin/") || strings.Contains(ref, "/"):
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Render(ref))
+		default:
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render(ref))
+		}
+	}
+	b.WriteString(styleDim.Render(")"))
+	b.WriteString(after)
+	return b.String()
 }
 
 func (m model) updateEduMgrPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
