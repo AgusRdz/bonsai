@@ -561,6 +561,36 @@ func (r *Runner) Reset(ctx context.Context, mode string) error {
 	return err
 }
 
+// Rebase rebases the current branch onto the named branch.
+func (r *Runner) Rebase(ctx context.Context, branch string) error {
+	_, err := r.run(ctx, "rebase", branch)
+	return err
+}
+
+// RebaseContinue continues an in-progress rebase after conflicts are resolved.
+func (r *Runner) RebaseContinue(ctx context.Context) error {
+	_, err := r.run(ctx, "-c", "core.editor=true", "rebase", "--continue")
+	return err
+}
+
+// RebaseAbort aborts the current rebase and restores the original branch state.
+func (r *Runner) RebaseAbort(ctx context.Context) error {
+	_, err := r.run(ctx, "rebase", "--abort")
+	return err
+}
+
+// MergeAbort aborts an in-progress merge.
+func (r *Runner) MergeAbort(ctx context.Context) error {
+	_, err := r.run(ctx, "merge", "--abort")
+	return err
+}
+
+// CherryPickAbort aborts an in-progress cherry-pick.
+func (r *Runner) CherryPickAbort(ctx context.Context) error {
+	_, err := r.run(ctx, "cherry-pick", "--abort")
+	return err
+}
+
 // parseStatus converts `git status --porcelain` output into a Status.
 // Files with both staged and unstaged changes appear in both slices.
 // conflictCodes are the two-character porcelain codes that indicate an

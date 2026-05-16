@@ -444,6 +444,51 @@ func (m model) doReset(mode string) tea.Cmd {
 	}
 }
 
+func (m model) doRebase(branch string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.Rebase(ctx, branch)
+		return actionDoneMsg{cmd: "git rebase " + branch, err: err}
+	}
+}
+
+func (m model) doRebaseContinue() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.RebaseContinue(ctx)
+		return actionDoneMsg{cmd: "git rebase --continue", err: err}
+	}
+}
+
+func (m model) doRebaseAbort() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.RebaseAbort(ctx)
+		return actionDoneMsg{cmd: "git rebase --abort", err: err}
+	}
+}
+
+func (m model) doMergeAbort() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.MergeAbort(ctx)
+		return actionDoneMsg{cmd: "git merge --abort", err: err}
+	}
+}
+
+func (m model) doCherryPickAbort() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.CherryPickAbort(ctx)
+		return actionDoneMsg{cmd: "git cherry-pick --abort", err: err}
+	}
+}
+
 // --- init ---
 
 func (m model) Init() tea.Cmd {
@@ -678,6 +723,13 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.doAdd(f.entry.Path)
 
 	case kb.Commit, "c":
+		if m.status != nil && m.status.MergeState == "rebase" {
+			if len(m.status.Conflicts) > 0 {
+				m.actionErr = fmt.Errorf("resolve all conflicts first, then press [c] to continue the rebase")
+				break
+			}
+			return m, m.doRebaseContinue()
+		}
 		if m.status == nil || len(m.status.Staged) == 0 {
 			m.actionErr = fmt.Errorf("nothing staged - use space to stage files first")
 			break
@@ -797,6 +849,24 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.tagCursor = 0
 		m.panel = panelTagList
 		return m, m.doFetchTags()
+
+	case "a":
+		if m.status == nil || m.status.MergeState == "" {
+			break
+		}
+		switch m.status.MergeState {
+		case "rebase":
+			m.confirmPrompt = "abort rebase? your branch will be restored to its state before the rebase"
+			m.confirmCmd = m.doRebaseAbort()
+		case "merge":
+			m.confirmPrompt = "abort merge? all in-progress merge changes will be discarded"
+			m.confirmCmd = m.doMergeAbort()
+		case "cherry-pick":
+			m.confirmPrompt = "abort cherry-pick? the operation will be cancelled"
+			m.confirmCmd = m.doCherryPickAbort()
+		}
+		m.panel = panelConfirm
+		m.actionErr = nil
 	}
 
 	return m, nil
@@ -1067,6 +1137,22 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirmPrompt = fmt.Sprintf("merge %s into %s?", b.Name, current)
 		m.confirmCmd = m.doMerge(b.Name)
 		m.panel = panelConfirm
+	case "r":
+		if len(m.branches) == 0 {
+			break
+		}
+		b := m.branches[m.branchCursor]
+		if b.Current {
+			break
+		}
+		current := ""
+		if m.status != nil {
+			current = m.status.Branch
+		}
+		m.confirmPrompt = fmt.Sprintf("rebase %s onto %s?", current, b.Name)
+		m.confirmCmd = m.doRebase(b.Name)
+		m.panel = panelConfirm
+		m.actionErr = nil
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
 	case "ctrl+c":
@@ -1408,13 +1494,28 @@ func (m model) mainView() string {
 		header += "  " + styleDim.Render("[mode:"+m.cfg.Modes.Default+"]")
 		b.WriteString("  " + header + "\n\n")
 
-		// Merge/cherry-pick banner.
+		// Merge/cherry-pick/rebase banner.
 		if m.status.MergeState != "" {
-			banner := "  " + m.status.MergeState + " in progress"
-			if len(m.status.Conflicts) > 0 {
-				banner += fmt.Sprintf(" - resolve %d conflict(s) below, then [c] to complete", len(m.status.Conflicts))
-			} else {
-				banner += " - all conflicts resolved, press [c] to commit"
+			var banner string
+			switch m.status.MergeState {
+			case "rebase":
+				if len(m.status.Conflicts) > 0 {
+					banner = fmt.Sprintf("rebase in progress - resolve %d conflict(s), then [c] to continue  [a] to abort", len(m.status.Conflicts))
+				} else {
+					banner = "rebase in progress - conflicts resolved, press [c] to continue  [a] to abort"
+				}
+			case "cherry-pick":
+				if len(m.status.Conflicts) > 0 {
+					banner = fmt.Sprintf("cherry-pick in progress - resolve %d conflict(s), then [c] to commit  [a] to abort", len(m.status.Conflicts))
+				} else {
+					banner = "cherry-pick in progress - conflicts resolved, press [c] to commit  [a] to abort"
+				}
+			default: // merge
+				if len(m.status.Conflicts) > 0 {
+					banner = fmt.Sprintf("merge in progress - resolve %d conflict(s), then [c] to commit  [a] to abort", len(m.status.Conflicts))
+				} else {
+					banner = "merge in progress - conflicts resolved, press [c] to commit  [a] to abort"
+				}
 			}
 			b.WriteString("  " + styleChanged.Render(banner) + "\n\n")
 		}
@@ -1664,7 +1765,7 @@ func (m model) branchListView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [enter] switch  [m] merge  [esc] cancel") + "\n"
+	return content + styleDim.Render("  [enter] switch  [m] merge  [r] rebase  [esc] cancel") + "\n"
 }
 
 func (m model) confirmView() string {

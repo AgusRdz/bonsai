@@ -58,8 +58,18 @@ func actionTitle(cmd string, err error) string {
 		return "Stash applied"
 	case strings.HasPrefix(cmd, "git stash"):
 		return "Changes stashed"
+	case strings.HasPrefix(cmd, "git rebase --continue"):
+		return "Rebase continued"
+	case strings.HasPrefix(cmd, "git rebase --abort"):
+		return "Rebase aborted"
+	case strings.HasPrefix(cmd, "git rebase"):
+		return "Rebase started"
+	case strings.HasPrefix(cmd, "git merge --abort"):
+		return "Merge aborted"
 	case strings.HasPrefix(cmd, "git merge"):
 		return "Branch merged"
+	case strings.HasPrefix(cmd, "git cherry-pick --abort"):
+		return "Cherry-pick aborted"
 	case strings.HasPrefix(cmd, "git cherry-pick"):
 		return "Commit cherry-picked"
 	case strings.HasPrefix(cmd, "git reset --soft"):
@@ -116,10 +126,26 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git stash"):
 		return "Your uncommitted changes were saved to the stash and the working tree was cleaned. " +
 			"The stash is a temporary shelf - use [S] to view stashes and pop them when you are ready to continue."
+	case strings.HasPrefix(cmd, "git rebase --continue"):
+		return "The rebase resumed after you resolved conflicts and staged the changes. " +
+			"Git will continue replaying the remaining commits onto the target branch."
+	case strings.HasPrefix(cmd, "git rebase --abort"):
+		return "The rebase was cancelled and your branch was restored to its state before the rebase began. " +
+			"No commits were changed."
+	case strings.HasPrefix(cmd, "git rebase"):
+		return "Your commits are being replayed on top of the target branch. " +
+			"Rebase rewrites history by moving your commits to a new base, creating a linear history. " +
+			"If conflicts arise, resolve them and press [c] to continue, or [a] to abort."
+	case strings.HasPrefix(cmd, "git merge --abort"):
+		return "The merge was cancelled and your branch was restored to its pre-merge state. " +
+			"All in-progress merge changes have been discarded."
 	case strings.HasPrefix(cmd, "git merge"):
 		return "The specified branch was merged into your current branch. " +
 			"A merge commit is created unless the merge can be fast-forwarded. " +
 			"If there are conflicts, resolve them and stage the files, then commit to complete the merge."
+	case strings.HasPrefix(cmd, "git cherry-pick --abort"):
+		return "The cherry-pick was cancelled and your branch was restored to its previous state. " +
+			"The operation did not apply any commits."
 	case strings.HasPrefix(cmd, "git cherry-pick"):
 		return "The selected commit was applied on top of your current branch as a new commit. " +
 			"Cherry-pick copies the diff from that commit - the original commit remains unchanged in its branch."
