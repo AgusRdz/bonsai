@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.52.0] - 2026-05-16
+
+### Features
+- Conflict editor with live result preview and manual edit mode
+([3d525f7](https://github.com/AgusRdz/bonsai/commit/3d525f7d9884f0451779d4feda8760c6fbf167cc))
 ## [0.51.0] - 2026-05-16
 
 ### Features
