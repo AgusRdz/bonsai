@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.35.9] - 2026-05-16
+
+### Features
+- Simplify command bar to day-to-day shortcuts, move rest to [?] help
+([f238f8f](https://github.com/AgusRdz/bonsai/commit/f238f8fbebf11a8c5864eb29437a2224e4598103))
 ## [0.35.8] - 2026-05-16
 
 ### Refactoring
