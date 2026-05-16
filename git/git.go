@@ -164,6 +164,22 @@ func (r *Runner) Pull(ctx context.Context) error {
 	return err
 }
 
+// Diff returns the unified diff for a single file.
+// When staged is true it diffs the index against HEAD (what will be committed).
+// When staged is false it diffs the working tree against the index (unstaged changes).
+func (r *Runner) Diff(ctx context.Context, path string, staged bool) (string, error) {
+	args := []string{"diff"}
+	if staged {
+		args = append(args, "--staged")
+	}
+	args = append(args, "--", path)
+	out, err := r.run(ctx, args...)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 // Rename renames the current branch.
 func (r *Runner) Rename(ctx context.Context, newName string) error {
 	_, err := r.run(ctx, "branch", "-m", newName)

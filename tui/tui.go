@@ -28,6 +28,7 @@ const (
 	panelConvention
 	panelLog
 	panelBranchList
+	panelDiff
 )
 
 type branchMode int
@@ -64,6 +65,9 @@ type model struct {
 	logCursor      int
 	branches       []git.Branch
 	branchCursor   int
+	diffLines      []string
+	diffScroll     int
+	diffTitle      string
 	edu            *educationPanel
 	eduTimer       int
 	width          int
@@ -86,6 +90,11 @@ type actionDoneMsg struct {
 }
 type logMsg []git.LogEntry
 type branchListMsg []git.Branch
+
+type diffMsg struct {
+	title string
+	lines []string
+}
 
 // --- commands ---
 
@@ -197,6 +206,23 @@ func (m model) doFetchBranches() tea.Cmd {
 	}
 }
 
+func (m model) doFetchDiff(path string, staged bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		title := path
+		if staged {
+			title += "  (staged)"
+		}
+		content, err := m.git.Diff(ctx, path, staged)
+		if err != nil || content == "" {
+			return diffMsg{title: title, lines: []string{}}
+		}
+		lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+		return diffMsg{title: title, lines: lines}
+	}
+}
+
 // --- init ---
 
 func (m model) Init() tea.Cmd {
@@ -258,6 +284,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.panel = panelBranchList
 
+	case diffMsg:
+		m.diffLines = msg.lines
+		m.diffTitle = msg.title
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -301,6 +331,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelBranchList {
 			return m.updateBranchListPanel(msg)
+		}
+		if m.panel == panelDiff {
+			return m.updateDiffPanel(msg)
 		}
 		return m.updateMainPanel(msg)
 	}
@@ -397,6 +430,20 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.branchCursor = 0
 		m.panel = panelBranchList
 		return m, m.doFetchBranches()
+
+	case "d":
+		if len(m.files) == 0 {
+			break
+		}
+		f := m.files[m.cursor]
+		if f.category == catUntracked {
+			m.actionErr = fmt.Errorf("untracked file has no diff - stage it first")
+			break
+		}
+		m.diffLines = nil
+		m.diffScroll = 0
+		m.panel = panelDiff
+		return m, m.doFetchDiff(f.entry.Path, f.category == catStaged)
 	}
 
 	return m, nil
@@ -542,6 +589,32 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	visibleLines := m.height - 5
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+	maxScroll := len(m.diffLines) - visibleLines
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	switch msg.String() {
+	case "up", "k":
+		if m.diffScroll > 0 {
+			m.diffScroll--
+		}
+	case "down", "j":
+		if m.diffScroll < maxScroll {
+			m.diffScroll++
+		}
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 // --- view ---
 
 func (m model) View() string {
@@ -569,6 +642,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelBranchList {
 		return m.branchListView()
+	}
+	if m.panel == panelDiff {
+		return m.diffView()
 	}
 	return m.mainView()
 }
@@ -817,6 +893,54 @@ func (m model) branchListView() string {
 	return content + styleDim.Render("  [enter] switch  [esc] cancel") + "\n"
 }
 
+func (m model) diffView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Diff") + "  " + styleDim.Render(m.diffTitle) + "\n\n")
+
+	if m.diffLines == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+	} else if len(m.diffLines) == 0 {
+		b.WriteString("  " + styleDim.Render("no changes") + "\n")
+	} else {
+		visibleLines := m.height - 5
+		if visibleLines < 1 {
+			visibleLines = 1
+		}
+		end := m.diffScroll + visibleLines
+		if end > len(m.diffLines) {
+			end = len(m.diffLines)
+		}
+		for _, line := range m.diffLines[m.diffScroll:end] {
+			b.WriteString(renderDiffLine(line) + "\n")
+		}
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	pos := ""
+	if len(m.diffLines) > 0 {
+		pos = fmt.Sprintf("  (%d/%d)", m.diffScroll+1, len(m.diffLines))
+	}
+	return content + styleDim.Render("  [↑↓] scroll  [esc] back"+pos) + "\n"
+}
+
+func renderDiffLine(line string) string {
+	switch {
+	case strings.HasPrefix(line, "@@"):
+		return "  " + styleCmd.Render(line)
+	case strings.HasPrefix(line, "+"):
+		return "  " + styleStaged.Render(line)
+	case strings.HasPrefix(line, "-"):
+		return "  " + styleChanged.Render(line)
+	default:
+		return "  " + styleDim.Render(line)
+	}
+}
+
 func (m model) logView() string {
 	var b strings.Builder
 	b.WriteString("\n")
@@ -859,6 +983,7 @@ func (m model) commandBar() string {
 		"[P] pull",
 		"[b] branch",
 		"[B] switch",
+		"[d] diff",
 		"[l] log",
 		"[space] stage/unstage",
 		"[↑↓] navigate",
