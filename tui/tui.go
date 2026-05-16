@@ -8,6 +8,7 @@ import (
 
 	"github.com/AgusRdz/bonsai/config"
 	"github.com/AgusRdz/bonsai/git"
+	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -21,6 +22,7 @@ type panel int
 const (
 	panelMain panel = iota
 	panelCommit
+	panelEducation
 )
 
 type fileItem struct {
@@ -42,12 +44,14 @@ type model struct {
 	cursor    int
 	panel     panel
 	commitMsg textinput.Model
+	edu       *educationPanel
+	eduTimer  int
 	width     int
 	height    int
 	ready     bool
 	err       error  // startup/refresh error
 	actionErr error  // error from last action
-	lastCmd   string // last git command run (education panel prep)
+	lastCmd   string // last git command run
 	pushing   bool
 }
 
@@ -142,9 +146,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pushing = false
 		m.lastCmd = msg.cmd
 		m.actionErr = msg.err
+		dur := m.cfg.Education.PanelDuration
+		if m.cfg.Modes.Default != "pro" && dur > 0 {
+			m.edu = newEduPanel(msg.cmd, msg.err)
+			m.eduTimer = dur
+			m.panel = panelEducation
+			return m, tea.Batch(m.fetchStatus(), startEduTimer())
+		}
 		return m, m.fetchStatus()
 
+	case eduTickMsg:
+		if m.panel == panelEducation {
+			m.eduTimer--
+			if m.eduTimer <= 0 {
+				m.panel = panelMain
+				m.edu = nil
+				return m, nil
+			}
+			return m, startEduTimer()
+		}
+
 	case tea.KeyMsg:
+		if m.panel == panelEducation {
+			return m.updateEduPanel(msg)
+		}
 		if m.panel == panelCommit {
 			return m.updateCommitPanel(msg)
 		}
@@ -234,6 +259,22 @@ func (m model) updateCommitPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m model) updateEduPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter", "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+		m.edu = nil
+	case "c":
+		if m.edu != nil {
+			// clipboard.WriteAll is a best-effort operation; ignore errors
+			_ = writeClipboard(m.edu.cmd)
+		}
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 // --- view ---
 
 func (m model) View() string {
@@ -244,6 +285,9 @@ func (m model) View() string {
 		return "\n  " + styleDim.Render("loading...") + "\n"
 	}
 
+	if m.panel == panelEducation {
+		return m.eduView()
+	}
 	if m.panel == panelCommit {
 		return m.commitView()
 	}
@@ -330,6 +374,39 @@ func (m model) commitView() string {
 	return content + styleDim.Render("  [enter] commit  [esc] cancel") + "\n"
 }
 
+func (m model) eduView() string {
+	if m.edu == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n")
+
+	icon := styleStaged.Render("✓")
+	titleStyle := styleStaged
+	if !m.edu.success {
+		icon = styleChanged.Render("✗")
+		titleStyle = styleChanged
+	}
+	b.WriteString("  " + icon + "  " + titleStyle.Render(m.edu.title) + "\n\n")
+	b.WriteString("  " + styleCmd.Render("$ "+m.edu.cmd) + "\n\n")
+
+	if m.edu.explain != "" {
+		b.WriteString("  " + m.edu.explain + "\n\n")
+	}
+
+	divider := strings.Repeat("-", min(m.width-4, 48))
+	b.WriteString("  " + styleDim.Render(divider) + "\n")
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+
+	bar := fmt.Sprintf("  [enter] close  [c] copy command  (closes in %ds)", m.eduTimer)
+	return content + styleDim.Render(bar) + "\n"
+}
+
 func (m model) commandBar() string {
 	if m.pushing {
 		return styleDim.Render("  pushing...") + "\n"
@@ -375,6 +452,19 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// writeClipboard is isolated to make it easy to stub in tests and to contain
+// the platform-specific clipboard dependency.
+func writeClipboard(s string) error {
+	return clipboard.WriteAll(s)
 }
 
 // Run starts the bonsai TUI.

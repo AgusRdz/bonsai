@@ -26,4 +26,8 @@ var (
 
 	styleDim = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("8"))
+
+	styleCmd = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("4"))
 )
