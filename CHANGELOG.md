@@ -2,6 +2,13 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.46.0] - 2026-05-16
+
+### Features
+- Issues panel, bonsai repo create/open
+([55f44ae](https://github.com/AgusRdz/bonsai/commit/55f44ae8a7244bc81bcf7eb29e4b83cd9f84076a))
+- Three-way merge editor with base (common ancestor) in conflict view
+([51a8f63](https://github.com/AgusRdz/bonsai/commit/51a8f63b063f4e78b2254e86d18c7388f92d8941))
 ## [0.45.0] - 2026-05-16
 
 ### Features
