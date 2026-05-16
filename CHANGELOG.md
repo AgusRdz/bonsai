@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.18.0] - 2026-05-16
+
+### Features
+- Log pagination and search filter
+([18cc3b4](https://github.com/AgusRdz/bonsai/commit/18cc3b41615c1065f3d8a95be4ae9b99924c1a8f))
 ## [0.17.0] - 2026-05-16
 
 ### Features
