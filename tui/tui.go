@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -76,6 +77,8 @@ const (
 	panelPR
 	panelPRReview
 	panelIssues
+	panelSSH
+	panelLFS
 )
 
 type branchMode int
@@ -236,6 +239,14 @@ type configRecommend struct {
 	desc      string // short description
 	reasoning string // why this is recommended
 	applied   bool   // whether already set to this value
+}
+
+// sshKeyEntry represents one SSH key found in ~/.ssh/.
+type sshKeyEntry struct {
+	Name        string // filename without extension (e.g. "id_ed25519")
+	PubKeyFile  string // absolute path to .pub file
+	Fingerprint string // output of ssh-keygen -lf
+	Comment     string // comment field from the public key
 }
 
 type configProfile struct {
@@ -443,6 +454,15 @@ type model struct {
 	issueFilterInput textinput.Model
 	issueFiltering   bool
 
+	// SSH key manager
+	sshKeys        []sshKeyEntry
+	sshCursor      int
+	sshTestResults map[string]string // host -> "ok"/"fail"/"..."
+
+	// LFS panel
+	lfsTracked []string // files tracked by LFS
+	lfsStatus  string   // raw output of git lfs status
+
 	// undo: last reversible operation
 	undoCmd  tea.Cmd
 	undoDesc string
@@ -465,6 +485,18 @@ type protectedBranchesMsg map[string]bool
 type issueListMsg struct {
 	items []pr.Issue
 	err   error
+}
+
+type sshKeyListMsg []sshKeyEntry
+
+type sshTestMsg struct {
+	host   string
+	result string
+}
+
+type lfsDataMsg struct {
+	tracked []string
+	status  string
 }
 
 type diffMsg struct {
@@ -2020,6 +2052,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.panel = panelIssues
 
+	case sshKeyListMsg:
+		m.sshKeys = []sshKeyEntry(msg)
+		m.sshCursor = 0
+		m.sshTestResults = map[string]string{}
+		m.panel = panelSSH
+
+	case sshTestMsg:
+		if m.sshTestResults == nil {
+			m.sshTestResults = map[string]string{}
+		}
+		m.sshTestResults[msg.host] = msg.result
+
+	case lfsDataMsg:
+		m.lfsTracked = msg.tracked
+		m.lfsStatus = msg.status
+		m.panel = panelLFS
+
 	case diffMsg:
 		m.diffLines = msg.lines
 		m.diffTitle = msg.title
@@ -2555,6 +2604,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelIssues {
 			return m.updateIssuesPanel(msg)
 		}
+		if m.panel == panelSSH {
+			return m.updateSSHPanel(msg)
+		}
+		if m.panel == panelLFS {
+			return m.updateLFSPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -2699,6 +2754,18 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.fetchIssues()
 			}
 		}
+
+	case "`":
+		// SSH key manager
+		m.sshKeys = nil
+		m.sshCursor = 0
+		return m, doLoadSSHKeys()
+
+	case "V":
+		// LFS panel
+		m.lfsTracked = nil
+		m.lfsStatus = ""
+		return m, m.doLoadLFSData()
 
 	case kb.Branch, "b":
 		if detectFlow(m.cfg) == "gitflow" {
@@ -4996,6 +5063,12 @@ func (m model) View() string {
 	if m.panel == panelIssues {
 		return m.issuesView()
 	}
+	if m.panel == panelSSH {
+		return m.sshView()
+	}
+	if m.panel == panelLFS {
+		return m.lfsView()
+	}
 	return m.mainView()
 }
 
@@ -5436,6 +5509,8 @@ func (m model) helpView() string {
 	row("n", "git notes for HEAD commit")
 	row("X", "clean untracked files (preview + confirm)")
 	row("a", "abort in-progress merge / rebase / cherry-pick")
+	row("`", "SSH key manager - list keys, test connections")
+	row("V", "LFS panel - tracked files and status")
 	b.WriteString("\n")
 
 	section("App")
@@ -5540,14 +5615,35 @@ func renderDiffLine(line string) string {
 	case strings.HasPrefix(line, "@@"):
 		return "  " + styleCmd.Render(line)
 	case strings.HasPrefix(line, "+"):
+		content := line[1:]
+		if isLFSPointerLine(content) {
+			return "  " + styleStaged.Render("+") + lfsPointerStyle(content)
+		}
 		return "  " + styleStaged.Render(line)
 	case strings.HasPrefix(line, "-"):
+		content := line[1:]
+		if isLFSPointerLine(content) {
+			return "  " + styleChanged.Render("-") + lfsPointerStyle(content)
+		}
 		return "  " + styleChanged.Render(line)
 	case strings.HasPrefix(line, "Binary files"), strings.HasPrefix(line, "GIT binary patch"):
 		return "  " + styleChanged.Render(line)
 	default:
 		return "  " + styleDim.Render(line)
 	}
+}
+
+// isLFSPointerLine reports whether a diff content line is part of an LFS pointer.
+func isLFSPointerLine(s string) bool {
+	return strings.HasPrefix(s, "version https://git-lfs.github.com") ||
+		strings.HasPrefix(s, "oid sha256:") ||
+		strings.HasPrefix(s, "size ")
+}
+
+// lfsPointerStyle renders an LFS pointer line with a distinct label.
+func lfsPointerStyle(s string) string {
+	badge := lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Render("[LFS]")
+	return " " + badge + " " + styleDim.Render(s)
 }
 
 func (m model) flowPickView() string {
@@ -7970,6 +8066,153 @@ func (m model) issuesView() string {
 	return b.String()
 }
 
+func (m model) updateSSHPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.sshCursor > 0 {
+			m.sshCursor--
+		}
+	case "down", "j":
+		if m.sshCursor < len(m.sshKeys)-1 {
+			m.sshCursor++
+		}
+	case "t":
+		// Test connections to known git hosts.
+		hosts := []string{"github.com", "gitlab.com", "bitbucket.org"}
+		cmds := make([]tea.Cmd, len(hosts))
+		for i, h := range hosts {
+			cmds[i] = doTestSSHHost(h)
+		}
+		return m, tea.Batch(cmds...)
+	case "r":
+		return m, doLoadSSHKeys()
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) sshView() string {
+	var b strings.Builder
+	b.WriteString("\n  " + styleTitle.Render("SSH Keys") + "\n\n")
+
+	if m.sshKeys == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+	} else if len(m.sshKeys) == 0 {
+		b.WriteString("  " + styleDim.Render("no SSH keys found in ~/.ssh/") + "\n")
+	} else {
+		for i, key := range m.sshKeys {
+			cursor := "  "
+			if i == m.sshCursor {
+				cursor = styleSelected.Render(">>")
+			}
+			name := styleCmd.Render(fmt.Sprintf("%-20s", key.Name))
+			fp := styleDim.Render(key.Fingerprint)
+			b.WriteString(fmt.Sprintf("  %s %s  %s\n", cursor, name, fp))
+			if i == m.sshCursor && key.Comment != "" {
+				b.WriteString("        " + styleDim.Render("comment: "+key.Comment) + "\n")
+				b.WriteString("        " + styleDim.Render("pub: "+key.PubKeyFile) + "\n")
+			}
+		}
+	}
+
+	b.WriteString("\n")
+	if len(m.sshTestResults) > 0 {
+		b.WriteString("  " + styleSection.Render("Connection tests") + "\n")
+		hosts := []string{"github.com", "gitlab.com", "bitbucket.org"}
+		for _, h := range hosts {
+			result, tested := m.sshTestResults[h]
+			if !tested {
+				continue
+			}
+			var badge string
+			switch result {
+			case "ok":
+				badge = styleStaged.Render("ok ")
+			case "...":
+				badge = styleDim.Render("...")
+			default:
+				badge = styleChanged.Render("fail")
+			}
+			b.WriteString(fmt.Sprintf("  %s  %s\n", badge, styleDim.Render(h)))
+		}
+		b.WriteString("\n")
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [t] test connections  [r] refresh  [esc] back") + "\n"
+}
+
+func (m model) updateLFSPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "r":
+		return m, m.doLoadLFSData()
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) lfsView() string {
+	var b strings.Builder
+	b.WriteString("\n  " + styleTitle.Render("LFS") + "  " + styleDim.Render("Git Large File Storage") + "\n\n")
+
+	if m.lfsTracked == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+		content := b.String()
+		lines := strings.Count(content, "\n")
+		if pad := m.height - lines - 1; pad > 0 {
+			content += strings.Repeat("\n", pad)
+		}
+		return content + styleDim.Render("  [esc] back") + "\n"
+	}
+
+	if len(m.lfsTracked) == 0 {
+		b.WriteString("  " + styleDim.Render("no files currently tracked by LFS") + "\n")
+		b.WriteString("  " + styleDim.Render("use `git lfs track <pattern>` to add patterns") + "\n")
+	} else {
+		b.WriteString("  " + styleSection.Render(fmt.Sprintf("Tracked files (%d)", len(m.lfsTracked))) + "\n\n")
+		visLines := m.height - 10
+		if visLines < 1 {
+			visLines = 1
+		}
+		shown := m.lfsTracked
+		if len(shown) > visLines {
+			shown = shown[:visLines]
+		}
+		for _, f := range shown {
+			b.WriteString("  " + styleDim.Render(f) + "\n")
+		}
+		if len(m.lfsTracked) > visLines {
+			b.WriteString("  " + styleDim.Render(fmt.Sprintf("... and %d more", len(m.lfsTracked)-visLines)) + "\n")
+		}
+	}
+
+	if m.lfsStatus != "" {
+		b.WriteString("\n  " + styleSection.Render("Status") + "\n")
+		for _, line := range strings.Split(strings.TrimRight(m.lfsStatus, "\n"), "\n") {
+			if strings.TrimSpace(line) != "" {
+				b.WriteString("  " + styleDim.Render(line) + "\n")
+			}
+		}
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [r] refresh  [esc] back") + "\n"
+}
+
 func (m model) updatePRReviewPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
@@ -8102,6 +8345,84 @@ func (m model) doLoadProtectedBranches() tea.Cmd {
 			result[n] = true
 		}
 		return protectedBranchesMsg(result)
+	}
+}
+
+func doLoadSSHKeys() tea.Cmd {
+	return func() tea.Msg {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return sshKeyListMsg(nil)
+		}
+		sshDir := filepath.Join(home, ".ssh")
+		entries, err := os.ReadDir(sshDir)
+		if err != nil {
+			return sshKeyListMsg(nil)
+		}
+		var keys []sshKeyEntry
+		for _, e := range entries {
+			name := e.Name()
+			if !strings.HasSuffix(name, ".pub") {
+				continue
+			}
+			pubPath := filepath.Join(sshDir, name)
+			data, err := os.ReadFile(pubPath)
+			if err != nil {
+				continue
+			}
+			fields := strings.Fields(string(data))
+			comment := ""
+			if len(fields) >= 3 {
+				comment = fields[2]
+			}
+			baseName := strings.TrimSuffix(name, ".pub")
+			// Run ssh-keygen -lf to get fingerprint.
+			fp := ""
+			if out, err := exec.Command("ssh-keygen", "-lf", pubPath).Output(); err == nil {
+				parts := strings.Fields(string(out))
+				if len(parts) >= 2 {
+					fp = parts[1]
+				}
+			}
+			keys = append(keys, sshKeyEntry{
+				Name:        baseName,
+				PubKeyFile:  pubPath,
+				Fingerprint: fp,
+				Comment:     comment,
+			})
+		}
+		return sshKeyListMsg(keys)
+	}
+}
+
+func doTestSSHHost(host string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "ssh", "-T", "-o", "StrictHostKeyChecking=accept-new",
+			"-o", "BatchMode=yes", "git@"+host)
+		err := cmd.Run()
+		// ssh -T to git hosts returns exit code 1 even on success ("Hi username!").
+		stderr, _ := cmd.CombinedOutput()
+		result := "fail"
+		out := strings.ToLower(string(stderr))
+		if strings.Contains(out, "successfully authenticated") ||
+			strings.Contains(out, "hi ") ||
+			strings.Contains(out, "welcome to") ||
+			err == nil {
+			result = "ok"
+		}
+		return sshTestMsg{host: host, result: result}
+	}
+}
+
+func (m model) doLoadLFSData() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		tracked, _ := m.git.LFSTrackedFiles(ctx)
+		status, _ := m.git.LFSStatus(ctx)
+		return lfsDataMsg{tracked: tracked, status: status}
 	}
 }
 

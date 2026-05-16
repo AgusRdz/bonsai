@@ -1975,6 +1975,29 @@ func (r *Runner) LFSInstall(ctx context.Context) error {
 	return err
 }
 
+// LFSTrackedFiles returns the list of files currently tracked by LFS in the
+// working tree. Returns an empty slice when git-lfs is not installed.
+func (r *Runner) LFSTrackedFiles(ctx context.Context) ([]string, error) {
+	out, err := r.run(ctx, "lfs", "ls-files", "--name-only")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
+}
+
+// IsLFSInstalled reports whether git-lfs is available in the current environment.
+func IsLFSInstalled() bool {
+	_, err := exec.LookPath("git-lfs")
+	return err == nil
+}
+
 // Stats computes repository statistics. May be slow on large repos.
 func (r *Runner) Stats(ctx context.Context) (*RepoStats, error) {
 	s := &RepoStats{}
