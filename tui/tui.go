@@ -1888,9 +1888,15 @@ func (m model) commitDetailView() string {
 		content += strings.Repeat("\n", pad)
 	}
 	bar := "  [↑↓] scroll  [esc] back  [y] copy hash  [p] cherry-pick"
-	if m.commitDetail != nil && len(m.commitDetail.Stat) > 0 {
+	if m.commitDetail != nil {
 		total := commitDetailLineCount(m.commitDetail)
-		bar += fmt.Sprintf("  (%d/%d)", m.commitDetailScroll+1, total)
+		visibleLines := m.height - 6
+		if visibleLines < 1 {
+			visibleLines = 1
+		}
+		if total > visibleLines {
+			bar += fmt.Sprintf("  (%d/%d)", m.commitDetailScroll+1, total)
+		}
 	}
 	return content + styleDim.Render(bar) + "\n"
 }
@@ -2085,9 +2091,12 @@ func (m model) conflictView() string {
 		bar = "  [r] remove file  [esc] back"
 	} else {
 		bar = "  [o] keep ours (green)  [t] keep theirs (red)  [↑↓] scroll  [esc] back"
-		if len(m.conflictLines) > 0 {
-			total := len(m.conflictLines)
-			bar += fmt.Sprintf("  (%d/%d)", m.conflictScroll+1, total)
+		visibleLines := m.height - 7
+		if visibleLines < 1 {
+			visibleLines = 1
+		}
+		if len(m.conflictLines) > visibleLines {
+			bar += fmt.Sprintf("  (%d/%d)", m.conflictScroll+1, len(m.conflictLines))
 		}
 	}
 	return content + styleDim.Render(bar) + "\n"
