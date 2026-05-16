@@ -795,6 +795,33 @@ func (r *Runner) RebaseInteractive(ctx context.Context, base string, todoLines [
 	return nil
 }
 
+// AmendMessage rewrites the last commit with a new message.
+func (r *Runner) AmendMessage(ctx context.Context, msg string) error {
+	_, err := r.run(ctx, "commit", "--amend", "-m", msg)
+	return err
+}
+
+// AmendAuthor rewrites the last commit with a new author string.
+// author must be in "Name <email>" format.
+func (r *Runner) AmendAuthor(ctx context.Context, author string) error {
+	_, err := r.run(ctx, "commit", "--amend", "--author="+author, "--no-edit")
+	return err
+}
+
+// AmendDate rewrites the last commit with a new date.
+// date is passed directly to git (accepts ISO 8601 or "now").
+func (r *Runner) AmendDate(ctx context.Context, date string) error {
+	_, err := r.run(ctx, "commit", "--amend", "--date="+date, "--no-edit")
+	return err
+}
+
+// AmendNoEdit adds currently staged files to the last commit without
+// changing its message.
+func (r *Runner) AmendNoEdit(ctx context.Context) error {
+	_, err := r.run(ctx, "commit", "--amend", "--no-edit")
+	return err
+}
+
 // Merge merges branch into the current branch.
 func (r *Runner) Merge(ctx context.Context, branch string) error {
 	_, err := r.run(ctx, "merge", branch)

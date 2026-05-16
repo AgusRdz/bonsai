@@ -42,6 +42,12 @@ func actionTitle(cmd string, err error) string {
 		return "File unstaged"
 	case strings.HasPrefix(cmd, "git restore"):
 		return "Changes discarded"
+	case strings.HasPrefix(cmd, "git commit --amend --author"):
+		return "Author updated"
+	case strings.HasPrefix(cmd, "git commit --amend --date"):
+		return "Date updated"
+	case strings.HasPrefix(cmd, "git commit --amend"):
+		return "Commit amended"
 	case strings.HasPrefix(cmd, "git commit"):
 		return "Commit created"
 	case strings.HasPrefix(cmd, "git push"):
@@ -106,6 +112,18 @@ func explain(cmd string, err error) string {
 		return "The working tree changes for that file were permanently discarded. " +
 			"Git cannot recover them - the file now matches the last commit. " +
 			"If you need the changes back, check your editor's local history or undo buffer."
+	case strings.HasPrefix(cmd, "git commit --amend --author"):
+		return "The author of the last commit was rewritten. " +
+			"Amend rewrites history - avoid amending commits that have already been pushed to a shared remote, " +
+			"as it will require a force-push and may disrupt others."
+	case strings.HasPrefix(cmd, "git commit --amend --date"):
+		return "The date of the last commit was rewritten. " +
+			"Amend rewrites history - avoid amending commits that have already been pushed to a shared remote, " +
+			"as it will require a force-push and may disrupt others."
+	case strings.HasPrefix(cmd, "git commit --amend"):
+		return "The last commit was rewritten with the new content. " +
+			"Amend rewrites history - avoid amending commits that have already been pushed to a shared remote, " +
+			"as it will require a force-push and may disrupt others."
 	case strings.HasPrefix(cmd, "git commit"):
 		return "A new commit was created in the current branch. A commit is a permanent snapshot of your " +
 			"staged changes. It lives in the branch history and can always be recovered with git log."

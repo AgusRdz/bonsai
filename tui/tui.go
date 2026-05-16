@@ -43,6 +43,7 @@ const (
 	panelBlame
 	panelBisect
 	panelRebaseInteractive
+	panelAmend
 )
 
 type branchMode int
@@ -131,6 +132,9 @@ type model struct {
 	rebaseBase         string          // e.g. "HEAD~3"
 	rebaseBaseInput    textinput.Model // input for entering the base ref
 	rebaseStep         int             // 0 = enter base ref, 1 = edit todo list
+	amendInput         textinput.Model
+	amendField         int               // 0=menu, 1=message, 2=author, 3=date
+	amendDetail        *git.CommitDetail // HEAD commit shown in the panel
 }
 
 // --- messages ---
@@ -181,6 +185,8 @@ type rebaseTodosMsg struct {
 	base  string
 	lines []string // raw "hash message" lines from git log, oldest-first
 }
+
+type amendDetailMsg *git.CommitDetail
 
 // --- commands ---
 
@@ -667,6 +673,54 @@ func (m model) doRebaseInteractive() tea.Cmd {
 	}
 }
 
+func (m model) doFetchAmendDetail() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		d, err := m.git.ShowStat(ctx, "HEAD")
+		if err != nil {
+			return amendDetailMsg(&git.CommitDetail{})
+		}
+		return amendDetailMsg(d)
+	}
+}
+
+func (m model) doAmendMessage(msg string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.AmendMessage(ctx, msg)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doAmendAuthor(author string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.AmendAuthor(ctx, author)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doAmendDate(date string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.AmendDate(ctx, date)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doAmendNoEdit() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.AmendNoEdit(ctx)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
 // --- init ---
 
 func (m model) Init() tea.Cmd {
@@ -807,6 +861,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.actionErr = fmt.Errorf("no commits found for base %q", msg.base)
 		}
 
+	case amendDetailMsg:
+		m.amendDetail = (*git.CommitDetail)(msg)
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -843,6 +900,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		if m.panel == panelAmend && m.amendField > 0 {
+			switch msg.String() {
+			case "enter", "esc", "ctrl+c":
+				// fall through to updateAmendPanel
+			default:
+				var cmd tea.Cmd
+				m.amendInput, cmd = m.amendInput.Update(msg)
+				return m, cmd
+			}
+		}
 		if m.panel == panelBisect && m.bisectInputActive {
 			var cmd tea.Cmd
 			m.bisectInput, cmd = m.bisectInput.Update(msg)
@@ -921,6 +988,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelRebaseInteractive {
 			return m.updateRebaseInteractivePanel(msg)
 		}
+		if m.panel == panelAmend {
+			return m.updateAmendPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -947,6 +1017,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.panel == panelBisect && m.bisectInputActive {
 		var cmd tea.Cmd
 		m.bisectInput, cmd = m.bisectInput.Update(msg)
+		return m, cmd
+	}
+	if m.panel == panelAmend && m.amendField > 0 {
+		var cmd tea.Cmd
+		m.amendInput, cmd = m.amendInput.Update(msg)
 		return m, cmd
 	}
 
@@ -1173,6 +1248,13 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.rebaseCursor = 0
 		m.panel = panelRebaseInteractive
 		m.actionErr = nil
+
+	case "A":
+		m.amendField = 0
+		m.amendDetail = nil
+		m.panel = panelAmend
+		m.actionErr = nil
+		return m, m.doFetchAmendDetail()
 	}
 
 	return m, nil
@@ -1673,6 +1755,79 @@ func (m model) updateRebaseInteractivePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 	return m, nil
 }
 
+func (m model) updateAmendPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	kb := m.cfg.Keybindings
+	if m.amendField == 0 {
+		switch msg.String() {
+		case "m":
+			ti := textinput.New()
+			ti.Placeholder = "commit message"
+			ti.Focus()
+			ti.CharLimit = 256
+			ti.Width = m.width - 6
+			if m.amendDetail != nil {
+				ti.SetValue(m.amendDetail.Subject)
+			}
+			m.amendInput = ti
+			m.amendField = 1
+		case "a":
+			ti := textinput.New()
+			ti.Placeholder = "Name <email>"
+			ti.Focus()
+			ti.CharLimit = 256
+			ti.Width = m.width - 6
+			if m.amendDetail != nil {
+				ti.SetValue(m.amendDetail.Author)
+			}
+			m.amendInput = ti
+			m.amendField = 2
+		case "d":
+			ti := textinput.New()
+			ti.Placeholder = "2026-01-15T10:30:00 or now"
+			ti.Focus()
+			ti.CharLimit = 64
+			ti.Width = m.width - 6
+			m.amendInput = ti
+			m.amendField = 3
+		case "n":
+			m.panel = panelMain
+			return m, m.doAmendNoEdit()
+		case "esc", kb.Quit:
+			m.panel = panelMain
+		case "ctrl+c":
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
+	// amendField > 0: input is active
+	switch msg.String() {
+	case "enter":
+		value := strings.TrimSpace(m.amendInput.Value())
+		if value == "" {
+			m.actionErr = fmt.Errorf("value cannot be empty")
+			return m, nil
+		}
+		field := m.amendField
+		m.amendField = 0
+		m.panel = panelMain
+		switch field {
+		case 1:
+			return m, m.doAmendMessage(value)
+		case 2:
+			return m, m.doAmendAuthor(value)
+		case 3:
+			return m, m.doAmendDate(value)
+		}
+		return m, nil
+	case "esc":
+		m.amendField = 0
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 func (m model) updateStashListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up", "k":
@@ -2035,6 +2190,9 @@ func (m model) View() string {
 	if m.panel == panelRebaseInteractive {
 		return m.rebaseInteractiveView()
 	}
+	if m.panel == panelAmend {
+		return m.amendView()
+	}
 	return m.mainView()
 }
 
@@ -2370,6 +2528,7 @@ func (m model) helpView() string {
 
 	section("Git")
 	row(kb.Commit+" / c", "open commit panel")
+	row("A", "amend last commit (message, author, date, or add staged files)")
 	row(kb.Push+" / p", "push to remote")
 	row("P", "pull from remote")
 	row("s", "stash all changes")
@@ -3092,6 +3251,84 @@ func (m model) rebaseInteractiveView() string {
 		content += strings.Repeat("\n", pad)
 	}
 	return content + styleDim.Render("  [enter] execute rebase  [esc] cancel") + "\n"
+}
+
+func (m model) amendView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Amend Last Commit") + "\n\n")
+
+	if m.amendDetail == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+		content := b.String()
+		lines := strings.Count(content, "\n")
+		if pad := m.height - lines - 1; pad > 0 {
+			content += strings.Repeat("\n", pad)
+		}
+		return content + styleDim.Render("  [esc] cancel") + "\n"
+	}
+
+	d := m.amendDetail
+	hash := d.Hash
+	if len(hash) > 7 {
+		hash = hash[:7]
+	}
+	b.WriteString("  " + styleCmd.Render(hash) + "  " + d.Subject + "\n")
+	b.WriteString("  " + styleDim.Render("Author  ") + d.Author + "\n")
+	b.WriteString("  " + styleDim.Render("Date    ") + d.Date + "\n")
+	b.WriteString("\n")
+
+	if m.amendField == 0 {
+		b.WriteString("  " + styleCmd.Render("[m]") + "  " + styleDim.Render("edit message") + "\n")
+		b.WriteString("  " + styleCmd.Render("[a]") + "  " + styleDim.Render("edit author") + "\n")
+		b.WriteString("  " + styleCmd.Render("[d]") + "  " + styleDim.Render("edit date") + "\n")
+
+		nStaged := 0
+		if m.status != nil {
+			nStaged = len(m.status.Staged)
+		}
+		if nStaged > 0 {
+			b.WriteString("  " + styleCmd.Render("[n]") + "  " + styleStaged.Render(fmt.Sprintf("add staged files without changing message  (%d file(s) staged)", nStaged)) + "\n")
+		} else {
+			b.WriteString("  " + styleDim.Render("[n]  add staged files without changing message  (nothing staged)") + "\n")
+		}
+		b.WriteString("\n")
+
+		if m.actionErr != nil {
+			b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n\n")
+		}
+
+		content := b.String()
+		lines := strings.Count(content, "\n")
+		if pad := m.height - lines - 1; pad > 0 {
+			content += strings.Repeat("\n", pad)
+		}
+		return content + styleDim.Render("  [m] message  [a] author  [d] date  [n] add staged  [esc] cancel") + "\n"
+	}
+
+	// amendField > 0: input active
+	var fieldName string
+	switch m.amendField {
+	case 1:
+		fieldName = "message"
+	case 2:
+		fieldName = "author (Name <email>)"
+	case 3:
+		fieldName = "date (ISO 8601 or 'now')"
+	}
+	b.WriteString("  " + styleDim.Render("Editing: "+fieldName) + "\n\n")
+	b.WriteString("  " + styleDim.Render("> ") + m.amendInput.View() + "\n\n")
+
+	if m.actionErr != nil {
+		b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n\n")
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [enter] apply  [esc] back") + "\n"
 }
 
 func contextTip(m model) string {
