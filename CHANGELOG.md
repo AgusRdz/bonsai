@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.26.0] - 2026-05-16
+
+### Features
+- Interactive rebase panel (block 6)
+([b11b4d6](https://github.com/AgusRdz/bonsai/commit/b11b4d6d17233fa36f2f007b821d5c0b9ce7fe9a))
 ## [0.25.0] - 2026-05-16
 
 ### Features
