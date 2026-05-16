@@ -32,4 +32,17 @@ var (
 	styleCmd = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.AdaptiveColor{Dark: "12", Light: "4"})
+
+	styleHash = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Dark: "12", Light: "4"})
+
+	styleAdded = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Dark: "10", Light: "2"})
+
+	styleConflict = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Dark: "9", Light: "1"})
+
+	styleTitle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.AdaptiveColor{Dark: "14", Light: "6"})
 )

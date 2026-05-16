@@ -1024,3 +1024,549 @@ func parseBranches(output string) []Branch {
 	}
 	return branches
 }
+
+// ---------------------------------------------------------------------------
+// Fetch
+// ---------------------------------------------------------------------------
+
+// Fetch runs git fetch. When all is true fetches all remotes; when prune is
+// true adds --prune to remove deleted remote refs.
+func (r *Runner) Fetch(ctx context.Context, all, prune bool) error {
+	args := []string{"fetch"}
+	if all {
+		args = append(args, "--all")
+	}
+	if prune {
+		args = append(args, "--prune")
+	}
+	_, err := r.run(ctx, args...)
+	return err
+}
+
+// ---------------------------------------------------------------------------
+// Restore
+// ---------------------------------------------------------------------------
+
+// RestoreFile restores a file to a specific ref. When source is "" it defaults
+// to HEAD. When staged is true it also unstages the result.
+func (r *Runner) RestoreFile(ctx context.Context, path, source string, staged bool) error {
+	args := []string{"restore"}
+	if staged {
+		args = append(args, "--staged")
+	}
+	src := source
+	if src == "" {
+		src = "HEAD"
+	}
+	args = append(args, "--source="+src, path)
+	_, err := r.run(ctx, args...)
+	return err
+}
+
+// ---------------------------------------------------------------------------
+// Clean
+// ---------------------------------------------------------------------------
+
+// CleanPreview returns the list of files that would be removed by git clean
+// without actually removing them.
+func (r *Runner) CleanPreview(ctx context.Context) ([]string, error) {
+	out, err := r.run(ctx, "clean", "-fd", "--dry-run")
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// lines look like "Would remove path/to/file"
+		f := strings.TrimPrefix(line, "Would remove ")
+		files = append(files, f)
+	}
+	return files, nil
+}
+
+// Clean removes untracked files and directories (git clean -fd).
+func (r *Runner) Clean(ctx context.Context) error {
+	_, err := r.run(ctx, "clean", "-fd")
+	return err
+}
+
+// ---------------------------------------------------------------------------
+// Reflog
+// ---------------------------------------------------------------------------
+
+// ReflogEntry is one line from git reflog.
+type ReflogEntry struct {
+	Hash    string // short hash
+	Ref     string // e.g. HEAD@{0}
+	Action  string // e.g. "commit", "checkout", "reset"
+	Subject string // short description
+}
+
+// Reflog returns the recent reflog entries for HEAD.
+func (r *Runner) Reflog(ctx context.Context) ([]ReflogEntry, error) {
+	out, err := r.run(ctx, "reflog", "--format=%h\x1e%gd\x1e%gs", "-100")
+	if err != nil {
+		return nil, err
+	}
+	var entries []ReflogEntry
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\x1e", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		action := parts[2]
+		// Extract the first word as the action type (commit, checkout, reset, etc.)
+		actionType := strings.Fields(action)[0]
+		// Clean trailing colon from action type if present.
+		actionType = strings.TrimSuffix(actionType, ":")
+		entries = append(entries, ReflogEntry{
+			Hash:    parts[0],
+			Ref:     parts[1],
+			Action:  actionType,
+			Subject: action,
+		})
+	}
+	return entries, nil
+}
+
+// ---------------------------------------------------------------------------
+// Remote management
+// ---------------------------------------------------------------------------
+
+// RemoteEntry is one configured remote.
+type RemoteEntry struct {
+	Name     string
+	FetchURL string
+	PushURL  string
+}
+
+// Remotes returns all configured remotes with their fetch/push URLs.
+func (r *Runner) Remotes(ctx context.Context) ([]RemoteEntry, error) {
+	out, err := r.run(ctx, "remote", "-v")
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]*RemoteEntry{}
+	var order []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		// Format: "name\turl (fetch)" or "name\turl (push)"
+		parts := strings.Fields(line)
+		if len(parts) < 3 {
+			continue
+		}
+		name := parts[0]
+		url := parts[1]
+		kind := strings.Trim(parts[2], "()")
+		e, ok := seen[name]
+		if !ok {
+			e = &RemoteEntry{Name: name}
+			seen[name] = e
+			order = append(order, name)
+		}
+		switch kind {
+		case "fetch":
+			e.FetchURL = url
+		case "push":
+			e.PushURL = url
+		}
+	}
+	var result []RemoteEntry
+	for _, name := range order {
+		result = append(result, *seen[name])
+	}
+	return result, nil
+}
+
+// RemoteAdd adds a new remote.
+func (r *Runner) RemoteAdd(ctx context.Context, name, url string) error {
+	_, err := r.run(ctx, "remote", "add", name, url)
+	return err
+}
+
+// RemoteRemove removes a remote.
+func (r *Runner) RemoteRemove(ctx context.Context, name string) error {
+	_, err := r.run(ctx, "remote", "remove", name)
+	return err
+}
+
+// RemoteRename renames a remote.
+func (r *Runner) RemoteRename(ctx context.Context, oldName, newName string) error {
+	_, err := r.run(ctx, "remote", "rename", oldName, newName)
+	return err
+}
+
+// ---------------------------------------------------------------------------
+// Submodules
+// ---------------------------------------------------------------------------
+
+// SubmoduleEntry is one submodule in the repo.
+type SubmoduleEntry struct {
+	Path   string
+	URL    string
+	Status string // "+", "-", "U", " " (modified/uninit/conflict/clean)
+	Hash   string // current checked-out hash
+}
+
+// Submodules returns all submodules with their status.
+func (r *Runner) Submodules(ctx context.Context) ([]SubmoduleEntry, error) {
+	out, err := r.run(ctx, "submodule", "status")
+	if err != nil {
+		return nil, err
+	}
+	var entries []SubmoduleEntry
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		// Format: "[+- U]<hash> <path> (<describe>)"
+		status := string(line[0])
+		rest := strings.TrimSpace(line[1:])
+		fields := strings.Fields(rest)
+		if len(fields) < 2 {
+			continue
+		}
+		hash := fields[0]
+		path := fields[1]
+		// Get URL from gitmodules config.
+		urlOut, _ := exec.CommandContext(ctx, "git", "config", "--file=.gitmodules",
+			"submodule."+path+".url").Output()
+		entries = append(entries, SubmoduleEntry{
+			Path:   path,
+			URL:    strings.TrimSpace(string(urlOut)),
+			Status: status,
+			Hash:   hash,
+		})
+	}
+	return entries, nil
+}
+
+// SubmoduleAdd registers and clones a new submodule.
+func (r *Runner) SubmoduleAdd(ctx context.Context, url, path string) error {
+	args := []string{"submodule", "add", url}
+	if path != "" {
+		args = append(args, path)
+	}
+	_, err := r.run(ctx, args...)
+	return err
+}
+
+// SubmoduleInit initialises all submodules (registers them in .git/config).
+func (r *Runner) SubmoduleInit(ctx context.Context) error {
+	_, err := r.run(ctx, "submodule", "init")
+	return err
+}
+
+// SubmoduleUpdate updates all submodules to the commit recorded by the parent.
+func (r *Runner) SubmoduleUpdate(ctx context.Context, init bool) error {
+	args := []string{"submodule", "update"}
+	if init {
+		args = append(args, "--init")
+	}
+	_, err := r.run(ctx, args...)
+	return err
+}
+
+// SubmoduleDeinit deregisters a submodule (removes its config from .git/config).
+func (r *Runner) SubmoduleDeinit(ctx context.Context, path string) error {
+	_, err := r.run(ctx, "submodule", "deinit", path)
+	return err
+}
+
+// SubmoduleSync updates the remote URL for all submodules from .gitmodules.
+func (r *Runner) SubmoduleSync(ctx context.Context) error {
+	_, err := r.run(ctx, "submodule", "sync")
+	return err
+}
+
+// ---------------------------------------------------------------------------
+// Notes
+// ---------------------------------------------------------------------------
+
+// NoteGet returns the note attached to a commit, or "" if none exists.
+func (r *Runner) NoteGet(ctx context.Context, commit string) (string, error) {
+	out, err := r.run(ctx, "notes", "show", commit)
+	if err != nil {
+		// exit 1 means no note - not an error.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// NoteAdd adds or replaces the note for a commit.
+func (r *Runner) NoteAdd(ctx context.Context, commit, message string) error {
+	_, err := r.run(ctx, "notes", "add", "-f", "-m", message, commit)
+	return err
+}
+
+// NoteRemove removes the note for a commit. Returns nil if no note existed.
+func (r *Runner) NoteRemove(ctx context.Context, commit string) error {
+	_, err := r.run(ctx, "notes", "remove", commit)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Format-patch / am
+// ---------------------------------------------------------------------------
+
+// FormatPatch generates .patch files for commits since base into outputDir.
+// Returns the list of generated file paths.
+func (r *Runner) FormatPatch(ctx context.Context, base, outputDir string) ([]string, error) {
+	args := []string{"format-patch", base}
+	if outputDir != "" {
+		args = append(args, "-o", outputDir)
+	}
+	out, err := r.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
+}
+
+// ApplyPatch applies one or more patch files with git am.
+func (r *Runner) ApplyPatch(ctx context.Context, files ...string) error {
+	args := append([]string{"am"}, files...)
+	_, err := r.run(ctx, args...)
+	return err
+}
+
+// ApplyPatchAbort aborts an in-progress git am.
+func (r *Runner) ApplyPatchAbort(ctx context.Context) error {
+	_, err := r.run(ctx, "am", "--abort")
+	return err
+}
+
+// ---------------------------------------------------------------------------
+// Archive
+// ---------------------------------------------------------------------------
+
+// Archive creates a tar or zip archive of the repo at the given ref.
+// format should be "tar.gz" or "zip". output is the destination file path.
+func (r *Runner) Archive(ctx context.Context, format, output, ref string) error {
+	if ref == "" {
+		ref = "HEAD"
+	}
+	r.lastCmd = fmt.Sprintf("git archive --format=%s --output=%s %s", format, output, ref)
+	cmd := exec.CommandContext(ctx, "git", "archive", "--format="+format, "--output="+output, ref)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Bundle
+// ---------------------------------------------------------------------------
+
+// BundleCreate creates a git bundle file containing the given refs.
+// If refs is empty, bundles all branches.
+func (r *Runner) BundleCreate(ctx context.Context, output string, refs ...string) error {
+	args := append([]string{"bundle", "create", output}, refs...)
+	if len(refs) == 0 {
+		args = append(args, "--all")
+	}
+	_, err := r.run(ctx, args...)
+	return err
+}
+
+// BundleVerify verifies a bundle file and returns a human-readable summary.
+func (r *Runner) BundleVerify(ctx context.Context, file string) (string, error) {
+	out, err := r.run(ctx, "bundle", "verify", file)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// ---------------------------------------------------------------------------
+// Stats
+// ---------------------------------------------------------------------------
+
+// RepoStats holds aggregated repository statistics.
+type RepoStats struct {
+	TotalCommits    int
+	Contributors    []ContributorStat
+	FirstCommitDate string
+	LastCommitDate  string
+	TotalBranches   int
+	TotalTags       int
+	TrackedFiles    int
+	ExtBreakdown    []ExtStat  // top file extensions by count
+	TopFiles        []FileStat // most-changed files
+	CommitsLast30d  int
+}
+
+// ContributorStat holds commit count per author.
+type ContributorStat struct {
+	Name  string
+	Count int
+}
+
+// ExtStat holds file count per extension.
+type ExtStat struct {
+	Ext   string
+	Count int
+}
+
+// FileStat holds change frequency for a file.
+type FileStat struct {
+	Path  string
+	Count int
+}
+
+// Stats computes repository statistics. May be slow on large repos.
+func (r *Runner) Stats(ctx context.Context) (*RepoStats, error) {
+	s := &RepoStats{}
+
+	// Total commits.
+	if out, err := r.run(ctx, "rev-list", "--count", "HEAD"); err == nil {
+		s.TotalCommits, _ = strconv.Atoi(strings.TrimSpace(string(out)))
+	}
+
+	// First and last commit dates.
+	if out, err := r.run(ctx, "log", "--format=%ad", "--date=short", "--reverse", "--max-count=1"); err == nil {
+		s.FirstCommitDate = strings.TrimSpace(string(out))
+	}
+	if out, err := r.run(ctx, "log", "--format=%ad", "--date=short", "--max-count=1"); err == nil {
+		s.LastCommitDate = strings.TrimSpace(string(out))
+	}
+
+	// Top contributors.
+	if out, err := r.run(ctx, "shortlog", "-sn", "--no-merges", "HEAD"); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if line == "" {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			count, _ := strconv.Atoi(fields[0])
+			name := strings.Join(fields[1:], " ")
+			s.Contributors = append(s.Contributors, ContributorStat{Name: name, Count: count})
+			if len(s.Contributors) >= 10 {
+				break
+			}
+		}
+	}
+
+	// Branch count.
+	if out, err := r.run(ctx, "branch", "--list"); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if strings.TrimSpace(line) != "" {
+				s.TotalBranches++
+			}
+		}
+	}
+
+	// Tag count.
+	if out, err := r.run(ctx, "tag"); err == nil {
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if strings.TrimSpace(line) != "" {
+				s.TotalTags++
+			}
+		}
+	}
+
+	// Tracked files and extension breakdown.
+	if out, err := r.run(ctx, "ls-files"); err == nil {
+		extCount := map[string]int{}
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if line == "" {
+				continue
+			}
+			s.TrackedFiles++
+			ext := filepath.Ext(line)
+			if ext == "" {
+				ext = "(no ext)"
+			}
+			extCount[ext]++
+		}
+		// Sort by count descending.
+		type kv struct {
+			k string
+			v int
+		}
+		var sorted []kv
+		for k, v := range extCount {
+			sorted = append(sorted, kv{k, v})
+		}
+		for i := 0; i < len(sorted); i++ {
+			for j := i + 1; j < len(sorted); j++ {
+				if sorted[j].v > sorted[i].v {
+					sorted[i], sorted[j] = sorted[j], sorted[i]
+				}
+			}
+		}
+		for _, kv := range sorted {
+			s.ExtBreakdown = append(s.ExtBreakdown, ExtStat{Ext: kv.k, Count: kv.v})
+			if len(s.ExtBreakdown) >= 10 {
+				break
+			}
+		}
+	}
+
+	// Most-changed files (top 10).
+	if out, err := r.run(ctx, "log", "--format=", "--name-only", "--no-merges"); err == nil {
+		fileCount := map[string]int{}
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				fileCount[line]++
+			}
+		}
+		type kv struct {
+			k string
+			v int
+		}
+		var sorted []kv
+		for k, v := range fileCount {
+			sorted = append(sorted, kv{k, v})
+		}
+		for i := 0; i < len(sorted); i++ {
+			for j := i + 1; j < len(sorted); j++ {
+				if sorted[j].v > sorted[i].v {
+					sorted[i], sorted[j] = sorted[j], sorted[i]
+				}
+			}
+		}
+		for _, kv := range sorted {
+			s.TopFiles = append(s.TopFiles, FileStat{Path: kv.k, Count: kv.v})
+			if len(s.TopFiles) >= 10 {
+				break
+			}
+		}
+	}
+
+	// Commits in last 30 days.
+	since := time.Now().AddDate(0, 0, -30).Format("2006-01-02")
+	if out, err := r.run(ctx, "rev-list", "--count", "--after="+since, "HEAD"); err == nil {
+		s.CommitsLast30d, _ = strconv.Atoi(strings.TrimSpace(string(out)))
+	}
+
+	return s, nil
+}

@@ -50,6 +50,16 @@ const (
 	panelConfigFile
 	panelConfigRecommend
 	panelConfigProfiles
+	panelFetch
+	panelRestore
+	panelClean
+	panelReflog
+	panelRemoteList
+	panelRemoteAdd
+	panelRemoteRename
+	panelSubmoduleList
+	panelSubmoduleAdd
+	panelNoteView
 )
 
 type branchMode int
@@ -177,6 +187,40 @@ type model struct {
 	configProfileInput    textinput.Model
 	configProfileStep     int
 	configProfileNewPath  string
+
+	// fetch
+	fetchCursor int
+
+	// restore
+	restoreFile  string
+	restoreInput textinput.Model // source ref
+
+	// clean
+	cleanFiles []string
+
+	// reflog
+	reflogEntries []git.ReflogEntry
+	reflogCursor  int
+
+	// remotes
+	remotes            []git.RemoteEntry
+	remoteCursor       int
+	remoteAddInputs    [2]textinput.Model // [0]=name [1]=url
+	remoteAddStep      int
+	remoteRenameInput  textinput.Model
+	remoteRenameTarget string // name of remote being renamed
+
+	// submodules
+	submodules      []git.SubmoduleEntry
+	submoduleCursor int
+	submoduleInputs [2]textinput.Model // [0]=url [1]=path
+	submoduleStep   int
+
+	// notes
+	noteCommit  string // hash of commit whose note is being viewed/edited
+	noteContent string // current note text
+	noteInput   textinput.Model
+	noteEditing bool
 }
 
 // --- messages ---
@@ -239,6 +283,15 @@ type configFileMsg struct {
 type configRecommendMsg []configRecommend
 type configProfilesMsg []configProfile
 type editorDoneMsg struct{ err error }
+
+type cleanPreviewMsg []string
+type reflogMsg []git.ReflogEntry
+type remotesMsg []git.RemoteEntry
+type submodulesMsg []git.SubmoduleEntry
+type noteMsg struct {
+	commit  string
+	content string
+}
 
 // --- commands ---
 
@@ -981,6 +1034,176 @@ func (m model) doAddProfile(gitdir, includePath string) tea.Cmd {
 	}
 }
 
+func (m model) doFetch(all, prune bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+		defer cancel()
+		err := m.git.Fetch(ctx, all, prune)
+		cmd := "git fetch"
+		if all {
+			cmd += " --all"
+		}
+		if prune {
+			cmd += " --prune"
+		}
+		return actionDoneMsg{cmd: cmd, err: err}
+	}
+}
+
+func (m model) doRestoreFile(path, source string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.RestoreFile(ctx, path, source, false)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doCleanPreview() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		files, err := m.git.CleanPreview(ctx)
+		if err != nil {
+			return cleanPreviewMsg(nil)
+		}
+		return cleanPreviewMsg(files)
+	}
+}
+
+func (m model) doClean() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.Clean(ctx)
+		return actionDoneMsg{cmd: "git clean -fd", err: err}
+	}
+}
+
+func (m model) doFetchReflog() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		entries, err := m.git.Reflog(ctx)
+		if err != nil {
+			return reflogMsg(nil)
+		}
+		return reflogMsg(entries)
+	}
+}
+
+func (m model) doFetchRemotes() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		remotes, err := m.git.Remotes(ctx)
+		if err != nil {
+			return remotesMsg(nil)
+		}
+		return remotesMsg(remotes)
+	}
+}
+
+func (m model) doRemoteAdd(name, url string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.RemoteAdd(ctx, name, url)
+		return actionDoneMsg{cmd: "git remote add " + name + " " + url, err: err}
+	}
+}
+
+func (m model) doRemoteRemove(name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.RemoteRemove(ctx, name)
+		return actionDoneMsg{cmd: "git remote remove " + name, err: err}
+	}
+}
+
+func (m model) doRemoteRename(oldName, newName string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.RemoteRename(ctx, oldName, newName)
+		return actionDoneMsg{cmd: "git remote rename " + oldName + " " + newName, err: err}
+	}
+}
+
+func (m model) doFetchSubmodules() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		subs, err := m.git.Submodules(ctx)
+		if err != nil {
+			return submodulesMsg(nil)
+		}
+		return submodulesMsg(subs)
+	}
+}
+
+func (m model) doSubmoduleAdd(url, path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+		defer cancel()
+		err := m.git.SubmoduleAdd(ctx, url, path)
+		return actionDoneMsg{cmd: "git submodule add " + url, err: err}
+	}
+}
+
+func (m model) doSubmoduleUpdate(init bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+		defer cancel()
+		err := m.git.SubmoduleUpdate(ctx, init)
+		cmd := "git submodule update"
+		if init {
+			cmd += " --init"
+		}
+		return actionDoneMsg{cmd: cmd, err: err}
+	}
+}
+
+func (m model) doSubmoduleDeinit(path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.SubmoduleDeinit(ctx, path)
+		return actionDoneMsg{cmd: "git submodule deinit " + path, err: err}
+	}
+}
+
+func (m model) doFetchNote(commit string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		content, err := m.git.NoteGet(ctx, commit)
+		if err != nil {
+			return noteMsg{commit: commit, content: ""}
+		}
+		return noteMsg{commit: commit, content: content}
+	}
+}
+
+func (m model) doNoteAdd(commit, message string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.NoteAdd(ctx, commit, message)
+		return actionDoneMsg{cmd: "git notes add -m " + commit, err: err}
+	}
+}
+
+func (m model) doNoteRemove(commit string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.NoteRemove(ctx, commit)
+		return actionDoneMsg{cmd: "git notes remove " + commit, err: err}
+	}
+}
+
 // --- init ---
 
 func (m model) Init() tea.Cmd {
@@ -1148,6 +1371,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.doLoadConfigSection(m.configSection)
 		}
 
+	case cleanPreviewMsg:
+		m.cleanFiles = []string(msg)
+		if len(m.cleanFiles) == 0 {
+			m.actionErr = fmt.Errorf("nothing to clean - working tree already has no untracked files")
+			m.panel = panelMain
+		} else {
+			lines := make([]string, len(m.cleanFiles))
+			copy(lines, m.cleanFiles)
+			m.confirmPrompt = fmt.Sprintf("remove %d untracked file(s)? this cannot be undone\n  %s",
+				len(lines), strings.Join(lines, "\n  "))
+			m.confirmCmd = m.doClean()
+			m.panel = panelConfirm
+		}
+
+	case reflogMsg:
+		m.reflogEntries = []git.ReflogEntry(msg)
+		m.reflogCursor = 0
+		m.panel = panelReflog
+
+	case remotesMsg:
+		m.remotes = []git.RemoteEntry(msg)
+		m.remoteCursor = 0
+		m.panel = panelRemoteList
+
+	case submodulesMsg:
+		m.submodules = []git.SubmoduleEntry(msg)
+		m.submoduleCursor = 0
+		m.panel = panelSubmoduleList
+
+	case noteMsg:
+		m.noteCommit = msg.commit
+		m.noteContent = msg.content
+		m.noteEditing = false
+		m.panel = panelNoteView
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -1296,6 +1554,75 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m.updateConfigProfilesPanel(msg)
+		}
+		if m.panel == panelFetch {
+			return m.updateFetchPanel(msg)
+		}
+		if m.panel == panelRestore {
+			switch msg.String() {
+			case "enter", "esc", "ctrl+c":
+				// fall through
+			default:
+				var cmd tea.Cmd
+				m.restoreInput, cmd = m.restoreInput.Update(msg)
+				return m, cmd
+			}
+			return m.updateRestorePanel(msg)
+		}
+		if m.panel == panelReflog {
+			return m.updateReflogPanel(msg)
+		}
+		if m.panel == panelRemoteList {
+			return m.updateRemoteListPanel(msg)
+		}
+		if m.panel == panelRemoteAdd {
+			switch msg.String() {
+			case "enter", "esc", "ctrl+c":
+				// fall through
+			default:
+				var cmd tea.Cmd
+				m.remoteAddInputs[m.remoteAddStep], cmd = m.remoteAddInputs[m.remoteAddStep].Update(msg)
+				return m, cmd
+			}
+			return m.updateRemoteAddPanel(msg)
+		}
+		if m.panel == panelRemoteRename {
+			switch msg.String() {
+			case "enter", "esc", "ctrl+c":
+				// fall through
+			default:
+				var cmd tea.Cmd
+				m.remoteRenameInput, cmd = m.remoteRenameInput.Update(msg)
+				return m, cmd
+			}
+			return m.updateRemoteRenamePanel(msg)
+		}
+		if m.panel == panelSubmoduleList {
+			return m.updateSubmoduleListPanel(msg)
+		}
+		if m.panel == panelSubmoduleAdd {
+			switch msg.String() {
+			case "enter", "esc", "ctrl+c":
+				// fall through
+			default:
+				var cmd tea.Cmd
+				m.submoduleInputs[m.submoduleStep], cmd = m.submoduleInputs[m.submoduleStep].Update(msg)
+				return m, cmd
+			}
+			return m.updateSubmoduleAddPanel(msg)
+		}
+		if m.panel == panelNoteView {
+			if m.noteEditing {
+				switch msg.String() {
+				case "enter", "esc", "ctrl+c":
+					// fall through
+				default:
+					var cmd tea.Cmd
+					m.noteInput, cmd = m.noteInput.Update(msg)
+					return m, cmd
+				}
+			}
+			return m.updateNoteViewPanel(msg)
 		}
 		return m.updateMainPanel(msg)
 	}
@@ -1566,6 +1893,66 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.configMenuCursor = 0
 		m.panel = panelConfigMenu
 		m.actionErr = nil
+
+	case "f":
+		m.fetchCursor = 0
+		m.panel = panelFetch
+		m.actionErr = nil
+
+	case "X":
+		m.cleanFiles = nil
+		m.actionErr = nil
+		return m, m.doCleanPreview()
+
+	case "o":
+		if len(m.files) == 0 {
+			break
+		}
+		f := m.files[m.cursor]
+		if f.category == catUntracked {
+			m.actionErr = fmt.Errorf("untracked files cannot be restored - they were never committed")
+			break
+		}
+		ti := textinput.New()
+		ti.Placeholder = "HEAD  (or a commit hash / ref)"
+		ti.SetValue("HEAD")
+		ti.Focus()
+		ti.CharLimit = 64
+		ti.Width = m.width - 6
+		m.restoreFile = f.entry.Path
+		m.restoreInput = ti
+		m.panel = panelRestore
+		m.actionErr = nil
+
+	case "L":
+		m.reflogEntries = nil
+		m.reflogCursor = 0
+		m.actionErr = nil
+		return m, m.doFetchReflog()
+
+	case "O":
+		m.remotes = nil
+		m.remoteCursor = 0
+		m.actionErr = nil
+		return m, m.doFetchRemotes()
+
+	case "M":
+		m.submodules = nil
+		m.submoduleCursor = 0
+		m.actionErr = nil
+		return m, m.doFetchSubmodules()
+
+	case "n":
+		if m.status == nil {
+			break
+		}
+		// Show note for HEAD commit via the log: open log and let user pick.
+		// For now, load note for HEAD directly.
+		m.noteCommit = "HEAD"
+		m.noteContent = ""
+		m.noteEditing = false
+		m.actionErr = nil
+		return m, m.doFetchNote("HEAD")
 	}
 
 	return m, nil
@@ -2303,6 +2690,343 @@ func (m model) updateConfigProfilesPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// ---------------------------------------------------------------------------
+// fetch panel
+// ---------------------------------------------------------------------------
+
+var fetchOptions = []struct {
+	label string
+	all   bool
+	prune bool
+}{
+	{"fetch origin", false, false},
+	{"fetch origin --prune", false, true},
+	{"fetch --all", true, false},
+	{"fetch --all --prune", true, true},
+}
+
+func (m model) updateFetchPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.fetchCursor > 0 {
+			m.fetchCursor--
+		}
+	case "down", "j":
+		if m.fetchCursor < len(fetchOptions)-1 {
+			m.fetchCursor++
+		}
+	case "enter":
+		opt := fetchOptions[m.fetchCursor]
+		m.panel = panelMain
+		return m, m.doFetch(opt.all, opt.prune)
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// ---------------------------------------------------------------------------
+// restore panel
+// ---------------------------------------------------------------------------
+
+func (m model) updateRestorePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		source := strings.TrimSpace(m.restoreInput.Value())
+		path := m.restoreFile
+		m.panel = panelMain
+		return m, m.doRestoreFile(path, source)
+	case "esc", "ctrl+c":
+		m.panel = panelMain
+	}
+	return m, nil
+}
+
+// ---------------------------------------------------------------------------
+// reflog panel
+// ---------------------------------------------------------------------------
+
+func (m model) updateReflogPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.reflogCursor > 0 {
+			m.reflogCursor--
+		}
+	case "down", "j":
+		if m.reflogCursor < len(m.reflogEntries)-1 {
+			m.reflogCursor++
+		}
+	case "r":
+		if len(m.reflogEntries) == 0 {
+			break
+		}
+		e := m.reflogEntries[m.reflogCursor]
+		hash := e.Hash
+		m.confirmPrompt = fmt.Sprintf("reset HEAD to %s (%s)?", hash, e.Ref)
+		m.confirmCmd = func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, "git", "reset", "--mixed", hash)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				return actionDoneMsg{cmd: "git reset --mixed " + hash, err: fmt.Errorf("%s", strings.TrimSpace(string(out)))}
+			}
+			return actionDoneMsg{cmd: "git reset --mixed " + hash, err: nil}
+		}
+		m.panel = panelConfirm
+	case "y":
+		if len(m.reflogEntries) > 0 {
+			_ = writeClipboard(m.reflogEntries[m.reflogCursor].Hash)
+		}
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// ---------------------------------------------------------------------------
+// remote list panel
+// ---------------------------------------------------------------------------
+
+func (m model) updateRemoteListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.remoteCursor > 0 {
+			m.remoteCursor--
+		}
+	case "down", "j":
+		if m.remoteCursor < len(m.remotes)-1 {
+			m.remoteCursor++
+		}
+	case "a":
+		ti0 := textinput.New()
+		ti0.Placeholder = "name (e.g. origin)"
+		ti0.Focus()
+		ti0.CharLimit = 64
+		ti0.Width = m.width - 6
+		ti1 := textinput.New()
+		ti1.Placeholder = "url (e.g. git@github.com:org/repo.git)"
+		ti1.CharLimit = 256
+		ti1.Width = m.width - 6
+		m.remoteAddInputs = [2]textinput.Model{ti0, ti1}
+		m.remoteAddStep = 0
+		m.panel = panelRemoteAdd
+	case "d":
+		if len(m.remotes) == 0 {
+			break
+		}
+		name := m.remotes[m.remoteCursor].Name
+		m.confirmPrompt = fmt.Sprintf("remove remote %q?", name)
+		m.confirmCmd = m.doRemoteRemove(name)
+		m.panel = panelConfirm
+	case "r":
+		if len(m.remotes) == 0 {
+			break
+		}
+		ti := textinput.New()
+		ti.Placeholder = "new name"
+		ti.Focus()
+		ti.CharLimit = 64
+		ti.Width = m.width - 6
+		m.remoteRenameTarget = m.remotes[m.remoteCursor].Name
+		m.remoteRenameInput = ti
+		m.panel = panelRemoteRename
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// ---------------------------------------------------------------------------
+// remote add panel
+// ---------------------------------------------------------------------------
+
+func (m model) updateRemoteAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		if m.remoteAddStep == 0 {
+			val := strings.TrimSpace(m.remoteAddInputs[0].Value())
+			if val == "" {
+				break
+			}
+			m.remoteAddInputs[0].Blur()
+			m.remoteAddInputs[1].Focus()
+			m.remoteAddStep = 1
+		} else {
+			name := strings.TrimSpace(m.remoteAddInputs[0].Value())
+			url := strings.TrimSpace(m.remoteAddInputs[1].Value())
+			if name == "" || url == "" {
+				break
+			}
+			m.panel = panelRemoteList
+			return m, tea.Batch(m.doRemoteAdd(name, url), m.doFetchRemotes())
+		}
+	case "esc":
+		if m.remoteAddStep == 1 {
+			m.remoteAddInputs[1].Blur()
+			m.remoteAddInputs[0].Focus()
+			m.remoteAddStep = 0
+		} else {
+			m.panel = panelRemoteList
+		}
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// ---------------------------------------------------------------------------
+// remote rename panel
+// ---------------------------------------------------------------------------
+
+func (m model) updateRemoteRenamePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		newName := strings.TrimSpace(m.remoteRenameInput.Value())
+		if newName == "" {
+			break
+		}
+		old := m.remoteRenameTarget
+		m.panel = panelRemoteList
+		return m, tea.Batch(m.doRemoteRename(old, newName), m.doFetchRemotes())
+	case "esc", "ctrl+c":
+		m.panel = panelRemoteList
+	}
+	return m, nil
+}
+
+// ---------------------------------------------------------------------------
+// submodule list panel
+// ---------------------------------------------------------------------------
+
+func (m model) updateSubmoduleListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.submoduleCursor > 0 {
+			m.submoduleCursor--
+		}
+	case "down", "j":
+		if m.submoduleCursor < len(m.submodules)-1 {
+			m.submoduleCursor++
+		}
+	case "a":
+		ti0 := textinput.New()
+		ti0.Placeholder = "repository url"
+		ti0.Focus()
+		ti0.CharLimit = 256
+		ti0.Width = m.width - 6
+		ti1 := textinput.New()
+		ti1.Placeholder = "local path (leave empty to use repo name)"
+		ti1.CharLimit = 256
+		ti1.Width = m.width - 6
+		m.submoduleInputs = [2]textinput.Model{ti0, ti1}
+		m.submoduleStep = 0
+		m.panel = panelSubmoduleAdd
+	case "u":
+		m.panel = panelMain
+		return m, m.doSubmoduleUpdate(true)
+	case "d":
+		if len(m.submodules) == 0 {
+			break
+		}
+		path := m.submodules[m.submoduleCursor].Path
+		m.confirmPrompt = fmt.Sprintf("deinit submodule %q? (removes from .git/config, keeps files)", path)
+		m.confirmCmd = m.doSubmoduleDeinit(path)
+		m.panel = panelConfirm
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// ---------------------------------------------------------------------------
+// submodule add panel
+// ---------------------------------------------------------------------------
+
+func (m model) updateSubmoduleAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		if m.submoduleStep == 0 {
+			val := strings.TrimSpace(m.submoduleInputs[0].Value())
+			if val == "" {
+				break
+			}
+			m.submoduleInputs[0].Blur()
+			m.submoduleInputs[1].Focus()
+			m.submoduleStep = 1
+		} else {
+			url := strings.TrimSpace(m.submoduleInputs[0].Value())
+			path := strings.TrimSpace(m.submoduleInputs[1].Value())
+			m.panel = panelSubmoduleList
+			return m, m.doSubmoduleAdd(url, path)
+		}
+	case "esc":
+		if m.submoduleStep == 1 {
+			m.submoduleInputs[1].Blur()
+			m.submoduleInputs[0].Focus()
+			m.submoduleStep = 0
+		} else {
+			m.panel = panelSubmoduleList
+		}
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+// ---------------------------------------------------------------------------
+// note view panel
+// ---------------------------------------------------------------------------
+
+func (m model) updateNoteViewPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.noteEditing {
+		switch msg.String() {
+		case "enter":
+			note := strings.TrimSpace(m.noteInput.Value())
+			m.noteEditing = false
+			m.noteContent = note
+			commit := m.noteCommit
+			m.panel = panelMain
+			return m, m.doNoteAdd(commit, note)
+		case "esc":
+			m.noteEditing = false
+		case "ctrl+c":
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+	switch msg.String() {
+	case "e":
+		ti := textinput.New()
+		ti.SetValue(m.noteContent)
+		ti.Focus()
+		ti.CharLimit = 512
+		ti.Width = m.width - 6
+		m.noteInput = ti
+		m.noteEditing = true
+	case "d":
+		if m.noteContent == "" {
+			break
+		}
+		m.confirmPrompt = fmt.Sprintf("remove note from commit %s?", m.noteCommit)
+		m.confirmCmd = m.doNoteRemove(m.noteCommit)
+		m.panel = panelConfirm
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 func (m model) updateStashListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up", "k":
@@ -2679,6 +3403,33 @@ func (m model) View() string {
 	}
 	if m.panel == panelConfigProfiles {
 		return m.configProfilesView()
+	}
+	if m.panel == panelFetch {
+		return m.fetchView()
+	}
+	if m.panel == panelRestore {
+		return m.restoreView()
+	}
+	if m.panel == panelReflog {
+		return m.reflogView()
+	}
+	if m.panel == panelRemoteList {
+		return m.remoteListView()
+	}
+	if m.panel == panelRemoteAdd {
+		return m.remoteAddView()
+	}
+	if m.panel == panelRemoteRename {
+		return m.remoteRenameView()
+	}
+	if m.panel == panelSubmoduleList {
+		return m.submoduleListView()
+	}
+	if m.panel == panelSubmoduleAdd {
+		return m.submoduleAddView()
+	}
+	if m.panel == panelNoteView {
+		return m.noteView()
 	}
 	return m.mainView()
 }
@@ -4058,6 +4809,172 @@ func (m model) configProfilesView() string {
 	return content + styleDim.Render("  [enter] save  [esc] back") + "\n"
 }
 
+// ---------------------------------------------------------------------------
+// new panel views
+// ---------------------------------------------------------------------------
+
+func (m model) fetchView() string {
+	title := styleTitle.Render("Fetch")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+	for i, opt := range fetchOptions {
+		cursor := "  "
+		if i == m.fetchCursor {
+			cursor = styleSelected.Render("▶ ")
+		}
+		b.WriteString(cursor + opt.label + "\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(styleDim.Render("  [↑↓] select  [enter] run  [esc] back") + "\n")
+	return b.String()
+}
+
+func (m model) restoreView() string {
+	title := styleTitle.Render("Restore File")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+	b.WriteString("  file: " + styleSelected.Render(m.restoreFile) + "\n\n")
+	b.WriteString("  restore to ref (commit hash, tag, or HEAD):\n")
+	b.WriteString("  " + m.restoreInput.View() + "\n\n")
+	b.WriteString(styleDim.Render("  [enter] restore  [esc] cancel") + "\n")
+	return b.String()
+}
+
+func (m model) reflogView() string {
+	title := styleTitle.Render("Reflog")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+	if len(m.reflogEntries) == 0 {
+		b.WriteString(styleDim.Render("  no reflog entries") + "\n")
+	}
+	visibleLines := m.height - 6
+	start := 0
+	if m.reflogCursor >= visibleLines {
+		start = m.reflogCursor - visibleLines + 1
+	}
+	end := start + visibleLines
+	if end > len(m.reflogEntries) {
+		end = len(m.reflogEntries)
+	}
+	for i := start; i < end; i++ {
+		e := m.reflogEntries[i]
+		cursor := "  "
+		if i == m.reflogCursor {
+			cursor = styleSelected.Render("▶ ")
+		}
+		ref := styleDim.Render(e.Ref)
+		action := styleChanged.Render(e.Action)
+		b.WriteString(fmt.Sprintf("%s%s  %s  %s  %s\n", cursor, styleHash.Render(e.Hash), ref, action, e.Subject))
+	}
+	b.WriteString("\n")
+	b.WriteString(styleDim.Render("  [↑↓] scroll  [r] reset to  [y] copy hash  [esc] back") + "\n")
+	return b.String()
+}
+
+func (m model) remoteListView() string {
+	title := styleTitle.Render("Remotes")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+	if len(m.remotes) == 0 {
+		b.WriteString(styleDim.Render("  no remotes configured") + "\n")
+	}
+	for i, r := range m.remotes {
+		cursor := "  "
+		if i == m.remoteCursor {
+			cursor = styleSelected.Render("▶ ")
+		}
+		b.WriteString(fmt.Sprintf("%s%-14s %s\n", cursor, styleSelected.Render(r.Name), r.FetchURL))
+		if r.PushURL != r.FetchURL && r.PushURL != "" {
+			b.WriteString(fmt.Sprintf("    %-14s %s (push)\n", "", styleDim.Render(r.PushURL)))
+		}
+	}
+	b.WriteString("\n")
+	b.WriteString(styleDim.Render("  [a] add  [d] remove  [r] rename  [esc] back") + "\n")
+	return b.String()
+}
+
+func (m model) remoteAddView() string {
+	title := styleTitle.Render("Add Remote")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+	b.WriteString("  name:\n  " + m.remoteAddInputs[0].View() + "\n\n")
+	b.WriteString("  url:\n  " + m.remoteAddInputs[1].View() + "\n\n")
+	b.WriteString(styleDim.Render("  [enter] next/confirm  [esc] back") + "\n")
+	return b.String()
+}
+
+func (m model) remoteRenameView() string {
+	title := styleTitle.Render("Rename Remote")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+	b.WriteString(fmt.Sprintf("  renaming: %s\n\n", styleSelected.Render(m.remoteRenameTarget)))
+	b.WriteString("  new name:\n  " + m.remoteRenameInput.View() + "\n\n")
+	b.WriteString(styleDim.Render("  [enter] rename  [esc] cancel") + "\n")
+	return b.String()
+}
+
+func (m model) submoduleListView() string {
+	title := styleTitle.Render("Submodules")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+	if len(m.submodules) == 0 {
+		b.WriteString(styleDim.Render("  no submodules in this repository") + "\n")
+	}
+	for i, s := range m.submodules {
+		cursor := "  "
+		if i == m.submoduleCursor {
+			cursor = styleSelected.Render("▶ ")
+		}
+		statusIcon := " "
+		switch s.Status {
+		case "+":
+			statusIcon = styleChanged.Render("M")
+		case "-":
+			statusIcon = styleAdded.Render("?")
+		case "U":
+			statusIcon = styleConflict.Render("!")
+		}
+		b.WriteString(fmt.Sprintf("%s%s %-30s %s\n", cursor, statusIcon, s.Path, styleDim.Render(s.Hash[:min(7, len(s.Hash))])))
+		if s.URL != "" {
+			b.WriteString(fmt.Sprintf("     %s\n", styleDim.Render(s.URL)))
+		}
+	}
+	b.WriteString("\n")
+	b.WriteString(styleDim.Render("  [a] add  [u] update --init  [d] deinit  [esc] back") + "\n")
+	return b.String()
+}
+
+func (m model) submoduleAddView() string {
+	title := styleTitle.Render("Add Submodule")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+	b.WriteString("  repository url:\n  " + m.submoduleInputs[0].View() + "\n\n")
+	b.WriteString("  local path (leave empty to use repo name):\n  " + m.submoduleInputs[1].View() + "\n\n")
+	b.WriteString(styleDim.Render("  [enter] next/confirm  [esc] back") + "\n")
+	return b.String()
+}
+
+func (m model) noteView() string {
+	title := styleTitle.Render("Note")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "  " + styleDim.Render(m.noteCommit) + "\n\n")
+	if m.noteEditing {
+		b.WriteString("  edit note:\n  " + m.noteInput.View() + "\n\n")
+		b.WriteString(styleDim.Render("  [enter] save  [esc] cancel") + "\n")
+		return b.String()
+	}
+	if m.noteContent == "" {
+		b.WriteString(styleDim.Render("  no note for this commit") + "\n\n")
+	} else {
+		for _, line := range strings.Split(m.noteContent, "\n") {
+			b.WriteString("  " + line + "\n")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString(styleDim.Render("  [e] edit  [d] delete  [esc] back") + "\n")
+	return b.String()
+}
+
 func contextTip(m model) string {
 	if m.status == nil {
 		return ""
@@ -4104,11 +5021,18 @@ func (m model) commandBar() string {
 		fmt.Sprintf("[%s] commit", kb.Commit),
 		fmt.Sprintf("[%s] push", kb.Push),
 		"[P] pull",
+		"[f] fetch",
 		"[b/B] branch",
 		"[l] log",
 		"[z] reset",
+		"[o] restore",
+		"[L] reflog",
 		"[t] tags",
 		"[W] worktrees",
+		"[O] remotes",
+		"[M] submodules",
+		"[n] notes",
+		"[X] clean",
 		"[?] help",
 		fmt.Sprintf("[%s] quit", kb.Quit),
 	}

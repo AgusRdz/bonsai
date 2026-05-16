@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/AgusRdz/bonsai/config"
 	"github.com/AgusRdz/bonsai/doctor"
+	"github.com/AgusRdz/bonsai/git"
 	"github.com/AgusRdz/bonsai/gitcheck"
 	"github.com/AgusRdz/bonsai/setup"
 	"github.com/AgusRdz/bonsai/tui"
@@ -51,6 +53,14 @@ func main() {
 		runInit()
 	case "setup":
 		runSetup(os.Args[2:])
+	case "stats":
+		runStats()
+	case "patch":
+		runPatch(os.Args[2:])
+	case "archive":
+		runArchive(os.Args[2:])
+	case "bundle":
+		runBundle(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai: unknown command %q\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "Run 'bonsai help' for available commands.")
@@ -128,6 +138,12 @@ Commands:
   config --path     print the path to the global config file
   doctor            check global and local git configuration health
   doctor --verbose  same, with a one-line explanation per check
+  stats             show repository statistics
+  patch create      create .patch files from commits (git format-patch)
+  patch apply       apply a .patch file (git am)
+  archive           export repo as tar.gz or zip
+  bundle create     pack refs into a portable bundle file
+  bundle verify     verify a bundle file
 
 Options:
   -h, --help     show help
@@ -342,4 +358,215 @@ func runUninstall() {
 	fmt.Println("  ~/.config/bonsai/    global config and metrics")
 	fmt.Println("  .bonsai.toml         per-project config files")
 	fmt.Println("  the PATH entry in your shell config")
+}
+
+// ---------------------------------------------------------------------------
+// bonsai stats
+// ---------------------------------------------------------------------------
+
+func runStats() {
+	ctx := context.Background()
+	r := git.New()
+	s, err := r.Stats(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bonsai: stats: %v\n", err)
+		os.Exit(1)
+	}
+
+	color := isTTY()
+	bold := func(v string) string {
+		if color {
+			return "\033[1m" + v + "\033[0m"
+		}
+		return v
+	}
+	dim := func(v string) string {
+		if color {
+			return "\033[2m" + v + "\033[0m"
+		}
+		return v
+	}
+
+	fmt.Println(bold("bonsai stats"))
+	fmt.Println()
+
+	// Overview
+	fmt.Println(bold("Overview"))
+	fmt.Printf("  commits      %d", s.TotalCommits)
+	if s.FirstCommitDate != "" && s.LastCommitDate != "" {
+		fmt.Printf("  %s(%s - %s)%s", dim(""), s.FirstCommitDate, s.LastCommitDate, dim(""))
+	}
+	fmt.Println()
+	fmt.Printf("  last 30 days %d\n", s.CommitsLast30d)
+	fmt.Printf("  branches     %d\n", s.TotalBranches)
+	fmt.Printf("  tags         %d\n", s.TotalTags)
+	fmt.Printf("  files        %d tracked\n", s.TrackedFiles)
+	fmt.Println()
+
+	// Contributors
+	if len(s.Contributors) > 0 {
+		fmt.Println(bold("Contributors"))
+		maxCount := s.Contributors[0].Count
+		barWidth := 20
+		for _, c := range s.Contributors {
+			filled := 0
+			if maxCount > 0 {
+				filled = c.Count * barWidth / maxCount
+			}
+			bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+			fmt.Printf("  %-25s %s %d\n", c.Name, dim(bar), c.Count)
+		}
+		fmt.Println()
+	}
+
+	// File types
+	if len(s.ExtBreakdown) > 0 {
+		fmt.Println(bold("File types"))
+		maxCount := s.ExtBreakdown[0].Count
+		barWidth := 20
+		for _, e := range s.ExtBreakdown {
+			filled := 0
+			if maxCount > 0 {
+				filled = e.Count * barWidth / maxCount
+			}
+			bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+			fmt.Printf("  %-12s %s %d\n", e.Ext, dim(bar), e.Count)
+		}
+		fmt.Println()
+	}
+
+	// Most changed files
+	if len(s.TopFiles) > 0 {
+		fmt.Println(bold("Most changed files"))
+		for i, f := range s.TopFiles {
+			fmt.Printf("  %2d. %-40s %d changes\n", i+1, f.Path, f.Count)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// bonsai patch
+// ---------------------------------------------------------------------------
+
+func runPatch(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: bonsai patch create --base=<ref> [--output=<dir>]")
+		fmt.Fprintln(os.Stderr, "       bonsai patch apply <file> [<file>...]")
+		os.Exit(1)
+	}
+	ctx := context.Background()
+	r := git.New()
+	switch args[0] {
+	case "create":
+		base := ""
+		outputDir := ""
+		for _, a := range args[1:] {
+			if strings.HasPrefix(a, "--base=") {
+				base = strings.TrimPrefix(a, "--base=")
+			} else if strings.HasPrefix(a, "--output=") {
+				outputDir = strings.TrimPrefix(a, "--output=")
+			}
+		}
+		if base == "" {
+			fmt.Fprintln(os.Stderr, "bonsai: patch create requires --base=<ref>")
+			os.Exit(1)
+		}
+		files, err := r.FormatPatch(ctx, base, outputDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "bonsai: patch create: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("created %d patch file(s):\n", len(files))
+		for _, f := range files {
+			fmt.Printf("  %s\n", f)
+		}
+	case "apply":
+		files := args[1:]
+		if len(files) == 0 {
+			fmt.Fprintln(os.Stderr, "bonsai: patch apply requires at least one file")
+			os.Exit(1)
+		}
+		if err := r.ApplyPatch(ctx, files...); err != nil {
+			fmt.Fprintf(os.Stderr, "bonsai: patch apply: %v\n", err)
+			fmt.Fprintln(os.Stderr, "resolve conflicts then run: git am --continue")
+			fmt.Fprintln(os.Stderr, "to abort: git am --abort")
+			os.Exit(1)
+		}
+		fmt.Printf("applied %d patch file(s)\n", len(files))
+	default:
+		fmt.Fprintf(os.Stderr, "bonsai: patch: unknown subcommand %q\n", args[0])
+		os.Exit(1)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// bonsai archive
+// ---------------------------------------------------------------------------
+
+func runArchive(args []string) {
+	format := "tar.gz"
+	output := ""
+	ref := "HEAD"
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, "--format="):
+			format = strings.TrimPrefix(a, "--format=")
+		case strings.HasPrefix(a, "--output="):
+			output = strings.TrimPrefix(a, "--output=")
+		case strings.HasPrefix(a, "--ref="):
+			ref = strings.TrimPrefix(a, "--ref=")
+		}
+	}
+	if output == "" {
+		output = "archive." + format
+	}
+	ctx := context.Background()
+	r := git.New()
+	if err := r.Archive(ctx, format, output, ref); err != nil {
+		fmt.Fprintf(os.Stderr, "bonsai: archive: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("created %s from %s\n", output, ref)
+}
+
+// ---------------------------------------------------------------------------
+// bonsai bundle
+// ---------------------------------------------------------------------------
+
+func runBundle(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: bonsai bundle create <file> [<ref>...]")
+		fmt.Fprintln(os.Stderr, "       bonsai bundle verify <file>")
+		os.Exit(1)
+	}
+	ctx := context.Background()
+	r := git.New()
+	switch args[0] {
+	case "create":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "bonsai: bundle create requires <file>")
+			os.Exit(1)
+		}
+		output := args[1]
+		refs := args[2:]
+		if err := r.BundleCreate(ctx, output, refs...); err != nil {
+			fmt.Fprintf(os.Stderr, "bonsai: bundle create: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("bundle written to %s\n", output)
+	case "verify":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "bonsai: bundle verify requires <file>")
+			os.Exit(1)
+		}
+		msg, err := r.BundleVerify(ctx, args[1])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "bonsai: bundle verify: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(msg)
+	default:
+		fmt.Fprintf(os.Stderr, "bonsai: bundle: unknown subcommand %q\n", args[0])
+		os.Exit(1)
+	}
 }

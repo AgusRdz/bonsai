@@ -194,6 +194,52 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git worktree remove"):
 		return "The linked worktree was removed. The branch it contained still exists in the repository. " +
 			"Removing a worktree only deletes the working directory link - your commits are safe."
+	case strings.HasPrefix(cmd, "git fetch --all --prune"):
+		return "All remotes were fetched and stale remote-tracking refs (branches deleted on the server) were pruned. " +
+			"Your local branches are untouched."
+	case strings.HasPrefix(cmd, "git fetch --all"):
+		return "All configured remotes were fetched. Use fetch --prune to also clean up deleted remote branches."
+	case strings.HasPrefix(cmd, "git fetch --prune"):
+		return "The remote was fetched and stale remote-tracking refs were pruned. " +
+			"Remote-tracking refs for branches that no longer exist on the server have been removed."
+	case strings.HasPrefix(cmd, "git fetch"):
+		return "The remote was fetched - remote-tracking refs are updated but your local branches remain unchanged. " +
+			"Use 'git merge' or 'git rebase' to integrate the fetched changes."
+	case strings.HasPrefix(cmd, "git restore --source"):
+		return "The file was restored to the state it had at the given ref. " +
+			"The change appears as a modification in your working tree - you still need to stage and commit it."
+	case strings.HasPrefix(cmd, "git clean -fd"):
+		return "Untracked files and directories were permanently removed from the working tree. " +
+			"This action cannot be undone - untracked files are not in git history."
+	case strings.HasPrefix(cmd, "git reset --mixed"):
+		return "HEAD was moved to the target commit with mixed reset. " +
+			"Commits after that point are undone and their changes are left in the working tree as unstaged modifications."
+	case strings.HasPrefix(cmd, "git remote add"):
+		return "A new remote was registered. You can now fetch, pull, and push to it. " +
+			"Run 'git fetch <name>' to download its refs."
+	case strings.HasPrefix(cmd, "git remote remove"):
+		return "The remote was removed from your local config. " +
+			"This only affects your local repository - the remote itself is unaffected."
+	case strings.HasPrefix(cmd, "git remote rename"):
+		return "The remote was renamed. Any branches tracking that remote were automatically updated to use the new name."
+	case strings.HasPrefix(cmd, "git submodule add"):
+		return "A new submodule was registered and cloned into the specified path. " +
+			"The .gitmodules file and the submodule directory have been staged - commit them to record the submodule in your repo."
+	case strings.HasPrefix(cmd, "git submodule update --init"):
+		return "All submodules were initialised and updated to the commit recorded by the parent repo. " +
+			"Run this after cloning a repo that contains submodules."
+	case strings.HasPrefix(cmd, "git submodule update"):
+		return "Submodules were checked out to the commit recorded by the parent repo. " +
+			"If the parent has new commits pointing to newer submodule versions, those versions are now active."
+	case strings.HasPrefix(cmd, "git submodule deinit"):
+		return "The submodule's working directory was cleaned and its section removed from .git/config. " +
+			"The .gitmodules entry still exists - remove it manually if you want to fully drop the submodule."
+	case strings.HasPrefix(cmd, "git notes add"):
+		return "A note was attached to the commit. Notes are stored in refs/notes/commits and are not shown by default " +
+			"in 'git log' unless you pass --notes. They are not transferred with push/pull unless you configure the refspec."
+	case strings.HasPrefix(cmd, "git notes remove"):
+		return "The note was removed from the commit. " +
+			"The commit itself is unchanged - notes are metadata stored separately from the commit object."
 	default:
 		return ""
 	}
