@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.10.0] - 2026-05-16
+
+### Features
+- Stash push and pop with stash list panel
+([c6daa13](https://github.com/AgusRdz/bonsai/commit/c6daa13dcee74b0f748fedf30a10299d3ef5e6ca))
 ## [0.9.0] - 2026-05-16
 
 ### Features
