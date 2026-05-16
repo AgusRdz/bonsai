@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.14.0] - 2026-05-16
+
+### Features
+- Flow-aware branch picker and contextual workflow hints
+([5c59a18](https://github.com/AgusRdz/bonsai/commit/5c59a18890e35686354ebe64a375ca2ba374c894))
 ## [0.13.0] - 2026-05-16
 
 ### Features
