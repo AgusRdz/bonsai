@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.29.1] - 2026-05-16
+
+### Documentation
+- Rewrite README and add full wiki in docs/
+([ebbdf60](https://github.com/AgusRdz/bonsai/commit/ebbdf6030272195b0212b37ef5cde1d08e1c69de))
 ## [0.29.0] - 2026-05-16
 
 ### Features
