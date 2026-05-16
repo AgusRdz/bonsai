@@ -4327,7 +4327,7 @@ func (m model) helpView() string {
 
 	section("App")
 	row("C", "configuration manager (git config, gitignore, profiles, education)")
-	row("?", "this help panel")
+	row("?", "all shortcuts (this panel)")
 	row(kb.Quit+" / ctrl+c", "quit")
 	b.WriteString("\n")
 
@@ -5927,31 +5927,12 @@ func (m model) commandBar() string {
 		"[space] stage/unstage",
 		"[h] hunks",
 		"[d] diff",
-		"[e] blame",
-		"[H] file history",
 		fmt.Sprintf("[%s] commit", kb.Commit),
-		"[A] amend",
 		fmt.Sprintf("[%s] push", kb.Push),
 		"[P] pull",
-		"[f] fetch",
-		fmt.Sprintf("[%s/%s] stash", kb.Stash, strings.ToUpper(kb.Stash)),
 		"[b/B] branch",
 		"[l] log",
-		fmt.Sprintf("[%s] graph", kb.Graph),
-		"[z] reset",
-		"[o] restore",
-		"[L] reflog",
-		"[t] tags",
-		"[i] bisect",
-		"[R] rebase",
-		"[W] worktrees",
-		"[O] remotes",
-		"[M] submodules",
-		"[n] notes",
-		"[X] clean",
-		"[a] abort",
-		"[C] config",
-		"[?] help",
+		"[?] all shortcuts",
 		fmt.Sprintf("[%s] quit", kb.Quit),
 	}
 	return styleDim.Render("  "+strings.Join(parts, "  ")) + "\n"
