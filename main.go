@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/AgusRdz/bonsai/config"
+	"github.com/AgusRdz/bonsai/doctor"
 	"github.com/AgusRdz/bonsai/gitcheck"
 	"github.com/AgusRdz/bonsai/setup"
 	"github.com/AgusRdz/bonsai/tui"
@@ -43,6 +45,8 @@ func main() {
 		fmt.Print(changelog)
 	case "config":
 		runConfig(os.Args[2:])
+	case "doctor":
+		runDoctor()
 	case "init":
 		runInit()
 	case "setup":
@@ -122,6 +126,7 @@ Commands:
   config local      open (or create) per-project .bonsai.toml in your editor
   config global     open global config in your editor (same as 'config')
   config path       print the path to the global config file
+  doctor            check global and local git configuration health
 
 Options:
   -h, --help     show help
@@ -182,6 +187,107 @@ func runInit() {
 	fmt.Printf("created %s\n", local)
 	fmt.Println("edit it to customise conventions, mode, and flow for this project")
 	fmt.Println("run 'bonsai config local' to open it in your editor")
+}
+
+func runDoctor() {
+	report, err := doctor.Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bonsai: doctor: %v\n", err)
+		os.Exit(1)
+	}
+	printReport(report)
+}
+
+// isTTY reports whether stdout is an interactive terminal.
+func isTTY() bool {
+	stat, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return (stat.Mode() & os.ModeCharDevice) != 0
+}
+
+func printReport(report *doctor.Report) {
+	color := isTTY()
+
+	green := func(s string) string {
+		if color {
+			return "\033[32m" + s + "\033[0m"
+		}
+		return s
+	}
+	yellow := func(s string) string {
+		if color {
+			return "\033[33m" + s + "\033[0m"
+		}
+		return s
+	}
+	red := func(s string) string {
+		if color {
+			return "\033[31m" + s + "\033[0m"
+		}
+		return s
+	}
+
+	icon := func(lvl doctor.Level) string {
+		switch lvl {
+		case doctor.OK:
+			return green("✓")
+		case doctor.Warn:
+			return yellow("⚠")
+		default:
+			return red("✗")
+		}
+	}
+
+	printChecks := func(checks []doctor.Check) (errors, warnings, passed int) {
+		for _, c := range checks {
+			label := c.Label
+			// Pad label to 22 chars.
+			for len([]rune(label)) < 22 {
+				label += " "
+			}
+			fmt.Printf("  %s  %s  %s\n", icon(c.Level), label, c.Message)
+			if c.Fix != "" && c.Level != doctor.OK {
+				fmt.Printf("     fix: %s\n", c.Fix)
+			}
+			switch c.Level {
+			case doctor.OK:
+				passed++
+			case doctor.Warn:
+				warnings++
+			case doctor.Fail:
+				errors++
+			}
+		}
+		return
+	}
+
+	fmt.Println("bonsai doctor")
+	fmt.Println()
+
+	fmt.Println("Global")
+	ge, gw, gp := printChecks(report.Global)
+	fmt.Println()
+
+	cwd, _ := os.Getwd()
+	repoName := filepath.Base(cwd)
+	if report.InRepo {
+		fmt.Printf("Local  (%s)\n", repoName)
+	} else {
+		fmt.Println("Local  (not in a git repository)")
+	}
+	le, lw, lp := printChecks(report.Local)
+	fmt.Println()
+
+	totalErrors := ge + le
+	totalWarnings := gw + lw
+	totalPassed := gp + lp
+	fmt.Printf("Summary: %d errors, %d warnings, %d passed\n", totalErrors, totalWarnings, totalPassed)
+
+	if totalErrors > 0 {
+		os.Exit(1)
+	}
 }
 
 func runUninstall() {
