@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.25.0] - 2026-05-16
+
+### Features
+- Git bisect panel (block 5)
+([7d02fb8](https://github.com/AgusRdz/bonsai/commit/7d02fb8ef025ea6764f0c8c015ef1d4223294e28))
 ## [0.24.0] - 2026-05-16
 
 ### Features
