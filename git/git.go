@@ -1421,9 +1421,10 @@ type RepoStats struct {
 	CommitsLast30d  int
 }
 
-// ContributorStat holds commit count per author.
+// ContributorStat holds commit count per author, grouped by email.
 type ContributorStat struct {
 	Name  string
+	Email string
 	Count int
 }
 
@@ -1437,6 +1438,89 @@ type ExtStat struct {
 type FileStat struct {
 	Path  string
 	Count int
+}
+
+// collectContributors groups commits by author email, resolving the display
+// name by picking the most frequent name for each email. When the email
+// matches the global user.email the configured user.name is preferred.
+func collectContributors(ctx context.Context, r *Runner) []ContributorStat {
+	out, err := exec.CommandContext(ctx, "git", "log", "--no-merges",
+		"--format=%ae\x1e%an").Output()
+	if err != nil {
+		return nil
+	}
+
+	emailCounts := map[string]int{}
+	emailNames := map[string]map[string]int{}
+
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\x1e", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		email := strings.TrimSpace(parts[0])
+		name := strings.TrimSpace(parts[1])
+		if email == "" {
+			continue
+		}
+		emailCounts[email]++
+		if emailNames[email] == nil {
+			emailNames[email] = map[string]int{}
+		}
+		emailNames[email][name]++
+	}
+
+	// Resolve the canonical name for the global user.
+	configEmail, _ := exec.CommandContext(ctx, "git", "config", "--global", "--get", "user.email").Output()
+	configName, _ := exec.CommandContext(ctx, "git", "config", "--global", "--get", "user.name").Output()
+	myEmail := strings.TrimSpace(string(configEmail))
+	myName := strings.TrimSpace(string(configName))
+
+	// Build sorted contributor list.
+	type entry struct {
+		email string
+		count int
+	}
+	var entries []entry
+	for email, count := range emailCounts {
+		entries = append(entries, entry{email, count})
+	}
+	for i := 0; i < len(entries); i++ {
+		for j := i + 1; j < len(entries); j++ {
+			if entries[j].count > entries[i].count {
+				entries[i], entries[j] = entries[j], entries[i]
+			}
+		}
+	}
+
+	var result []ContributorStat
+	for _, e := range entries {
+		name := mostFrequentName(emailNames[e.email])
+		// Prefer the configured user.name when this is the global user's email.
+		if myEmail != "" && e.email == myEmail && myName != "" {
+			name = myName
+		}
+		result = append(result, ContributorStat{Name: name, Email: e.email, Count: e.count})
+		if len(result) >= 10 {
+			break
+		}
+	}
+	return result
+}
+
+func mostFrequentName(names map[string]int) string {
+	best := ""
+	bestCount := 0
+	for name, count := range names {
+		if count > bestCount || (count == bestCount && name < best) {
+			best = name
+			bestCount = count
+		}
+	}
+	return best
 }
 
 // Stats computes repository statistics. May be slow on large repos.
@@ -1456,24 +1540,8 @@ func (r *Runner) Stats(ctx context.Context) (*RepoStats, error) {
 		s.LastCommitDate = strings.TrimSpace(string(out))
 	}
 
-	// Top contributors.
-	if out, err := r.run(ctx, "shortlog", "-sn", "--no-merges", "HEAD"); err == nil {
-		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-			if line == "" {
-				continue
-			}
-			fields := strings.Fields(line)
-			if len(fields) < 2 {
-				continue
-			}
-			count, _ := strconv.Atoi(fields[0])
-			name := strings.Join(fields[1:], " ")
-			s.Contributors = append(s.Contributors, ContributorStat{Name: name, Count: count})
-			if len(s.Contributors) >= 10 {
-				break
-			}
-		}
-	}
+	// Top contributors - grouped by email to collapse duplicate identities.
+	s.Contributors = collectContributors(ctx, r)
 
 	// Branch count.
 	if out, err := r.run(ctx, "branch", "--list"); err == nil {
