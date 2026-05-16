@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.13.0] - 2026-05-16
+
+### Features
+- Discard working tree changes with confirmation panel
+([2a2c2fc](https://github.com/AgusRdz/bonsai/commit/2a2c2fc0f14b5b570cc69b373d6a74335957e3dd))
 ## [0.12.0] - 2026-05-16
 
 ### Features
