@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.45.0] - 2026-05-16
+
+### Features
+- PR review workflow, draft/metadata badges, CI in list
+([e58da6b](https://github.com/AgusRdz/bonsai/commit/e58da6bae5f03e87bd57dcc6eaa8cf8b52c8eded))
 ## [0.44.0] - 2026-05-16
 
 ### Features
