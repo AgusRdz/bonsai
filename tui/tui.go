@@ -4327,12 +4327,13 @@ func (m model) mainView() string {
 		b.WriteString("  " + styleDim.Render("$ "+m.lastCmd) + "\n")
 	} else if m.convViolation != nil && m.cfg.Conventions.Validation.Mode == "warn" {
 		b.WriteString("  " + styleChanged.Render("! "+m.convViolation.Branch+" does not follow conventions") + "\n")
-	} else if hint := fileActionHint(m); hint != "" {
-		b.WriteString("  " + styleDim.Render(hint) + "\n")
 	} else if m.cfg.Modes.Default != "pro" {
 		b.WriteString("  " + styleDim.Render(contextTip(m)) + "\n")
 	} else {
 		b.WriteString("  " + styleDim.Render("run 'bonsai config' to change mode or flow") + "\n")
+	}
+	if hint := fileActionHint(m); hint != "" {
+		b.WriteString("  " + styleDim.Render(hint) + "\n")
 	}
 
 	content := b.String()
@@ -4593,7 +4594,7 @@ func (m model) helpView() string {
 	section("Files")
 	row("↑↓ / k/j", "navigate file list")
 	row("space", "stage / unstage selected file")
-	row("h", "hunk staging - stage individual hunks within a file")
+	row("h", "stage by section - pick which parts of a file to stage (useful for splitting a commit)")
 	row("d", "diff selected file (staged or unstaged)")
 	row("H", "file history - every commit that touched this file")
 	row("e", "blame - who last changed each line")
@@ -6266,9 +6267,9 @@ func fileActionHint(m model) string {
 	case catConflict:
 		return "[d] view conflict  [O] take ours  [T] take theirs"
 	case catStaged:
-		return "[space] unstage  [u] untrack (keep on disk)  [d] diff  [h] hunks  [c] commit"
+		return "[space] unstage  [u] untrack (keep on disk)  [h] stage by section  [d] diff  [c] commit"
 	case catChanged:
-		return "[space] stage  [h] hunks  [d] diff  [x] discard"
+		return "[space] stage  [h] stage by section  [d] diff  [x] discard"
 	case catUntracked:
 		return "[space] stage  [x] delete from disk  [d] diff"
 	}
@@ -6318,7 +6319,7 @@ type cmdBarEntry struct {
 
 var cmdBarCatalog = []cmdBarEntry{
 	{"space", "[space]", "stage/unstage"},
-	{"hunks", "[h]", "hunks"},
+	{"hunks", "[h]", "stage by section"},
 	{"diff", "[d]", "diff"},
 	{"commit", "[c]", "commit"},
 	{"push", "[p]", "push"},
@@ -6382,7 +6383,7 @@ func (m model) commandBar() string {
 	kb := m.cfg.Keybindings
 	labelFor := map[string]string{
 		"space":      "[space] stage/unstage",
-		"hunks":      "[h] hunks",
+		"hunks":      "[h] stage by section",
 		"diff":       "[d] diff",
 		"commit":     fmt.Sprintf("[%s] commit", kb.Commit),
 		"push":       fmt.Sprintf("[%s] push", kb.Push),

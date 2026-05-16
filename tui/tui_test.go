@@ -273,8 +273,8 @@ func TestFileActionHintCategories(t *testing.T) {
 		wantKeys []string
 	}{
 		{catUntracked, []string{"space", "delete from disk", "diff"}},
-		{catChanged, []string{"space", "hunks", "discard"}},
-		{catStaged, []string{"space", "untrack", "commit"}},
+		{catChanged, []string{"space", "stage by section", "discard"}},
+		{catStaged, []string{"space", "untrack", "stage by section", "commit"}},
 		{catConflict, []string{"take ours", "take theirs"}},
 	}
 	for _, c := range cases {
