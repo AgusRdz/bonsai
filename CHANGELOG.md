@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.23.0] - 2026-05-16
+
+### Features
+- Worktree list, add, and remove (block 3)
+([9c2cfef](https://github.com/AgusRdz/bonsai/commit/9c2cfef3cf4ac77900fe8eeb6cc231dd7b2e2ddd))
 ## [0.22.0] - 2026-05-16
 
 ### Features
