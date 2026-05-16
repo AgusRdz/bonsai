@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.22.0] - 2026-05-16
+
+### Features
+- Linear rebase with continue and abort (block 2)
+([3ed8365](https://github.com/AgusRdz/bonsai/commit/3ed83655f35c18381a07eee1d154e0e450066bb2))
 ## [0.21.1] - 2026-05-16
 
 ### Bug Fixes
