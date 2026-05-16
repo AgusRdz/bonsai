@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.19.0] - 2026-05-16
+
+### Features
+- Merge conflict detection and interactive resolution panel
+([57febf1](https://github.com/AgusRdz/bonsai/commit/57febf1bccbd604c7fcf2aa03f86833c4b2963dc))
 ## [0.18.0] - 2026-05-16
 
 ### Features
