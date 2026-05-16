@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.37.0] - 2026-05-16
+
+### Features
+- Human-readable feedback for all major git operations
+([25c03cf](https://github.com/AgusRdz/bonsai/commit/25c03cfd8be8d7eab2f9e90e0ce1bb63f9e1c890))
 ## [0.36.3] - 2026-05-16
 
 ### Features
