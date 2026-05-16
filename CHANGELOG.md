@@ -2,6 +2,15 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.2.0] - 2026-05-16
+
+### Features
+- Check git installation and suggest updates at startup
+([d47d54a](https://github.com/AgusRdz/bonsai/commit/d47d54a87c2bafc6de37ae412160f402a76caf47))
+
+### Miscellaneous
+- Install git-cliff inside dev container
+([951b718](https://github.com/AgusRdz/bonsai/commit/951b718266223d055c9394c993802c8d8e17ab14))
 ## [0.1.0] - 2026-05-16
 
 ### Bug Fixes
