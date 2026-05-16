@@ -1992,6 +1992,37 @@ func (r *Runner) LFSTrackedFiles(ctx context.Context) ([]string, error) {
 	return files, nil
 }
 
+// LFSPush uploads all LFS objects to the remote.
+func (r *Runner) LFSPush(ctx context.Context) error {
+	_, err := r.run(ctx, "lfs", "push", "--all", "origin")
+	return err
+}
+
+// LFSTrackedPatterns returns the patterns configured for LFS in .gitattributes.
+// Unlike LFSTrackedFiles, this returns patterns (e.g. "*.psd") not file paths.
+func (r *Runner) LFSTrackedPatterns(ctx context.Context) ([]string, error) {
+	out, err := r.run(ctx, "lfs", "track")
+	if err != nil {
+		return nil, err
+	}
+	var patterns []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		// Output format: "    *.psd (git)"
+		if line == "" || strings.HasPrefix(line, "Listing") {
+			continue
+		}
+		// Strip trailing " (git)" or " (.gitattributes)"
+		if idx := strings.Index(line, " ("); idx >= 0 {
+			line = strings.TrimSpace(line[:idx])
+		}
+		if line != "" {
+			patterns = append(patterns, line)
+		}
+	}
+	return patterns, nil
+}
+
 // IsLFSInstalled reports whether git-lfs is available in the current environment.
 func IsLFSInstalled() bool {
 	_, err := exec.LookPath("git-lfs")

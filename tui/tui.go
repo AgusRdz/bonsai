@@ -463,8 +463,13 @@ type model struct {
 	sshTestResults map[string]string // host -> "ok"/"fail"/"..."
 
 	// LFS panel
-	lfsTracked []string // files tracked by LFS
-	lfsStatus  string   // raw output of git lfs status
+	lfsTracked    []string // files tracked by LFS (git lfs ls-files)
+	lfsPatterns   []string // patterns in .gitattributes
+	lfsStatus     string   // raw output of git lfs status
+	lfsInstalled  bool     // whether git-lfs is available
+	lfsCursor     int      // cursor in pattern list
+	lfsTracking   bool     // whether track-pattern input is active
+	lfsTrackInput textinput.Model
 
 	// Multi-repo dashboard
 	dashEntries []git.DashboardEntry
@@ -503,8 +508,10 @@ type sshTestMsg struct {
 }
 
 type lfsDataMsg struct {
-	tracked []string
-	status  string
+	tracked   []string // files tracked (git lfs ls-files)
+	patterns  []string // patterns configured in .gitattributes
+	status    string   // raw git lfs status output
+	installed bool     // whether git-lfs binary is available
 }
 
 type dashboardMsg []git.DashboardEntry
@@ -2076,7 +2083,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case lfsDataMsg:
 		m.lfsTracked = msg.tracked
+		m.lfsPatterns = msg.patterns
 		m.lfsStatus = msg.status
+		m.lfsInstalled = msg.installed
+		m.lfsCursor = 0
+		m.lfsTracking = false
 		m.panel = panelLFS
 
 	case dashboardMsg:
@@ -8263,7 +8274,68 @@ func (m model) sshView() string {
 }
 
 func (m model) updateLFSPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.lfsTracking {
+		switch msg.String() {
+		case "enter":
+			pattern := strings.TrimSpace(m.lfsTrackInput.Value())
+			m.lfsTracking = false
+			if pattern != "" {
+				return m, tea.Batch(m.doLFSTrack(pattern), m.doLoadLFSData())
+			}
+		case "esc":
+			m.lfsTracking = false
+		default:
+			var cmd tea.Cmd
+			m.lfsTrackInput, cmd = m.lfsTrackInput.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
+	case "up", "k":
+		if m.lfsCursor > 0 {
+			m.lfsCursor--
+		}
+	case "down", "j":
+		if m.lfsCursor < len(m.lfsPatterns)-1 {
+			m.lfsCursor++
+		}
+	case "p":
+		if m.lfsInstalled {
+			m.panel = panelMain
+			return m, m.doLFSPull()
+		}
+	case "P":
+		if m.lfsInstalled {
+			m.panel = panelMain
+			return m, m.doLFSPush()
+		}
+	case "t":
+		if m.lfsInstalled {
+			ti := textinput.New()
+			ti.Placeholder = "pattern, e.g. *.psd or assets/**"
+			ti.Focus()
+			ti.CharLimit = 200
+			ti.Width = m.width - 6
+			m.lfsTrackInput = ti
+			m.lfsTracking = true
+		}
+	case "u":
+		if m.lfsInstalled && m.lfsCursor < len(m.lfsPatterns) {
+			pattern := m.lfsPatterns[m.lfsCursor]
+			return m, tea.Batch(m.doLFSUntrack(pattern), m.doLoadLFSData())
+		}
+	case "i":
+		if !m.lfsInstalled {
+			m.panel = panelMain
+			return m, func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				err := m.git.LFSInstall(ctx)
+				return actionDoneMsg{cmd: "git lfs install", err: err, info: "LFS hooks installed"}
+			}
+		}
 	case "r":
 		return m, m.doLoadLFSData()
 	case "esc", m.cfg.Keybindings.Quit:
@@ -8276,7 +8348,23 @@ func (m model) updateLFSPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) lfsView() string {
 	var b strings.Builder
-	b.WriteString("\n  " + styleTitle.Render("LFS") + "  " + styleDim.Render("Git Large File Storage") + "\n\n")
+
+	installBadge := styleStaged.Render("installed")
+	if !m.lfsInstalled {
+		installBadge = styleChanged.Render("not installed")
+	}
+	b.WriteString("\n  " + styleTitle.Render("LFS") + "  " + styleDim.Render("Git Large File Storage") + "  " + installBadge + "\n\n")
+
+	if !m.lfsInstalled {
+		b.WriteString("  " + styleDim.Render("git-lfs is not installed. Press [i] to run `git lfs install`,") + "\n")
+		b.WriteString("  " + styleDim.Render("or install it from https://git-lfs.com") + "\n")
+		content := b.String()
+		lines := strings.Count(content, "\n")
+		if pad := m.height - lines - 1; pad > 0 {
+			content += strings.Repeat("\n", pad)
+		}
+		return content + styleDim.Render("  [i] git lfs install  [r] refresh  [esc] back") + "\n"
+	}
 
 	if m.lfsTracked == nil {
 		b.WriteString("  " + styleDim.Render("loading...") + "\n")
@@ -8288,27 +8376,37 @@ func (m model) lfsView() string {
 		return content + styleDim.Render("  [esc] back") + "\n"
 	}
 
-	if len(m.lfsTracked) == 0 {
-		b.WriteString("  " + styleDim.Render("no files currently tracked by LFS") + "\n")
-		b.WriteString("  " + styleDim.Render("use `git lfs track <pattern>` to add patterns") + "\n")
+	if m.lfsTracking {
+		b.WriteString("  " + styleSection.Render("Track pattern") + "\n\n")
+		b.WriteString("  " + styleDim.Render("pattern: ") + m.lfsTrackInput.View() + "\n\n")
+		content := b.String()
+		lines := strings.Count(content, "\n")
+		if pad := m.height - lines - 1; pad > 0 {
+			content += strings.Repeat("\n", pad)
+		}
+		return content + styleDim.Render("  [enter] confirm  [esc] cancel") + "\n"
+	}
+
+	// Tracked patterns section.
+	if len(m.lfsPatterns) == 0 {
+		b.WriteString("  " + styleDim.Render("no patterns tracked yet  - press [t] to add one") + "\n")
 	} else {
-		b.WriteString("  " + styleSection.Render(fmt.Sprintf("Tracked files (%d)", len(m.lfsTracked))) + "\n\n")
-		visLines := m.height - 10
-		if visLines < 1 {
-			visLines = 1
-		}
-		shown := m.lfsTracked
-		if len(shown) > visLines {
-			shown = shown[:visLines]
-		}
-		for _, f := range shown {
-			b.WriteString("  " + styleDim.Render(f) + "\n")
-		}
-		if len(m.lfsTracked) > visLines {
-			b.WriteString("  " + styleDim.Render(fmt.Sprintf("... and %d more", len(m.lfsTracked)-visLines)) + "\n")
+		b.WriteString("  " + styleSection.Render(fmt.Sprintf("Tracked patterns (%d)", len(m.lfsPatterns))) + "\n\n")
+		for i, pat := range m.lfsPatterns {
+			cursor := "  "
+			if i == m.lfsCursor {
+				cursor = styleSelected.Render(">>")
+			}
+			b.WriteString(fmt.Sprintf("  %s %s\n", cursor, styleCmd.Render(pat)))
 		}
 	}
 
+	// Tracked files count.
+	if len(m.lfsTracked) > 0 {
+		b.WriteString("\n  " + styleDim.Render(fmt.Sprintf("%d file(s) currently stored in LFS", len(m.lfsTracked))) + "\n")
+	}
+
+	// Status section.
 	if m.lfsStatus != "" {
 		b.WriteString("\n  " + styleSection.Render("Status") + "\n")
 		for _, line := range strings.Split(strings.TrimRight(m.lfsStatus, "\n"), "\n") {
@@ -8323,7 +8421,8 @@ func (m model) lfsView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [r] refresh  [esc] back") + "\n"
+	bar := "  [p] pull  [P] push  [t] track pattern  [u] untrack selected  [r] refresh  [esc] back"
+	return content + styleDim.Render(bar) + "\n"
 }
 
 func (m model) updateDashboardPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -8633,11 +8732,49 @@ func doTestSSHHost(host string) tea.Cmd {
 
 func (m model) doLoadLFSData() tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		installed := git.IsLFSInstalled()
 		tracked, _ := m.git.LFSTrackedFiles(ctx)
+		patterns, _ := m.git.LFSTrackedPatterns(ctx)
 		status, _ := m.git.LFSStatus(ctx)
-		return lfsDataMsg{tracked: tracked, status: status}
+		return lfsDataMsg{tracked: tracked, patterns: patterns, status: status, installed: installed}
+	}
+}
+
+func (m model) doLFSPull() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+		err := m.git.LFSPull(ctx)
+		return actionDoneMsg{cmd: "git lfs pull", err: err, info: "LFS objects downloaded"}
+	}
+}
+
+func (m model) doLFSPush() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+		err := m.git.LFSPush(ctx)
+		return actionDoneMsg{cmd: "git lfs push --all origin", err: err, info: "LFS objects pushed to origin"}
+	}
+}
+
+func (m model) doLFSTrack(pattern string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := m.git.LFSTrack(ctx, pattern)
+		return actionDoneMsg{cmd: "git lfs track " + pattern, err: err, info: "tracking " + pattern}
+	}
+}
+
+func (m model) doLFSUntrack(pattern string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err := m.git.LFSUntrack(ctx, pattern)
+		return actionDoneMsg{cmd: "git lfs untrack " + pattern, err: err, info: "untracked " + pattern}
 	}
 }
 
