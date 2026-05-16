@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.39.0] - 2026-05-16
+
+### Features
+- Suggest PR after push, inline conflict editor, local metrics
+([4254396](https://github.com/AgusRdz/bonsai/commit/4254396dd0b5f4de7a77a3773486ce081a53a270))
 ## [0.38.0] - 2026-05-16
 
 ### Features
