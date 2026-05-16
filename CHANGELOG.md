@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.8.0] - 2026-05-16
+
+### Features
+- Branch switcher panel
+([425787f](https://github.com/AgusRdz/bonsai/commit/425787f1b73674526eec194d090869f0dede6b81))
 ## [0.7.0] - 2026-05-16
 
 ### Features
