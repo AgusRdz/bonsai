@@ -27,6 +27,12 @@ type Config struct {
 	Editor      EditorConfig      `toml:"editor"`
 	CommandBar  CommandBarConfig  `toml:"command_bar"`
 	Signing     SigningConfig     `toml:"signing"`
+	Dashboard   DashboardConfig   `toml:"dashboard"`
+}
+
+// DashboardConfig lists repositories shown in the multi-repo dashboard ([D] key).
+type DashboardConfig struct {
+	Repos []string `toml:"repos"` // absolute or ~-prefixed paths
 }
 
 // CommandBarConfig controls which shortcuts appear in the main command bar.

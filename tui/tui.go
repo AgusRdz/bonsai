@@ -81,6 +81,7 @@ const (
 	panelIssues
 	panelSSH
 	panelLFS
+	panelDashboard
 )
 
 type branchMode int
@@ -465,6 +466,11 @@ type model struct {
 	lfsTracked []string // files tracked by LFS
 	lfsStatus  string   // raw output of git lfs status
 
+	// Multi-repo dashboard
+	dashEntries []git.DashboardEntry
+	dashCursor  int
+	dashLoading bool
+
 	// undo: last reversible operation
 	undoCmd  tea.Cmd
 	undoDesc string
@@ -500,6 +506,8 @@ type lfsDataMsg struct {
 	tracked []string
 	status  string
 }
+
+type dashboardMsg []git.DashboardEntry
 
 type diffMsg struct {
 	title string
@@ -2071,6 +2079,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lfsStatus = msg.status
 		m.panel = panelLFS
 
+	case dashboardMsg:
+		m.dashEntries = []git.DashboardEntry(msg)
+		m.dashLoading = false
+		m.dashCursor = 0
+		m.panel = panelDashboard
+
 	case diffMsg:
 		m.diffLines = syntaxHighlightDiff(msg.lines)
 		m.diffTitle = msg.title
@@ -2612,6 +2626,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelLFS {
 			return m.updateLFSPanel(msg)
 		}
+		if m.panel == panelDashboard {
+			return m.updateDashboardPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -2768,6 +2785,14 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.lfsTracked = nil
 		m.lfsStatus = ""
 		return m, m.doLoadLFSData()
+
+	case "D":
+		// Multi-repo dashboard
+		m.dashEntries = nil
+		m.dashLoading = true
+		m.dashCursor = 0
+		m.panel = panelDashboard
+		return m, m.doLoadDashboard()
 
 	case kb.Branch, "b":
 		if detectFlow(m.cfg) == "gitflow" {
@@ -5071,6 +5096,9 @@ func (m model) View() string {
 	if m.panel == panelLFS {
 		return m.lfsView()
 	}
+	if m.panel == panelDashboard {
+		return m.dashboardView()
+	}
 	return m.mainView()
 }
 
@@ -5513,6 +5541,7 @@ func (m model) helpView() string {
 	row("a", "abort in-progress merge / rebase / cherry-pick")
 	row("`", "SSH key manager - list keys, test connections")
 	row("V", "LFS panel - tracked files and status")
+	row("D", "multi-repo dashboard (configure repos in [dashboard] config)")
 	b.WriteString("\n")
 
 	section("App")
@@ -8297,6 +8326,108 @@ func (m model) lfsView() string {
 	return content + styleDim.Render("  [r] refresh  [esc] back") + "\n"
 }
 
+func (m model) updateDashboardPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.dashCursor > 0 {
+			m.dashCursor--
+		}
+	case "down", "j":
+		if m.dashCursor < len(m.dashEntries)-1 {
+			m.dashCursor++
+		}
+	case "r":
+		m.dashLoading = true
+		m.dashEntries = nil
+		return m, m.doLoadDashboard()
+	case "y":
+		if m.dashCursor < len(m.dashEntries) {
+			_ = clipboard.WriteAll(m.dashEntries[m.dashCursor].Path)
+		}
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) dashboardView() string {
+	var b strings.Builder
+	b.WriteString("\n  " + styleTitle.Render("Multi-repo Dashboard"))
+	if len(m.dashEntries) > 0 {
+		b.WriteString("  " + styleDim.Render(fmt.Sprintf("(%d repos)", len(m.dashEntries))))
+	}
+	b.WriteString("\n\n")
+
+	if m.dashLoading {
+		b.WriteString("  " + styleDim.Render("scanning repos...") + "\n")
+		content := b.String()
+		lines := strings.Count(content, "\n")
+		if pad := m.height - lines - 1; pad > 0 {
+			content += strings.Repeat("\n", pad)
+		}
+		return content + styleDim.Render("  [esc] back") + "\n"
+	}
+
+	repos := m.cfg.Dashboard.Repos
+	if len(repos) == 0 {
+		b.WriteString("  " + styleDim.Render("no repos configured") + "\n\n")
+		b.WriteString("  " + styleDim.Render("add paths to [dashboard] repos in ~/.bonsai.toml or .bonsai.toml:") + "\n")
+		b.WriteString("  " + styleCmd.Render(`[dashboard]`) + "\n")
+		b.WriteString("  " + styleCmd.Render(`repos = ["~/projects/api", "~/projects/frontend"]`) + "\n")
+	} else if len(m.dashEntries) == 0 {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+	} else {
+		for i, e := range m.dashEntries {
+			cursor := "  "
+			if i == m.dashCursor {
+				cursor = styleSelected.Render(">>")
+			}
+			nameStyle := styleCmd
+			if e.Error != "" {
+				nameStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+			}
+			name := nameStyle.Render(fmt.Sprintf("%-20s", e.Name))
+
+			var status strings.Builder
+			if e.Error != "" {
+				status.WriteString(styleChanged.Render(e.Error))
+			} else {
+				status.WriteString(styleDim.Render(fmt.Sprintf("%-18s", e.Branch)))
+				if e.Dirty {
+					status.WriteString(styleChanged.Render("*"))
+				} else {
+					status.WriteString(" ")
+				}
+				if e.Ahead > 0 {
+					status.WriteString(styleStaged.Render(fmt.Sprintf(" ↑%d", e.Ahead)))
+				}
+				if e.Behind > 0 {
+					status.WriteString(styleChanged.Render(fmt.Sprintf(" ↓%d", e.Behind)))
+				}
+			}
+
+			b.WriteString(fmt.Sprintf("  %s %s  %s\n", cursor, name, status.String()))
+			if i == m.dashCursor && e.LastCommit != "" {
+				msg := e.LastCommit
+				if len(msg) > 60 {
+					msg = msg[:57] + "..."
+				}
+				b.WriteString("        " + styleDim.Render(msg) + "\n")
+				b.WriteString("        " + styleDim.Render(e.Path) + "\n")
+			}
+		}
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [↑↓/jk] navigate  [y] copy path  [r] refresh  [esc] back") + "\n"
+}
+
 func (m model) updatePRReviewPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
@@ -8507,6 +8638,29 @@ func (m model) doLoadLFSData() tea.Cmd {
 		tracked, _ := m.git.LFSTrackedFiles(ctx)
 		status, _ := m.git.LFSStatus(ctx)
 		return lfsDataMsg{tracked: tracked, status: status}
+	}
+}
+
+func (m model) doLoadDashboard() tea.Cmd {
+	repos := m.cfg.Dashboard.Repos
+	if len(repos) == 0 {
+		return func() tea.Msg { return dashboardMsg(nil) }
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		entries := make([]git.DashboardEntry, 0, len(repos))
+		for _, raw := range repos {
+			// Expand ~ prefix.
+			path := raw
+			if strings.HasPrefix(path, "~/") {
+				if home, err := os.UserHomeDir(); err == nil {
+					path = filepath.Join(home, path[2:])
+				}
+			}
+			entries = append(entries, git.QuickStatus(ctx, path))
+		}
+		return dashboardMsg(entries)
 	}
 }
 

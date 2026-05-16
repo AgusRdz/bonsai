@@ -2105,3 +2105,52 @@ func (r *Runner) Stats(ctx context.Context) (*RepoStats, error) {
 
 	return s, nil
 }
+
+// DashboardEntry holds the quick status of one repository for the multi-repo
+// dashboard. It is produced without changing the process working directory.
+type DashboardEntry struct {
+	Path       string
+	Name       string // base name of the path
+	Branch     string
+	Ahead      int
+	Behind     int
+	Dirty      bool   // true when there are uncommitted changes
+	LastCommit string // short subject of the HEAD commit
+	Error      string // non-empty when the repo could not be read
+}
+
+// QuickStatus runs git -C path commands to populate a DashboardEntry.
+func QuickStatus(ctx context.Context, repoPath string) DashboardEntry {
+	run := func(args ...string) (string, error) {
+		all := append([]string{"-C", repoPath}, args...)
+		out, err := exec.CommandContext(ctx, "git", all...).Output()
+		return strings.TrimSpace(string(out)), err
+	}
+
+	entry := DashboardEntry{
+		Path: repoPath,
+		Name: filepath.Base(repoPath),
+	}
+
+	branch, err := run("symbolic-ref", "--short", "HEAD")
+	if err != nil {
+		entry.Error = "not a git repo"
+		return entry
+	}
+	entry.Branch = branch
+
+	if ahead, err := run("rev-list", "--count", "@{u}..HEAD"); err == nil {
+		entry.Ahead, _ = strconv.Atoi(ahead)
+	}
+	if behind, err := run("rev-list", "--count", "HEAD..@{u}"); err == nil {
+		entry.Behind, _ = strconv.Atoi(behind)
+	}
+	if out, err := run("status", "--porcelain"); err == nil {
+		entry.Dirty = strings.TrimSpace(out) != ""
+	}
+	if subject, err := run("log", "-1", "--format=%s"); err == nil {
+		entry.LastCommit = subject
+	}
+
+	return entry
+}
