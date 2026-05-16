@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.42.1] - 2026-05-16
+
+### Documentation
+- Reorganize help text - groups, consistent lfs subcommands, cleaner alignment
+([40033fc](https://github.com/AgusRdz/bonsai/commit/40033fceabdf05a1eab6de899b4fb959e1a07cbc))
 ## [0.42.0] - 2026-05-16
 
 ### Features
