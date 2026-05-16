@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.15.1] - 2026-05-16
+
+### Performance
+- Reduce git status from 4 subprocess calls to 1
+([3502983](https://github.com/AgusRdz/bonsai/commit/350298377c13d56eb95bf0c34040d8b1cbe02785))
 ## [0.15.0] - 2026-05-16
 
 ### Features
