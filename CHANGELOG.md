@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.37.1] - 2026-05-16
+
+### Features
+- Delete untracked files from disk and git rm --cached from TUI
+([8ef5cdf](https://github.com/AgusRdz/bonsai/commit/8ef5cdf5b08dadce50f1797b43d055c711312e87))
 ## [0.37.0] - 2026-05-16
 
 ### Features
