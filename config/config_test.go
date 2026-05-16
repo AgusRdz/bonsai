@@ -111,6 +111,37 @@ default = "novice"
 	}
 }
 
+func TestValidateAcceptsDefaults(t *testing.T) {
+	cfg := defaults()
+	if err := validate(&cfg); err != nil {
+		t.Errorf("defaults should pass validation: %v", err)
+	}
+}
+
+func TestValidateRejectsInvalidMode(t *testing.T) {
+	cfg := defaults()
+	cfg.Modes.Default = "superuser"
+	if err := validate(&cfg); err == nil {
+		t.Error("expected error for invalid mode, got nil")
+	}
+}
+
+func TestValidateRejectsInvalidFlow(t *testing.T) {
+	cfg := defaults()
+	cfg.Flow.Type = "svn"
+	if err := validate(&cfg); err == nil {
+		t.Error("expected error for invalid flow type, got nil")
+	}
+}
+
+func TestValidateRejectsInvalidValidationMode(t *testing.T) {
+	cfg := defaults()
+	cfg.Conventions.Validation.Mode = "loud"
+	if err := validate(&cfg); err == nil {
+		t.Error("expected error for invalid validation mode, got nil")
+	}
+}
+
 func TestLoadReadsExistingGlobalConfig(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)

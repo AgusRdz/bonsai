@@ -63,7 +63,7 @@ func (m model) View() string {
 
 	if m.err != nil {
 		b.WriteString("\n")
-		b.WriteString("  " + styleChanged.Render("not a git repository") + "\n\n")
+		b.WriteString("  " + styleChanged.Render("git error") + "  " + styleDim.Render(m.err.Error()) + "\n\n")
 		b.WriteString("  " + styleDim.Render("open bonsai from inside a git repository") + "\n")
 	} else {
 		b.WriteString("\n")

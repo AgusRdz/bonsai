@@ -1,9 +1,13 @@
 package tui
 
 import (
+	"context"
 	"os/exec"
 	"strings"
+	"time"
 )
+
+const gitTimeout = 5 * time.Second
 
 type gitState struct {
 	branch    string
@@ -13,12 +17,15 @@ type gitState struct {
 }
 
 func loadGitState() (gitState, error) {
-	branch, err := gitBranch()
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+
+	branch, err := gitBranch(ctx)
 	if err != nil {
 		return gitState{}, err
 	}
 
-	out, err := exec.Command("git", "status", "--porcelain").Output()
+	out, err := exec.CommandContext(ctx, "git", "status", "--porcelain").Output()
 	if err != nil {
 		return gitState{}, err
 	}
@@ -32,8 +39,8 @@ func loadGitState() (gitState, error) {
 	}, nil
 }
 
-func gitBranch() (string, error) {
-	out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
+func gitBranch(ctx context.Context) (string, error) {
+	out, err := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD").Output()
 	if err != nil {
 		return "", err
 	}

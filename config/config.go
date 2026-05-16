@@ -82,11 +82,11 @@ func Load() (*Config, error) {
 
 	if _, err := os.Stat(globalPath); os.IsNotExist(err) {
 		if err := writeDefaults(globalPath, &cfg); err != nil {
-			return nil, fmt.Errorf("config: create global config: %w", err)
+			return nil, fmt.Errorf("config: create %s: %w", globalPath, err)
 		}
 	} else if err == nil {
 		if _, err := toml.DecodeFile(globalPath, &cfg); err != nil {
-			return nil, fmt.Errorf("config: global config: %w", err)
+			return nil, fmt.Errorf("config: %s: %w", globalPath, err)
 		}
 	}
 
@@ -94,7 +94,27 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("config: .bonsai.toml: %w", err)
 	}
 
+	if err := validate(&cfg); err != nil {
+		return nil, err
+	}
+
 	return &cfg, nil
+}
+
+func validate(cfg *Config) error {
+	validModes := map[string]bool{"novice": true, "pro": true, "learning": true}
+	if !validModes[cfg.Modes.Default] {
+		return fmt.Errorf("config: modes.default must be novice, pro, or learning (got %q)", cfg.Modes.Default)
+	}
+	validFlow := map[string]bool{"auto": true, "gitflow": true, "trunk": true, "githubflow": true, "forking": true}
+	if !validFlow[cfg.Flow.Type] {
+		return fmt.Errorf("config: flow.type must be auto, gitflow, trunk, githubflow, or forking (got %q)", cfg.Flow.Type)
+	}
+	validValidation := map[string]bool{"strict": true, "warn": true, "off": true}
+	if !validValidation[cfg.Conventions.Validation.Mode] {
+		return fmt.Errorf("config: conventions.validation.mode must be strict, warn, or off (got %q)", cfg.Conventions.Validation.Mode)
+	}
+	return nil
 }
 
 func globalConfigPath() (string, error) {
