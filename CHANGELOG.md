@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.42.0] - 2026-05-16
+
+### Features
+- Auto-refresh every 2s and bonsai standup command
+([1f1781f](https://github.com/AgusRdz/bonsai/commit/1f1781f61526e26ef89635a175bbc8c72d8eca83))
 ## [0.41.0] - 2026-05-16
 
 ### Features
