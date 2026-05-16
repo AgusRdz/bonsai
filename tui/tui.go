@@ -1537,8 +1537,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if suppressed {
 			showEdu = false
 		} else if m.cfg.Modes.Default == "pro" {
-			// Pro mode: only show education for commands the user has rarely run.
-			showEdu = key != "" && msg.err == nil && m.usage.Count(key) <= 3
+			// Pro mode: only show education for complex operations the user has rarely run.
+			showEdu = isProComplex(key) && msg.err == nil && m.usage.Count(key) <= 3
 		} else {
 			showEdu = dur > 0
 		}

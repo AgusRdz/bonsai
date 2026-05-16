@@ -131,6 +131,32 @@ func masteryThreshold(key string) int {
 	return 10
 }
 
+// proComplexCommands is the set of commands that are shown in pro mode for
+// users who have rarely run them. Day-to-day commands (add, commit, push...)
+// are omitted because a pro user does not need a reminder for those.
+var proComplexCommands = map[string]bool{
+	"rebase":        true,
+	"cherry-pick":   true,
+	"amend":         true,
+	"restore":       true,
+	"reset-soft":    true,
+	"reset-mixed":   true,
+	"reset-hard":    true,
+	"apply":         true,
+	"worktree":      true,
+	"submodule":     true,
+	"notes":         true,
+	"remote":        true,
+	"clean":         true,
+	"branch-rename": true,
+}
+
+// isProComplex reports whether a command key should show education in pro mode
+// when the user has rarely run it.
+func isProComplex(key string) bool {
+	return proComplexCommands[key]
+}
+
 func actionTitle(cmd string, err error) string {
 	if err != nil {
 		return "Action failed"
