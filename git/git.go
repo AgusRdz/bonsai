@@ -33,6 +33,17 @@ type Status struct {
 // LogEntry is one line of `git log --oneline --graph` output.
 type LogEntry struct {
 	Line string
+	Hash string // abbreviated commit hash; empty for pure graph lines (|, \, /)
+}
+
+// CommitDetail holds the parsed output of `git show --stat` for one commit.
+type CommitDetail struct {
+	Hash    string
+	Author  string
+	Date    string
+	Subject string
+	Body    string
+	Stat    []string // file-stat lines including summary
 }
 
 // Branch represents a local git branch.
@@ -186,10 +197,91 @@ func (r *Runner) Log(ctx context.Context, n int) ([]LogEntry, error) {
 	entries := make([]LogEntry, 0, n)
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if line != "" {
-			entries = append(entries, LogEntry{Line: line})
+			entries = append(entries, LogEntry{Line: line, Hash: extractCommitHash(line)})
 		}
 	}
 	return entries, nil
+}
+
+// extractCommitHash returns the 7-char abbreviated hash from a graph/oneline
+// log line. Graph prefix characters (| \ / * space _ -) are skipped; the
+// first non-prefix token is checked for a valid hex string. Returns "" for
+// pure graph lines that carry no commit (e.g. "|\", "| |").
+func extractCommitHash(line string) string {
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if c == '|' || c == '\\' || c == '/' || c == '*' || c == ' ' || c == '_' || c == '-' {
+			continue
+		}
+		// First non-graph byte - next 7 bytes must be lowercase hex.
+		if i+7 > len(line) {
+			return ""
+		}
+		candidate := line[i : i+7]
+		if isAllHex(candidate) {
+			return candidate
+		}
+		return ""
+	}
+	return ""
+}
+
+func isAllHex(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+// ShowStat returns structured commit detail for a single commit hash.
+func (r *Runner) ShowStat(ctx context.Context, hash string) (*CommitDetail, error) {
+	// Separator we control so we can split fields reliably.
+	const sep = "\x00bonsai\x00"
+	format := "%H" + sep + "%an <%ae>" + sep + "%ad" + sep + "%s" + sep + "%b"
+	out, err := r.run(ctx, "show", "--no-color",
+		"--format=format:"+format, "--stat", hash)
+	if err != nil {
+		return nil, err
+	}
+
+	raw := string(out)
+	parts := strings.SplitN(raw, sep, 5)
+	if len(parts) < 5 {
+		return &CommitDetail{Hash: hash}, nil
+	}
+
+	// The 5th part contains body + stat block separated by the diff-stat header.
+	bodyAndStat := parts[4]
+
+	// git show puts a blank line between the body and the stat block.
+	// The stat block starts after the last blank line that precedes file paths.
+	detail := &CommitDetail{
+		Hash:    strings.TrimSpace(parts[0]),
+		Author:  strings.TrimSpace(parts[1]),
+		Date:    strings.TrimSpace(parts[2]),
+		Subject: strings.TrimSpace(parts[3]),
+	}
+
+	// Split body from stat: stat lines contain " | " or end with "changed".
+	lines := strings.Split(strings.TrimRight(bodyAndStat, "\n"), "\n")
+	var bodyLines, statLines []string
+	inStat := false
+	for _, l := range lines {
+		if !inStat && (strings.Contains(l, " | ") || strings.Contains(l, "changed,") || strings.Contains(l, "changed\n") || (strings.Contains(l, "file") && strings.Contains(l, "changed"))) {
+			inStat = true
+		}
+		if inStat {
+			statLines = append(statLines, l)
+		} else {
+			bodyLines = append(bodyLines, l)
+		}
+	}
+	detail.Body = strings.TrimSpace(strings.Join(bodyLines, "\n"))
+	detail.Stat = statLines
+	return detail, nil
 }
 
 // Branches returns all local branches.

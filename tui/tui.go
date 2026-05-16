@@ -33,6 +33,7 @@ const (
 	panelHelp
 	panelConfirm
 	panelFlowPick
+	panelCommitDetail
 )
 
 type branchMode int
@@ -54,40 +55,42 @@ const (
 )
 
 type model struct {
-	cfg            *config.Config
-	git            *git.Runner
-	status         *git.Status
-	files          []fileItem // flat list of all selectable files
-	cursor         int
-	panel          panel
-	commitMsg      textinput.Model
-	branchInput    textinput.Model
-	branchMode     branchMode
-	convViolation  *conventions.Result
-	convPanelShown bool // panel already shown for current branch violation
-	logEntries     []git.LogEntry
-	logCursor      int
-	branches       []git.Branch
-	branchCursor   int
-	diffLines      []string
-	diffScroll     int
-	diffTitle      string
-	stashes        []git.StashEntry
-	stashCursor    int
-	confirmPrompt  string
-	confirmCmd     tea.Cmd
-	flowOptions    []flowOption
-	flowPickCursor int
-	edu            *educationPanel
-	eduTimer       int
-	width          int
-	height         int
-	ready          bool
-	err            error  // startup/refresh error
-	actionErr      error  // error from last action
-	lastCmd        string // last git command run
-	pushing        bool
-	pulling        bool
+	cfg                *config.Config
+	git                *git.Runner
+	status             *git.Status
+	files              []fileItem // flat list of all selectable files
+	cursor             int
+	panel              panel
+	commitMsg          textinput.Model
+	branchInput        textinput.Model
+	branchMode         branchMode
+	convViolation      *conventions.Result
+	convPanelShown     bool // panel already shown for current branch violation
+	logEntries         []git.LogEntry
+	logCursor          int
+	branches           []git.Branch
+	branchCursor       int
+	diffLines          []string
+	diffScroll         int
+	diffTitle          string
+	stashes            []git.StashEntry
+	stashCursor        int
+	confirmPrompt      string
+	confirmCmd         tea.Cmd
+	flowOptions        []flowOption
+	flowPickCursor     int
+	commitDetail       *git.CommitDetail
+	commitDetailScroll int
+	edu                *educationPanel
+	eduTimer           int
+	width              int
+	height             int
+	ready              bool
+	err                error  // startup/refresh error
+	actionErr          error  // error from last action
+	lastCmd            string // last git command run
+	pushing            bool
+	pulling            bool
 }
 
 // --- messages ---
@@ -106,6 +109,7 @@ type diffMsg struct {
 	lines []string
 }
 type stashListMsg []git.StashEntry
+type commitDetailMsg *git.CommitDetail
 
 // --- commands ---
 
@@ -188,7 +192,7 @@ func (m model) doFetchLog() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
-		entries, err := m.git.Log(ctx, 20)
+		entries, err := m.git.Log(ctx, 100)
 		if err != nil || entries == nil {
 			return logMsg([]git.LogEntry{})
 		}
@@ -273,6 +277,18 @@ func (m model) doFetchStashList() tea.Cmd {
 	}
 }
 
+func (m model) doFetchCommitDetail(hash string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		detail, err := m.git.ShowStat(ctx, hash)
+		if err != nil {
+			return commitDetailMsg(&git.CommitDetail{Hash: hash})
+		}
+		return commitDetailMsg(detail)
+	}
+}
+
 // --- init ---
 
 func (m model) Init() tea.Cmd {
@@ -343,6 +359,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stashCursor = 0
 		m.panel = panelStashList
 
+	case commitDetailMsg:
+		m.commitDetail = (*git.CommitDetail)(msg)
+		m.commitDetailScroll = 0
+		m.panel = panelCommitDetail
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -408,6 +429,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelFlowPick {
 			return m.updateFlowPickPanel(msg)
+		}
+		if m.panel == panelCommitDetail {
+			return m.updateCommitDetailPanel(msg)
 		}
 		return m.updateMainPanel(msg)
 	}
@@ -664,12 +688,67 @@ func (m model) updateLogPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.logCursor < len(m.logEntries)-1 {
 			m.logCursor++
 		}
-	case "esc", "enter", m.cfg.Keybindings.Quit:
+	case "enter":
+		if m.logCursor < len(m.logEntries) {
+			entry := m.logEntries[m.logCursor]
+			if entry.Hash != "" {
+				m.commitDetail = nil
+				m.commitDetailScroll = 0
+				return m, m.doFetchCommitDetail(entry.Hash)
+			}
+		}
+	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
 	case "ctrl+c":
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+func (m model) updateCommitDetailPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	visibleLines := m.height - 6
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+	var maxScroll int
+	if m.commitDetail != nil {
+		total := commitDetailLineCount(m.commitDetail)
+		maxScroll = total - visibleLines
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+	}
+	switch msg.String() {
+	case "up", "k":
+		if m.commitDetailScroll > 0 {
+			m.commitDetailScroll--
+		}
+	case "down", "j":
+		if m.commitDetailScroll < maxScroll {
+			m.commitDetailScroll++
+		}
+	case "y":
+		if m.commitDetail != nil {
+			_ = clipboard.WriteAll(m.commitDetail.Hash)
+		}
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelLog
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func commitDetailLineCount(d *git.CommitDetail) int {
+	if d == nil {
+		return 0
+	}
+	n := 6 // hash + author + date + blank lines
+	if d.Body != "" {
+		n += strings.Count(d.Body, "\n") + 2
+	}
+	n += len(d.Stat) + 1
+	return n
 }
 
 func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -862,6 +941,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelFlowPick {
 		return m.flowPickView()
+	}
+	if m.panel == panelCommitDetail {
+		return m.commitDetailView()
 	}
 	return m.mainView()
 }
@@ -1287,6 +1369,86 @@ func (m model) flowPickView() string {
 	return content + styleDim.Render("  [enter] select  [esc] cancel") + "\n"
 }
 
+func (m model) commitDetailView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Commit Detail") + "\n\n")
+
+	if m.commitDetail == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+	} else {
+		d := m.commitDetail
+		// Build all lines into a slice so we can apply the viewport.
+		var lines []string
+		lines = append(lines, styleCmd.Render(d.Hash)+"  "+d.Subject)
+		lines = append(lines, "")
+		lines = append(lines, styleDim.Render("Author  ")+d.Author)
+		lines = append(lines, styleDim.Render("Date    ")+d.Date)
+		if d.Body != "" {
+			lines = append(lines, "")
+			for _, l := range strings.Split(d.Body, "\n") {
+				lines = append(lines, styleDim.Render(l))
+			}
+		}
+		if len(d.Stat) > 0 {
+			lines = append(lines, "")
+			lines = append(lines, styleSection.Render("Files changed"))
+			for _, l := range d.Stat {
+				lines = append(lines, renderStatLine(l))
+			}
+		}
+
+		visibleLines := m.height - 6
+		if visibleLines < 1 {
+			visibleLines = 1
+		}
+		start := m.commitDetailScroll
+		end := start + visibleLines
+		if end > len(lines) {
+			end = len(lines)
+		}
+		for _, l := range lines[start:end] {
+			b.WriteString("  " + l + "\n")
+		}
+	}
+
+	b.WriteString("\n")
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	bar := "  [↑↓] scroll  [esc] back  [y] copy hash"
+	if m.commitDetail != nil && len(m.commitDetail.Stat) > 0 {
+		total := commitDetailLineCount(m.commitDetail)
+		bar += fmt.Sprintf("  (%d/%d)", m.commitDetailScroll+1, total)
+	}
+	return content + styleDim.Render(bar) + "\n"
+}
+
+// renderStatLine colors the + and - bars in a diff-stat line.
+func renderStatLine(line string) string {
+	if !strings.Contains(line, "|") {
+		// Summary line: "N files changed, M insertions(+), K deletions(-)"
+		return styleDim.Render(line)
+	}
+	idx := strings.LastIndex(line, "|")
+	name := line[:idx+1]
+	bars := line[idx+1:]
+	var colored string
+	for _, ch := range bars {
+		switch ch {
+		case '+':
+			colored += styleStaged.Render("+")
+		case '-':
+			colored += styleChanged.Render("-")
+		default:
+			colored += styleDim.Render(string(ch))
+		}
+	}
+	return styleDim.Render(name) + colored
+}
+
 func (m model) logView() string {
 	var b strings.Builder
 	b.WriteString("\n")
@@ -1330,7 +1492,7 @@ func (m model) logView() string {
 	if len(m.logEntries) > 0 {
 		pos = fmt.Sprintf("  (%d/%d)", m.logCursor+1, len(m.logEntries))
 	}
-	return content + styleDim.Render("  [↑↓] scroll  [esc] back"+pos) + "\n"
+	return content + styleDim.Render("  [↑↓] scroll  [enter] detail  [esc] back"+pos) + "\n"
 }
 
 func contextTip(m model) string {
