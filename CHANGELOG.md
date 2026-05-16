@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.9.0] - 2026-05-16
+
+### Features
+- Diff view for staged and unstaged files
+([8e38e0e](https://github.com/AgusRdz/bonsai/commit/8e38e0e508e0d5f25d1d4a20f382a6522ef3392f))
 ## [0.8.0] - 2026-05-16
 
 ### Features
