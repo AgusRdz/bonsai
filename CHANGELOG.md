@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.3.0] - 2026-05-16
+
+### Features
+- Add config system and bubbletea TUI default view
+([3e5d1cd](https://github.com/AgusRdz/bonsai/commit/3e5d1cd00ad1def23231c68e3e3f4bf98de74acd))
 ## [0.2.1] - 2026-05-16
 
 ### Bug Fixes
