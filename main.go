@@ -6,7 +6,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/AgusRdz/bonsai/config"
 	"github.com/AgusRdz/bonsai/gitcheck"
+	"github.com/AgusRdz/bonsai/tui"
 	"github.com/AgusRdz/bonsai/updater"
 )
 
@@ -45,9 +47,15 @@ func main() {
 }
 
 func runTUI() {
-	// Sprint 2: initialize and run bubbletea TUI
-	fmt.Printf("bonsai %s\n", version)
-	fmt.Println("Run 'bonsai help' for available commands.")
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bonsai: config: %v\n", err)
+		os.Exit(1)
+	}
+	if err := tui.Run(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "bonsai: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func printHelp() {
