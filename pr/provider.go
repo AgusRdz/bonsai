@@ -8,11 +8,15 @@ import (
 
 // PRStatus holds the current state of a pull request.
 type PRStatus struct {
-	Number int
-	Title  string
-	State  string // "open" | "closed" | "merged"
-	URL    string
-	CI     string // "success" | "failure" | "pending" | "none"
+	Number    int
+	Title     string
+	State     string // "open" | "closed" | "merged"
+	URL       string
+	CI        string // "success" | "failure" | "pending" | "none"
+	Draft     bool
+	Labels    []string
+	Reviewers []string // requested reviewer login names
+	Assignees []string
 }
 
 // Provider abstracts a PR hosting platform (GitHub, GitLab, Bitbucket, or plugin).
@@ -91,4 +95,12 @@ type PRForker interface {
 // are protected on the remote. Type-assert before calling: c, ok := p.(ProtectionChecker).
 type ProtectionChecker interface {
 	ProtectedBranches(ctx context.Context) ([]string, error)
+}
+
+// PRReviewer is an optional Provider extension for submitting PR reviews.
+// Type-assert before calling: r, ok := p.(PRReviewer).
+type PRReviewer interface {
+	Approve(ctx context.Context, number int) error
+	RequestChanges(ctx context.Context, number int, body string) error
+	ReviewComment(ctx context.Context, number int, body string) error
 }

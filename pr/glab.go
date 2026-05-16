@@ -107,6 +107,24 @@ func (g *glabProvider) Fork(ctx context.Context) error {
 	return exec.CommandContext(ctx, "glab", "repo", "fork").Run()
 }
 
+func (g *glabProvider) Approve(ctx context.Context, number int) error {
+	if !g.CLIAvailable() {
+		return fmt.Errorf("glab CLI not found")
+	}
+	return exec.CommandContext(ctx, "glab", "mr", "approve", fmt.Sprintf("%d", number)).Run()
+}
+
+func (g *glabProvider) RequestChanges(_ context.Context, _ int, _ string) error {
+	return fmt.Errorf("glab CLI does not support request-changes - use the web interface")
+}
+
+func (g *glabProvider) ReviewComment(ctx context.Context, number int, body string) error {
+	if !g.CLIAvailable() {
+		return fmt.Errorf("glab CLI not found")
+	}
+	return exec.CommandContext(ctx, "glab", "mr", "note", fmt.Sprintf("%d", number), "--message", body).Run()
+}
+
 func (g *glabProvider) ProtectedBranches(ctx context.Context) ([]string, error) {
 	if !g.CLIAvailable() {
 		return nil, fmt.Errorf("glab CLI not found")

@@ -74,6 +74,7 @@ const (
 	panelCommandBar
 	panelDiverged
 	panelPR
+	panelPRReview
 )
 
 type branchMode int
@@ -393,6 +394,9 @@ type model struct {
 	prListItems       []pr.PRStatus
 	prListCursor      int
 	protectedBranches map[string]bool // branch names known to be protected on remote
+	prReviewInput     textinput.Model
+	prReviewMode      string // "approve" | "changes" | "comment"
+	prReviewNumber    int
 
 	// undo: last reversible operation
 	undoCmd  tea.Cmd
@@ -2465,6 +2469,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelPR {
 			return m.updatePRPanel(msg)
+		}
+		if m.panel == panelPRReview {
+			return m.updatePRReviewPanel(msg)
 		}
 		return m.updateMainPanel(msg)
 	}
@@ -4890,6 +4897,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelPR {
 		return m.prView()
+	}
+	if m.panel == panelPRReview {
+		return m.prReviewView()
 	}
 	return m.mainView()
 }
@@ -7398,6 +7408,61 @@ func (m model) updatePRPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return diffMsg{title: fmt.Sprintf("PR #%d diff", num), lines: lines}
 		}
+	case "a":
+		if len(m.prListItems) == 0 {
+			break
+		}
+		reviewer, ok := m.prProvider.(pr.PRReviewer)
+		if !ok {
+			m.actionErr = fmt.Errorf("this provider does not support PR reviews")
+			break
+		}
+		item := m.prListItems[m.prListCursor]
+		num := item.Number
+		prov := reviewer
+		return m, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			err := prov.Approve(ctx, num)
+			return actionDoneMsg{cmd: fmt.Sprintf("pr review --approve #%d", num), err: err,
+				info: fmt.Sprintf("approved PR #%d", num)}
+		}
+	case "A":
+		if len(m.prListItems) == 0 {
+			break
+		}
+		if _, ok := m.prProvider.(pr.PRReviewer); !ok {
+			m.actionErr = fmt.Errorf("this provider does not support PR reviews")
+			break
+		}
+		item := m.prListItems[m.prListCursor]
+		m.prReviewNumber = item.Number
+		m.prReviewMode = "changes"
+		ti := textinput.New()
+		ti.Placeholder = "reason for requesting changes (required)"
+		ti.Focus()
+		ti.CharLimit = 256
+		ti.Width = m.width - 6
+		m.prReviewInput = ti
+		m.panel = panelPRReview
+	case "c":
+		if len(m.prListItems) == 0 {
+			break
+		}
+		if _, ok := m.prProvider.(pr.PRReviewer); !ok {
+			m.actionErr = fmt.Errorf("this provider does not support PR reviews")
+			break
+		}
+		item := m.prListItems[m.prListCursor]
+		m.prReviewNumber = item.Number
+		m.prReviewMode = "comment"
+		ti := textinput.New()
+		ti.Placeholder = "comment text"
+		ti.Focus()
+		ti.CharLimit = 512
+		ti.Width = m.width - 6
+		m.prReviewInput = ti
+		m.panel = panelPRReview
 	case "n":
 		if m.prProvider != nil && m.status != nil {
 			branch := m.status.Branch
@@ -7448,12 +7513,85 @@ func (m model) prView() string {
 				ci = styleChanged.Render(" ●")
 			}
 			state := styleDim.Render("[" + item.State + "]")
-			b.WriteString(fmt.Sprintf("  %s #%-4d %s %s%s\n", cursor, item.Number, state, item.Title, ci))
+			draftBadge := ""
+			if item.Draft {
+				draftBadge = styleDim.Render(" [draft]")
+			}
+			b.WriteString(fmt.Sprintf("  %s #%-4d %s %s%s%s\n", cursor, item.Number, state, item.Title, draftBadge, ci))
+			if i == m.prListCursor {
+				// Show metadata for selected PR.
+				if len(item.Labels) > 0 {
+					b.WriteString("        " + styleDim.Render("labels: "+strings.Join(item.Labels, ", ")) + "\n")
+				}
+				if len(item.Reviewers) > 0 {
+					b.WriteString("        " + styleDim.Render("reviewers: "+strings.Join(item.Reviewers, ", ")) + "\n")
+				}
+				if len(item.Assignees) > 0 {
+					b.WriteString("        " + styleDim.Render("assignees: "+strings.Join(item.Assignees, ", ")) + "\n")
+				}
+			}
 		}
 	}
 	b.WriteString("\n")
-	b.WriteString(styleDim.Render("  [enter/o] open  [d] diff  [n] new PR  [r] refresh  [esc] back") + "\n")
+	reviewHints := ""
+	if _, ok := m.prProvider.(pr.PRReviewer); ok {
+		reviewHints = "  [a] approve  [A] req changes  [c] comment"
+	}
+	b.WriteString(styleDim.Render("  [enter/o] open  [d] diff  [n] new PR  [r] refresh"+reviewHints+"  [esc] back") + "\n")
 	return b.String()
+}
+
+func (m model) updatePRReviewPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		body := strings.TrimSpace(m.prReviewInput.Value())
+		num := m.prReviewNumber
+		mode := m.prReviewMode
+		reviewer := m.prProvider.(pr.PRReviewer)
+		m.panel = panelPR
+		return m, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			var err error
+			var info string
+			switch mode {
+			case "changes":
+				err = reviewer.RequestChanges(ctx, num, body)
+				info = fmt.Sprintf("requested changes on PR #%d", num)
+			case "comment":
+				err = reviewer.ReviewComment(ctx, num, body)
+				info = fmt.Sprintf("commented on PR #%d", num)
+			}
+			return actionDoneMsg{cmd: "pr review #" + fmt.Sprintf("%d", num), err: err, info: info}
+		}
+	case "esc", "ctrl+c":
+		m.panel = panelPR
+	default:
+		var cmd tea.Cmd
+		m.prReviewInput, cmd = m.prReviewInput.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m model) prReviewView() string {
+	action := map[string]string{
+		"changes": "Request Changes",
+		"comment": "Add Comment",
+	}[m.prReviewMode]
+	title := styleTitle.Render(action + fmt.Sprintf(" - PR #%d", m.prReviewNumber))
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+	b.WriteString("  " + m.prReviewInput.View() + "\n\n")
+	if m.actionErr != nil {
+		b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n\n")
+	}
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [enter] submit  [esc] cancel") + "\n"
 }
 
 // fetchPRStatus fetches the current PR status in the background.

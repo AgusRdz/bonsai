@@ -64,7 +64,7 @@ func (g *ghProvider) ListPRs(ctx context.Context) ([]PRStatus, error) {
 		return nil, fmt.Errorf("gh CLI not found")
 	}
 	out, err := exec.CommandContext(ctx, "gh", "pr", "list",
-		"--json", "number,title,state,url").Output()
+		"--json", "number,title,state,url,isDraft,labels,reviewRequests,assignees,statusCheckRollup").Output()
 	if err != nil {
 		return nil, fmt.Errorf("gh pr list: %w", err)
 	}
@@ -74,6 +74,17 @@ func (g *ghProvider) ListPRs(ctx context.Context) ([]PRStatus, error) {
 		Title  string `json:"title"`
 		State  string `json:"state"`
 		URL    string `json:"url"`
+		Draft  bool   `json:"isDraft"`
+		Labels []struct {
+			Name string `json:"name"`
+		} `json:"labels"`
+		ReviewRequests []struct {
+			Login string `json:"login"`
+		} `json:"reviewRequests"`
+		Assignees []struct {
+			Login string `json:"login"`
+		} `json:"assignees"`
+		Checks []ciCheck `json:"statusCheckRollup"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil, fmt.Errorf("gh pr list parse: %w", err)
@@ -81,9 +92,59 @@ func (g *ghProvider) ListPRs(ctx context.Context) ([]PRStatus, error) {
 
 	out2 := make([]PRStatus, len(raw))
 	for i, r := range raw {
-		out2[i] = PRStatus{Number: r.Number, Title: r.Title, State: strings.ToLower(r.State), URL: r.URL, CI: "none"}
+		labels := make([]string, len(r.Labels))
+		for j, l := range r.Labels {
+			labels[j] = l.Name
+		}
+		reviewers := make([]string, len(r.ReviewRequests))
+		for j, rr := range r.ReviewRequests {
+			reviewers[j] = rr.Login
+		}
+		assignees := make([]string, len(r.Assignees))
+		for j, a := range r.Assignees {
+			assignees[j] = a.Login
+		}
+		out2[i] = PRStatus{
+			Number:    r.Number,
+			Title:     r.Title,
+			State:     strings.ToLower(r.State),
+			URL:       r.URL,
+			CI:        rollupCI(r.Checks),
+			Draft:     r.Draft,
+			Labels:    labels,
+			Reviewers: reviewers,
+			Assignees: assignees,
+		}
 	}
 	return out2, nil
+}
+
+func (g *ghProvider) Approve(ctx context.Context, number int) error {
+	if !g.CLIAvailable() {
+		return fmt.Errorf("gh CLI not found")
+	}
+	return exec.CommandContext(ctx, "gh", "pr", "review", fmt.Sprintf("%d", number), "--approve").Run()
+}
+
+func (g *ghProvider) RequestChanges(ctx context.Context, number int, body string) error {
+	if !g.CLIAvailable() {
+		return fmt.Errorf("gh CLI not found")
+	}
+	args := []string{"pr", "review", fmt.Sprintf("%d", number), "--request-changes"}
+	if body != "" {
+		args = append(args, "--body", body)
+	} else {
+		args = append(args, "--body", "Changes requested.")
+	}
+	return exec.CommandContext(ctx, "gh", args...).Run()
+}
+
+func (g *ghProvider) ReviewComment(ctx context.Context, number int, body string) error {
+	if !g.CLIAvailable() {
+		return fmt.Errorf("gh CLI not found")
+	}
+	return exec.CommandContext(ctx, "gh", "pr", "review", fmt.Sprintf("%d", number),
+		"--comment", "--body", body).Run()
 }
 
 func (g *ghProvider) Open(ctx context.Context, branch string) error {
