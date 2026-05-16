@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.5.0] - 2026-05-16
+
+### Features
+- Education panel - plain-language explanations after every action
+([ec10161](https://github.com/AgusRdz/bonsai/commit/ec10161c9da83a96e5cc8ed01f66badd1ab3ee4e))
 ## [0.4.0] - 2026-05-16
 
 ### Features
