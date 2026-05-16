@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.2.1] - 2026-05-16
+
+### Bug Fixes
+- Always print git version at startup, not only when update is available
+([d0f342c](https://github.com/AgusRdz/bonsai/commit/d0f342c7b17b058fa57178f47b06d33ba2500ce7))
 ## [0.2.0] - 2026-05-16
 
 ### Features
