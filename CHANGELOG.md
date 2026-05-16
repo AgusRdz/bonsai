@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.29.0] - 2026-05-16
+
+### Features
+- Complete git coverage - restore, reflog, fetch, clean, remotes, submodules, notes, patch, archive, bundle, stats
+([08bd1a1](https://github.com/AgusRdz/bonsai/commit/08bd1a10d2d17fba84e83741111c31f1da04ca69))
 ## [0.28.3] - 2026-05-16
 
 ### Refactoring
