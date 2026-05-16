@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.16.0] - 2026-05-16
+
+### Features
+- Interactive setup wizard for global and per-project config
+([43c7459](https://github.com/AgusRdz/bonsai/commit/43c745930bec1563c7dad095686adecbbd51ed3d))
 ## [0.15.1] - 2026-05-16
 
 ### Performance
