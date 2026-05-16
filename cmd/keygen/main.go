@@ -85,5 +85,9 @@ func injectPublicKey(path, pubHex string) error {
 	}
 
 	updated := src[:start] + pubHex + src[start+end:]
-	return os.WriteFile(path, []byte(updated), 0644)
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(updated), info.Mode())
 }

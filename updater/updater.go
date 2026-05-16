@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,10 @@ import (
 )
 
 const repo = "AgusRdz/bonsai"
+
+// maxResponseBytes caps HTTP response reads to prevent memory exhaustion
+// from a compromised or spoofed endpoint.
+const maxResponseBytes = 1 << 20 // 1 MiB
 
 var httpClient = &http.Client{
 	Timeout: 30 * time.Second,
@@ -49,6 +54,14 @@ func Run(currentVersion string) {
 	}
 
 	if !isNewer(latest, currentVersion) {
+		// versions differ but neither is parseable as semver — don't silently
+		// claim "up to date" when we actually cannot compare them.
+		_, latestOk := parseSemver(latest)
+		_, currentOk := parseSemver(currentVersion)
+		if !latestOk || !currentOk {
+			fmt.Fprintf(os.Stderr, "bonsai: cannot compare versions %q and %q\n", latest, currentVersion)
+			os.Exit(1)
+		}
 		fmt.Printf("already up to date (%s)\n", currentVersion)
 		return
 	}
@@ -103,33 +116,14 @@ func latestVersion() (string, error) {
 		return "", fmt.Errorf("GitHub API returned %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
+	var release ghRelease
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&release); err != nil {
+		return "", fmt.Errorf("failed to parse GitHub response: %w", err)
 	}
-
-	// Parse tag_name without importing encoding/json to keep the binary lean.
-	// Format: "tag_name": "vX.Y.Z"
-	content := string(body)
-	const key = `"tag_name"`
-	idx := strings.Index(content, key)
-	if idx == -1 {
-		return "", fmt.Errorf("tag_name not found in GitHub response")
+	if release.TagName == "" {
+		return "", fmt.Errorf("empty tag_name in GitHub response")
 	}
-	rest := content[idx+len(key):]
-	colon := strings.Index(rest, ":")
-	if colon == -1 {
-		return "", fmt.Errorf("malformed GitHub response")
-	}
-	rest = strings.TrimSpace(rest[colon+1:])
-	if len(rest) == 0 || rest[0] != '"' {
-		return "", fmt.Errorf("malformed tag_name value")
-	}
-	end := strings.Index(rest[1:], `"`)
-	if end == -1 {
-		return "", fmt.Errorf("malformed tag_name value")
-	}
-	return rest[1 : end+1], nil
+	return release.TagName, nil
 }
 
 func buildBinaryName() string {
@@ -160,10 +154,14 @@ func download(url, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer f.Close()
 
-	if _, err = io.Copy(f, resp.Body); err != nil {
-		return fmt.Errorf("failed to write binary: %w", err)
+	_, copyErr := io.Copy(f, resp.Body)
+	closeErr := f.Close()
+	if copyErr != nil {
+		return fmt.Errorf("failed to write binary: %w", copyErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("failed to flush binary to disk: %w", closeErr)
 	}
 
 	info, err := os.Stat(destPath)
@@ -276,7 +274,7 @@ func fetchReleaseFile(version, filename string) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("%s returned %d", filename, resp.StatusCode)
 	}
-	return io.ReadAll(resp.Body)
+	return io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 }
 
 func parseChecksum(checksums, binaryName string) (string, error) {
@@ -310,7 +308,10 @@ func replaceBinary(destPath, srcPath string) error {
 			return fmt.Errorf("could not move current binary: %w", err)
 		}
 		if err := os.Rename(srcPath, destPath); err != nil {
-			os.Rename(oldPath, destPath) // restore on failure
+			if restoreErr := os.Rename(oldPath, destPath); restoreErr != nil {
+				fmt.Fprintf(os.Stderr, "bonsai: failed to restore backup: %v\n", restoreErr)
+				fmt.Fprintf(os.Stderr, "bonsai: manually rename %s to %s to recover\n", oldPath, destPath)
+			}
 			return err
 		}
 		// .old stays until the process releases the handle; cleaned up by CleanupStaleUpdate

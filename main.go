@@ -76,7 +76,10 @@ func runUninstall() {
 
 	fmt.Printf("remove bonsai from %s? [y/N] ", exe)
 	var answer string
-	fmt.Scanln(&answer)
+	if _, err := fmt.Scanln(&answer); err != nil {
+		fmt.Println("cancelled")
+		return
+	}
 	if strings.ToLower(strings.TrimSpace(answer)) != "y" {
 		fmt.Println("cancelled")
 		return

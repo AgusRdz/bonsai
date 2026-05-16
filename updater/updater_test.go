@@ -184,7 +184,9 @@ func TestCheckBinaryMagic(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateTemp: %v", err)
 		}
-		f.Write(b)
+		if _, err := f.Write(b); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
 		f.Close()
 		return f.Name()
 	}
