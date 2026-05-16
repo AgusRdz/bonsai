@@ -50,6 +50,8 @@ func actionTitle(cmd string, err error) string {
 		return "Branch created"
 	case strings.HasPrefix(cmd, "git switch"):
 		return "Branch switched"
+	case strings.HasPrefix(cmd, "git branch -m"):
+		return "Branch renamed"
 	default:
 		return "Done"
 	}
@@ -81,6 +83,9 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git switch"):
 		return "You switched branches. The working tree now reflects the latest commit on the new branch. " +
 			"Uncommitted changes travel with you unless they conflict."
+	case strings.HasPrefix(cmd, "git branch -m"):
+		return "The current branch was renamed locally. If this branch was already pushed to the remote, " +
+			"push the new name (git push -u origin <new-name>) and delete the old remote branch."
 	default:
 		return ""
 	}

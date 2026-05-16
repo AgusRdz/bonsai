@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/AgusRdz/bonsai/config"
+	"github.com/AgusRdz/bonsai/conventions"
 	"github.com/AgusRdz/bonsai/git"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -23,6 +24,15 @@ const (
 	panelMain panel = iota
 	panelCommit
 	panelEducation
+	panelBranch
+	panelConvention
+)
+
+type branchMode int
+
+const (
+	branchModeCreate branchMode = iota
+	branchModeRename
 )
 
 type fileItem struct {
@@ -37,22 +47,26 @@ const (
 )
 
 type model struct {
-	cfg       *config.Config
-	git       *git.Runner
-	status    *git.Status
-	files     []fileItem // flat list of all selectable files
-	cursor    int
-	panel     panel
-	commitMsg textinput.Model
-	edu       *educationPanel
-	eduTimer  int
-	width     int
-	height    int
-	ready     bool
-	err       error  // startup/refresh error
-	actionErr error  // error from last action
-	lastCmd   string // last git command run
-	pushing   bool
+	cfg            *config.Config
+	git            *git.Runner
+	status         *git.Status
+	files          []fileItem // flat list of all selectable files
+	cursor         int
+	panel          panel
+	commitMsg      textinput.Model
+	branchInput    textinput.Model
+	branchMode     branchMode
+	convViolation  *conventions.Result
+	convPanelShown bool // panel already shown for current branch violation
+	edu            *educationPanel
+	eduTimer       int
+	width          int
+	height         int
+	ready          bool
+	err            error  // startup/refresh error
+	actionErr      error  // error from last action
+	lastCmd        string // last git command run
+	pushing        bool
 }
 
 // --- messages ---
@@ -114,6 +128,24 @@ func (m model) doPush() tea.Cmd {
 	}
 }
 
+func (m model) doCreateBranch(name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.CreateBranch(ctx, name)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doRename(name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.Rename(ctx, name)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
 // --- init ---
 
 func (m model) Init() tea.Cmd {
@@ -130,6 +162,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case statusMsg:
+		prevBranch := ""
+		if m.status != nil {
+			prevBranch = m.status.Branch
+		}
 		m.status = msg
 		m.files = buildFileList(msg)
 		if m.cursor >= len(m.files) {
@@ -137,6 +173,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.ready = true
 		m.err = nil
+		if msg.Branch != prevBranch {
+			m.convPanelShown = false
+		}
+		if !m.convPanelShown && m.cfg.Conventions.Validation.Mode != "off" && len(m.cfg.Conventions.Branches) > 0 {
+			result := conventions.Validate(msg.Branch, m.cfg.Conventions)
+			if !result.Valid {
+				m.convViolation = &result
+				m.convPanelShown = true
+				m.panel = panelConvention
+			} else {
+				m.convViolation = nil
+			}
+		}
 
 	case errMsg:
 		m.err = msg.err
@@ -173,12 +222,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelCommit {
 			return m.updateCommitPanel(msg)
 		}
+		if m.panel == panelBranch {
+			return m.updateBranchPanel(msg)
+		}
+		if m.panel == panelConvention {
+			return m.updateConventionPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
 	if m.panel == panelCommit {
 		var cmd tea.Cmd
 		m.commitMsg, cmd = m.commitMsg.Update(msg)
+		return m, cmd
+	}
+	if m.panel == panelBranch {
+		var cmd tea.Cmd
+		m.branchInput, cmd = m.branchInput.Update(msg)
 		return m, cmd
 	}
 
@@ -232,6 +292,17 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pushing = true
 		m.actionErr = nil
 		return m, m.doPush()
+
+	case "b":
+		ti := textinput.New()
+		ti.Placeholder = "branch name"
+		ti.Focus()
+		ti.CharLimit = 128
+		ti.Width = m.width - 6
+		m.branchInput = ti
+		m.branchMode = branchModeCreate
+		m.panel = panelBranch
+		m.actionErr = nil
 	}
 
 	return m, nil
@@ -275,6 +346,61 @@ func (m model) updateEduPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateBranchPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		name := strings.TrimSpace(m.branchInput.Value())
+		if name == "" {
+			m.actionErr = fmt.Errorf("branch name cannot be empty")
+			return m, nil
+		}
+		result := conventions.Validate(name, m.cfg.Conventions)
+		if !result.Valid && m.cfg.Conventions.Validation.Mode == "strict" {
+			m.actionErr = fmt.Errorf("branch name does not follow conventions (strict mode)")
+			return m, nil
+		}
+		m.panel = panelMain
+		m.actionErr = nil
+		if m.branchMode == branchModeRename {
+			return m, m.doRename(name)
+		}
+		return m, m.doCreateBranch(name)
+
+	case "esc":
+		m.panel = panelMain
+		m.actionErr = nil
+		return m, nil
+
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+
+	var cmd tea.Cmd
+	m.branchInput, cmd = m.branchInput.Update(msg)
+	return m, cmd
+}
+
+func (m model) updateConventionPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "r":
+		ti := textinput.New()
+		ti.Placeholder = "new branch name"
+		ti.Focus()
+		ti.CharLimit = 128
+		ti.Width = m.width - 6
+		m.branchInput = ti
+		m.branchMode = branchModeRename
+		m.panel = panelBranch
+		m.actionErr = nil
+	case "enter", "esc", m.cfg.Keybindings.Quit:
+		m.convViolation = nil
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 // --- view ---
 
 func (m model) View() string {
@@ -290,6 +416,12 @@ func (m model) View() string {
 	}
 	if m.panel == panelCommit {
 		return m.commitView()
+	}
+	if m.panel == panelBranch {
+		return m.branchView()
+	}
+	if m.panel == panelConvention {
+		return m.conventionView()
 	}
 	return m.mainView()
 }
@@ -318,6 +450,8 @@ func (m model) mainView() string {
 		b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n")
 	} else if m.lastCmd != "" {
 		b.WriteString("  " + styleDim.Render("$ "+m.lastCmd) + "\n")
+	} else if m.convViolation != nil && m.cfg.Conventions.Validation.Mode == "warn" {
+		b.WriteString("  " + styleChanged.Render("! "+m.convViolation.Branch+" does not follow conventions") + "\n")
 	} else {
 		b.WriteString("  " + styleDim.Render("mode: "+m.cfg.Modes.Default) + "\n")
 	}
@@ -407,6 +541,89 @@ func (m model) eduView() string {
 	return content + styleDim.Render(bar) + "\n"
 }
 
+func (m model) branchView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+
+	title := "Create Branch"
+	if m.branchMode == branchModeRename {
+		title = "Rename Branch"
+	}
+	b.WriteString("  " + styleSection.Render(title) + "\n\n")
+	b.WriteString("  " + m.branchInput.View() + "\n\n")
+
+	if m.actionErr != nil {
+		b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n\n")
+	}
+
+	name := strings.TrimSpace(m.branchInput.Value())
+	if name != "" && m.cfg.Conventions.Validation.Mode != "off" && len(m.cfg.Conventions.Branches) > 0 {
+		result := conventions.Validate(name, m.cfg.Conventions)
+		if result.Valid {
+			b.WriteString("  " + styleStaged.Render("✓ valid") + "\n\n")
+		} else if m.cfg.Conventions.Validation.Mode == "strict" {
+			b.WriteString("  " + styleChanged.Render("✗ does not follow conventions (strict mode)") + "\n\n")
+		} else {
+			b.WriteString("  " + styleChanged.Render("! does not follow conventions") + "\n\n")
+		}
+	}
+
+	rules := conventions.Rules(m.cfg.Conventions)
+	if len(rules) > 0 {
+		b.WriteString("  " + styleDim.Render("configured patterns:") + "\n")
+		for _, r := range rules {
+			hint := r.Rule.Prefix
+			if r.Rule.Example != "" {
+				hint += "  (e.g. " + r.Rule.Example + ")"
+			}
+			b.WriteString("  " + styleDim.Render("  "+r.Name+": "+hint) + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [enter] confirm  [esc] cancel") + "\n"
+}
+
+func (m model) conventionView() string {
+	if m.convViolation == nil {
+		return ""
+	}
+	v := m.convViolation
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleChanged.Render("! branch convention violation") + "\n\n")
+	b.WriteString("  " + styleDim.Render("current branch: ") + styleChanged.Render(v.Branch) + "\n")
+	b.WriteString("  " + styleDim.Render("this branch does not match any configured naming convention") + "\n\n")
+
+	if len(v.Rules) > 0 {
+		b.WriteString("  " + styleSection.Render("Expected patterns") + "\n")
+		for _, r := range v.Rules {
+			line := r.Name + ": " + r.Rule.Prefix
+			if r.Rule.Example != "" {
+				line += "  (e.g. " + r.Rule.Example + ")"
+			}
+			b.WriteString("  " + styleDim.Render("  "+line) + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	if m.cfg.Conventions.Validation.Mode == "strict" {
+		b.WriteString("  " + styleChanged.Render("strict mode: rename this branch before creating branches or commits") + "\n\n")
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [r] rename branch  [enter] dismiss") + "\n"
+}
+
 func (m model) commandBar() string {
 	if m.pushing {
 		return styleDim.Render("  pushing...") + "\n"
@@ -415,6 +632,7 @@ func (m model) commandBar() string {
 	parts := []string{
 		fmt.Sprintf("[%s] commit", kb.Commit),
 		fmt.Sprintf("[%s] push", kb.Push),
+		"[b] branch",
 		"[space] stage/unstage",
 		"[↑↓] navigate",
 		fmt.Sprintf("[%s] quit", kb.Quit),

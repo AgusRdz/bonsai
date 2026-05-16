@@ -146,6 +146,12 @@ func (r *Runner) Pull(ctx context.Context) error {
 	return err
 }
 
+// Rename renames the current branch.
+func (r *Runner) Rename(ctx context.Context, newName string) error {
+	_, err := r.run(ctx, "branch", "-m", newName)
+	return err
+}
+
 // parseStatus converts `git status --porcelain` output into a Status.
 // Files with both staged and unstaged changes appear in both slices.
 func parseStatus(branch, porcelain string) *Status {
