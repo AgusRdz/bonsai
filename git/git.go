@@ -331,8 +331,8 @@ func isAllHex(s string) bool {
 
 // ShowStat returns structured commit detail for a single commit hash.
 func (r *Runner) ShowStat(ctx context.Context, hash string) (*CommitDetail, error) {
-	// Separator we control so we can split fields reliably.
-	const sep = "\x00bonsai\x00"
+	// \x1e (ASCII Record Separator) is safe to pass via exec args, unlike \x00.
+	const sep = "\x1e"
 	format := "%H" + sep + "%an <%ae>" + sep + "%ad" + sep + "%s" + sep + "%b"
 	out, err := r.run(ctx, "show", "--no-color",
 		"--format=format:"+format, "--stat", hash)
