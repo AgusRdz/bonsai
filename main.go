@@ -9,6 +9,7 @@ import (
 
 	"github.com/AgusRdz/bonsai/config"
 	"github.com/AgusRdz/bonsai/gitcheck"
+	"github.com/AgusRdz/bonsai/setup"
 	"github.com/AgusRdz/bonsai/tui"
 	"github.com/AgusRdz/bonsai/updater"
 )
@@ -44,6 +45,8 @@ func main() {
 		runConfig(os.Args[2:])
 	case "init":
 		runInit()
+	case "setup":
+		runSetup(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai: unknown command %q\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "Run 'bonsai help' for available commands.")
@@ -52,6 +55,23 @@ func main() {
 }
 
 func runTUI() {
+	// First-run: no global config yet - walk the user through setup before
+	// opening the TUI so they start with a config that matches their workflow.
+	exists, err := config.GlobalExists()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bonsai: config: %v\n", err)
+		os.Exit(1)
+	}
+	if !exists {
+		if err := setup.RunGlobal(); err != nil {
+			fmt.Fprintf(os.Stderr, "bonsai: setup: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println()
+		fmt.Println("opening bonsai...")
+		fmt.Println()
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "bonsai: config: %v\n", err)
@@ -60,6 +80,25 @@ func runTUI() {
 	if err := tui.Run(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "bonsai: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func runSetup(args []string) {
+	sub := "global"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	switch sub {
+	case "local":
+		if err := setup.RunLocal(); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai: setup:", err)
+			os.Exit(1)
+		}
+	default:
+		if err := setup.RunGlobal(); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai: setup:", err)
+			os.Exit(1)
+		}
 	}
 }
 
@@ -76,7 +115,9 @@ Commands:
   update            update to the latest release
   uninstall         remove bonsai from this system
   changelog         show the changelog
-  init              create a .bonsai.toml template in the current directory
+  setup             interactive setup wizard (global config)
+  setup local       interactive setup wizard (per-project .bonsai.toml)
+  init              create a .bonsai.toml template without a wizard
   config            open global config in your editor
   config local      open (or create) per-project .bonsai.toml in your editor
   config global     open global config in your editor (same as 'config')
@@ -139,8 +180,8 @@ func runInit() {
 		os.Exit(1)
 	}
 	fmt.Printf("created %s\n", local)
-	fmt.Println("Edit it to customise conventions, mode, and flow for this project.")
-	fmt.Println("Run 'bonsai config local' to open it in your editor.")
+	fmt.Println("edit it to customise conventions, mode, and flow for this project")
+	fmt.Println("run 'bonsai config local' to open it in your editor")
 }
 
 func runUninstall() {
@@ -168,8 +209,8 @@ func runUninstall() {
 
 	fmt.Println("bonsai removed.")
 	fmt.Println()
-	fmt.Println("You may also want to remove:")
+	fmt.Println("you may also want to remove:")
 	fmt.Println("  ~/.config/bonsai/    global config and metrics")
 	fmt.Println("  .bonsai.toml         per-project config files")
-	fmt.Println("  The PATH entry in your shell config")
+	fmt.Println("  the PATH entry in your shell config")
 }

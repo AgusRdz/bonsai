@@ -83,6 +83,32 @@ type TrackConfig struct {
 	Habits      bool `toml:"habits"`
 }
 
+// GlobalExists reports whether the global config file already exists.
+func GlobalExists() (bool, error) {
+	p, err := globalConfigPath()
+	if err != nil {
+		return false, err
+	}
+	_, err = os.Stat(p)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// Write serialises cfg and writes it to path, creating parent directories as
+// needed. It overwrites any existing file.
+func Write(path string, cfg *Config) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
+		return err
+	}
+	return os.WriteFile(path, buf.Bytes(), 0o644)
+}
+
 // Load reads the global config (creating it with defaults on first run) and
 // merges any per-project .bonsai.toml found in the current directory.
 func Load() (*Config, error) {
