@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.35.0] - 2026-05-16
+
+### Features
+- Remote branch delete, upstream in branch list, fix dead panelClean, docs refresh
+([03ac1a7](https://github.com/AgusRdz/bonsai/commit/03ac1a7feb377313a5d84cd353cd5f681f542d25))
 ## [0.34.0] - 2026-05-16
 
 ### Features
