@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.51.0] - 2026-05-16
+
+### Features
+- LFS UI with pull, push, track, untrack, and install support
+([4cb715d](https://github.com/AgusRdz/bonsai/commit/4cb715d481cb51d49e270c2be537f8e7f6ce0969))
 ## [0.50.0] - 2026-05-16
 
 ### Features
