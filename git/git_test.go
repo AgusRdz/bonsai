@@ -194,3 +194,88 @@ func TestParseWorktreesEmpty(t *testing.T) {
 		t.Errorf("expected empty, got %v", entries)
 	}
 }
+
+func TestParseStashList(t *testing.T) {
+	output := "stash@{0}: On main: WIP on login flow\nstash@{1}: On feat/x: half-done refactor\n"
+	entries := parseStashList(output)
+
+	if len(entries) != 2 {
+		t.Fatalf("entry count = %d, want 2", len(entries))
+	}
+	cases := []struct {
+		ref  string
+		desc string
+	}{
+		{"stash@{0}", "On main: WIP on login flow"},
+		{"stash@{1}", "On feat/x: half-done refactor"},
+	}
+	for i, c := range cases {
+		if entries[i].Ref != c.ref {
+			t.Errorf("entries[%d].Ref = %q, want %q", i, entries[i].Ref, c.ref)
+		}
+		if entries[i].Description != c.desc {
+			t.Errorf("entries[%d].Description = %q, want %q", i, entries[i].Description, c.desc)
+		}
+	}
+}
+
+func TestParseStashListEmpty(t *testing.T) {
+	if entries := parseStashList(""); len(entries) != 0 {
+		t.Errorf("expected empty, got %v", entries)
+	}
+}
+
+func TestParseConfigList(t *testing.T) {
+	output := "user.name=Jane Doe\nuser.email=jane@example.com\ncore.editor\npull.rebase=true\n"
+	entries := parseConfigList(output)
+
+	if len(entries) != 4 {
+		t.Fatalf("entry count = %d, want 4", len(entries))
+	}
+	cases := []struct {
+		key   string
+		value string
+	}{
+		{"user.name", "Jane Doe"},
+		{"user.email", "jane@example.com"},
+		{"core.editor", ""},
+		{"pull.rebase", "true"},
+	}
+	for i, c := range cases {
+		if entries[i].Key != c.key {
+			t.Errorf("entries[%d].Key = %q, want %q", i, entries[i].Key, c.key)
+		}
+		if entries[i].Value != c.value {
+			t.Errorf("entries[%d].Value = %q, want %q", i, entries[i].Value, c.value)
+		}
+	}
+}
+
+func TestParseConfigListEmpty(t *testing.T) {
+	if entries := parseConfigList(""); len(entries) != 0 {
+		t.Errorf("expected empty, got %v", entries)
+	}
+}
+
+func TestExtractCommitHash(t *testing.T) {
+	cases := []struct {
+		line string
+		want string
+	}{
+		{"abc1234 feat: add login", "abc1234"},
+		{"* abc1234 feat: add login", "abc1234"},
+		{"| * abc1234 fix: null pointer", "abc1234"},
+		{"| \\", ""},
+		{"|/", ""},
+		{"", ""},
+		{"notahash", ""},
+		{"abcdef0 feat: seven valid hex chars", "abcdef0"},
+		{"ABCDEF0 uppercase hex is not matched", ""},
+	}
+	for _, c := range cases {
+		got := extractCommitHash(c.line)
+		if got != c.want {
+			t.Errorf("extractCommitHash(%q) = %q, want %q", c.line, got, c.want)
+		}
+	}
+}

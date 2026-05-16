@@ -164,10 +164,19 @@ Open bonsai and press `?` for the full in-app reference. Key highlights:
 |-----|--------|
 | `↑` / `↓` | Scroll |
 | `enter` | Open commit detail |
-| `d` | Full diff for the selected commit |
+| `/` | Open search / filter input |
+| `ctrl+/` or `ctrl+r` | Clear active filter |
+| `m` | Load more commits |
+| `esc` | Back |
+
+### Commit detail panel
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Scroll |
+| `d` | Full diff for this commit |
 | `p` | Cherry-pick onto current branch |
-| `m` | Merge selected commit |
-| `ctrl+/` or `ctrl+r` | Search / filter |
+| `y` | Copy commit hash to clipboard |
 | `esc` | Back |
 
 ### Branch list panel

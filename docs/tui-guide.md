@@ -113,9 +113,21 @@ Press `l` to open the commit log. From there:
 |-----|--------|
 | `↑`/`↓` | Scroll |
 | `enter` | Open commit detail (diff stat, author, date, body) |
-| `d` | View the full diff for the selected commit |
-| `m` | Merge the selected commit into the current branch |
-| `ctrl+/` or `ctrl+r` | Search / filter commits |
+| `/` | Open search / filter input |
+| `ctrl+/` or `ctrl+r` | Clear active filter |
+| `m` | Load more commits (shown when more are available) |
+| `esc` | Back (first `esc` clears any active filter) |
+
+### Commit detail
+
+From the commit detail view:
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓` | Scroll |
+| `d` | View the full diff for this commit |
+| `p` | Cherry-pick this commit onto the current branch |
+| `y` | Copy the commit hash to the clipboard |
 | `esc` | Back |
 
 ## Stash

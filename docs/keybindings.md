@@ -90,11 +90,10 @@
 | `↑` / `k` | Scroll up |
 | `↓` / `j` | Scroll down |
 | `enter` | Open commit detail |
-| `m` | Merge selected commit into current branch |
-| `p` | Cherry-pick selected commit |
-| `ctrl+/` or `ctrl+r` | Search / filter commits |
-| `space` | Load more commits |
-| `esc` | Back |
+| `/` | Open search / filter input |
+| `ctrl+/` or `ctrl+r` | Clear active filter |
+| `m` | Load more commits (when more are available) |
+| `esc` | Back (first `esc` clears the active filter) |
 
 ## Commit detail panel
 
