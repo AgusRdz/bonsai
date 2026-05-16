@@ -841,7 +841,10 @@ func (r *Runner) Blame(ctx context.Context, path string) ([]BlameLine, error) {
 	if raw == "" {
 		return nil, nil
 	}
+	return parseBlamePorcelain(raw), nil
+}
 
+func parseBlamePorcelain(raw string) []BlameLine {
 	var lines []BlameLine
 	var cur BlameLine
 	inGroup := false
@@ -874,8 +877,7 @@ func (r *Runner) Blame(ctx context.Context, path string) ([]BlameLine, error) {
 			inGroup = false
 		}
 	}
-
-	return lines, nil
+	return lines
 }
 
 // BisectState holds the current state of a bisect session.

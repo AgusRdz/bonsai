@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/AgusRdz/bonsai/git"
@@ -188,5 +189,72 @@ func TestBuildFileListConflictsFirst(t *testing.T) {
 	items := buildFileList(s)
 	if items[0].category != catConflict {
 		t.Error("conflicts must come before staged files")
+	}
+}
+
+func TestFileCode(t *testing.T) {
+	// Code[0]=staged char, Code[1]=unstaged char
+	f := git.FileEntry{Code: "M ", Path: "a.go"}
+	// catChanged -> UnstagedCode (index 1 = ' ')
+	if got := fileCode(f, catChanged); got != " " {
+		t.Errorf("fileCode(catChanged) = %q, want ' '", got)
+	}
+	// catStaged -> StagedCode (index 0 = 'M')
+	if got := fileCode(f, catStaged); got != "M" {
+		t.Errorf("fileCode(catStaged) = %q, want 'M'", got)
+	}
+	// catConflict -> StagedCode
+	fu := git.FileEntry{Code: "UU", Path: "b.go"}
+	if got := fileCode(fu, catConflict); got != "U" {
+		t.Errorf("fileCode(catConflict) = %q, want 'U'", got)
+	}
+}
+
+func TestCommitDetailLineCount(t *testing.T) {
+	// nil -> 0
+	if n := commitDetailLineCount(nil); n != 0 {
+		t.Errorf("nil = %d, want 0", n)
+	}
+	// no body, no stat: base 6 + (len(stat)+1)=1 = 7
+	if n := commitDetailLineCount(&git.CommitDetail{}); n != 7 {
+		t.Errorf("empty = %d, want 7", n)
+	}
+	// body "line1\nline2" (1 newline): 6 + (1+2) + 1 = 10
+	d2 := &git.CommitDetail{Body: "line1\nline2"}
+	if n := commitDetailLineCount(d2); n != 10 {
+		t.Errorf("body = %d, want 10", n)
+	}
+	// 3 stat lines, no body: 6 + 0 + (3+1) = 10
+	d3 := &git.CommitDetail{Stat: []string{"a.go | 2 +-", "b.go | 1 +", "c.go | 3 ---"}}
+	if n := commitDetailLineCount(d3); n != 10 {
+		t.Errorf("stat = %d, want 10", n)
+	}
+}
+
+func TestRenderDiffLine(t *testing.T) {
+	cases := []string{
+		"@@ -1,2 +1,3 @@",
+		"+added line",
+		"-removed line",
+		" context line",
+	}
+	for _, input := range cases {
+		got := renderDiffLine(input)
+		if !strings.Contains(got, input) {
+			t.Errorf("renderDiffLine(%q): output does not contain input", input)
+		}
+	}
+}
+
+func TestRenderStatLine(t *testing.T) {
+	// File line with | separator - filename part must be preserved
+	got := renderStatLine("main.go | 5 ++---")
+	if !strings.Contains(got, "main.go |") {
+		t.Errorf("renderStatLine file line missing filename: %q", got)
+	}
+	// Summary line without | - content must be preserved
+	got2 := renderStatLine("3 files changed, 5 insertions(+), 2 deletions(-)")
+	if !strings.Contains(got2, "3 files changed") {
+		t.Errorf("renderStatLine summary missing content: %q", got2)
 	}
 }

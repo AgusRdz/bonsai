@@ -450,3 +450,92 @@ func TestHunkRaw(t *testing.T) {
 		t.Errorf("Hunk.raw() = %q, want %q", got, want)
 	}
 }
+
+func TestIsAllHex(t *testing.T) {
+	cases := []struct {
+		input string
+		want  bool
+	}{
+		{"abc123", true},
+		{"0123456789abcdef", true},
+		{"", true},
+		{"ABCDEF", false},
+		{"abcdefg", false},
+		{"abc 123", false},
+		{"abcdef0", true},
+	}
+	for _, c := range cases {
+		got := isAllHex(c.input)
+		if got != c.want {
+			t.Errorf("isAllHex(%q) = %v, want %v", c.input, got, c.want)
+		}
+	}
+}
+
+func TestParseBlamePorcelain(t *testing.T) {
+	raw := strings.Join([]string{
+		"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2 1 1 1",
+		"author Jane Doe",
+		"author-mail <jane@example.com>",
+		"author-time 1700000000",
+		"author-tz +0000",
+		"committer Jane Doe",
+		"committer-mail <jane@example.com>",
+		"committer-time 1700000000",
+		"committer-tz +0000",
+		"summary feat: add feature",
+		"filename main.go",
+		"\thello world",
+		"b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3 2 2 1",
+		"author Bob Smith",
+		"author-mail <bob@example.com>",
+		"author-time 1700001000",
+		"author-tz +0000",
+		"committer Bob Smith",
+		"committer-mail <bob@example.com>",
+		"committer-time 1700001000",
+		"committer-tz +0000",
+		"summary fix: bug",
+		"filename main.go",
+		"\tfoo bar",
+	}, "\n")
+
+	lines := parseBlamePorcelain(raw)
+	if len(lines) != 2 {
+		t.Fatalf("len = %d, want 2", len(lines))
+	}
+	if lines[0].Hash != "a1b2c3d4" {
+		t.Errorf("lines[0].Hash = %q, want a1b2c3d4", lines[0].Hash)
+	}
+	if lines[0].Author != "Jane Doe" {
+		t.Errorf("lines[0].Author = %q, want Jane Doe", lines[0].Author)
+	}
+	if lines[0].LineNum != 1 {
+		t.Errorf("lines[0].LineNum = %d, want 1", lines[0].LineNum)
+	}
+	if lines[0].Text != "hello world" {
+		t.Errorf("lines[0].Text = %q, want hello world", lines[0].Text)
+	}
+	if lines[0].Date != "2023-11-14" {
+		t.Errorf("lines[0].Date = %q, want 2023-11-14", lines[0].Date)
+	}
+	if lines[1].Hash != "b2c3d4e5" {
+		t.Errorf("lines[1].Hash = %q, want b2c3d4e5", lines[1].Hash)
+	}
+	if lines[1].Author != "Bob Smith" {
+		t.Errorf("lines[1].Author = %q, want Bob Smith", lines[1].Author)
+	}
+}
+
+func TestParseBlamePorcelainEmpty(t *testing.T) {
+	if lines := parseBlamePorcelain(""); len(lines) != 0 {
+		t.Errorf("empty input: got %d lines, want 0", len(lines))
+	}
+}
+
+func TestParseBlamePorcelainSkipsMalformed(t *testing.T) {
+	raw := "not-a-hash 1 1 1\nauthor Jane\n\thello"
+	if lines := parseBlamePorcelain(raw); len(lines) != 0 {
+		t.Errorf("malformed: got %d lines, want 0", len(lines))
+	}
+}
