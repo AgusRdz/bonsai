@@ -665,6 +665,87 @@ func (r *Runner) Blame(ctx context.Context, path string) ([]BlameLine, error) {
 	return lines, nil
 }
 
+// BisectState holds the current state of a bisect session.
+type BisectState struct {
+	Active  bool   // true when .git/BISECT_LOG exists
+	Status  string // last output line from git bisect log
+	Current string // current commit hash being tested (abbreviated)
+}
+
+// BisectStatus returns the current bisect state by reading sentinel files.
+func (r *Runner) BisectStatus(ctx context.Context) (*BisectState, error) {
+	out, err := exec.CommandContext(ctx, "git", "rev-parse", "--git-dir").Output()
+	if err != nil {
+		return &BisectState{}, nil
+	}
+	gitDir := strings.TrimSpace(string(out))
+	logPath := filepath.Join(gitDir, "BISECT_LOG")
+
+	state := &BisectState{}
+	if _, err := os.Stat(logPath); err != nil {
+		// No bisect in progress.
+		return state, nil
+	}
+	state.Active = true
+
+	// Get the last non-empty line from bisect log for status.
+	logOut, err := exec.CommandContext(ctx, "git", "bisect", "log").Output()
+	if err == nil {
+		lines := strings.Split(strings.TrimRight(string(logOut), "\n"), "\n")
+		for i := len(lines) - 1; i >= 0; i-- {
+			if strings.TrimSpace(lines[i]) != "" {
+				state.Status = strings.TrimSpace(lines[i])
+				break
+			}
+		}
+	}
+
+	// Get the current short hash.
+	hashOut, err := exec.CommandContext(ctx, "git", "rev-parse", "--short", "HEAD").Output()
+	if err == nil {
+		state.Current = strings.TrimSpace(string(hashOut))
+	}
+
+	return state, nil
+}
+
+// BisectStart starts a bisect session.
+func (r *Runner) BisectStart(ctx context.Context) error {
+	_, err := r.run(ctx, "bisect", "start")
+	return err
+}
+
+// BisectBad marks the current commit as bad.
+func (r *Runner) BisectBad(ctx context.Context) error {
+	_, err := r.run(ctx, "bisect", "bad")
+	return err
+}
+
+// BisectGood marks a specific commit as good. hash may be empty to use HEAD.
+func (r *Runner) BisectGood(ctx context.Context, hash string) error {
+	if hash == "" {
+		_, err := r.run(ctx, "bisect", "good")
+		return err
+	}
+	_, err := r.run(ctx, "bisect", "good", hash)
+	return err
+}
+
+// BisectReset ends the bisect session and returns to the original branch.
+func (r *Runner) BisectReset(ctx context.Context) error {
+	_, err := r.run(ctx, "bisect", "reset")
+	return err
+}
+
+// BisectLog returns the full bisect log output for display.
+func (r *Runner) BisectLog(ctx context.Context) (string, error) {
+	out, err := r.run(ctx, "bisect", "log")
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 // Merge merges branch into the current branch.
 func (r *Runner) Merge(ctx context.Context, branch string) error {
 	_, err := r.run(ctx, "merge", branch)

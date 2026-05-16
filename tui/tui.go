@@ -41,6 +41,7 @@ const (
 	panelWorktreeList
 	panelWorktreeAdd
 	panelBlame
+	panelBisect
 )
 
 type branchMode int
@@ -114,6 +115,10 @@ type model struct {
 	blameLines         []git.BlameLine
 	blameScroll        int
 	blameTitle         string
+	bisectState        *git.BisectState
+	bisectLog          string
+	bisectInput        textinput.Model
+	bisectInputActive  bool
 }
 
 // --- messages ---
@@ -150,6 +155,14 @@ type worktreeListMsg []git.WorktreeEntry
 type blameMsg struct {
 	title string
 	lines []git.BlameLine
+}
+
+type bisectStateMsg *git.BisectState
+type bisectLogMsg string
+
+type bisectActionMsg struct {
+	cmd string
+	err error
 }
 
 // --- commands ---
@@ -546,6 +559,70 @@ func (m model) doCherryPickAbort() tea.Cmd {
 	}
 }
 
+func (m model) doFetchBisectState() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		state, err := m.git.BisectStatus(ctx)
+		if err != nil {
+			return bisectStateMsg(&git.BisectState{})
+		}
+		return bisectStateMsg(state)
+	}
+}
+
+func (m model) doFetchBisectLog() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		log, err := m.git.BisectLog(ctx)
+		if err != nil {
+			return bisectLogMsg("")
+		}
+		return bisectLogMsg(log)
+	}
+}
+
+func (m model) doBisectStart() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.BisectStart(ctx)
+		return bisectActionMsg{cmd: "git bisect start", err: err}
+	}
+}
+
+func (m model) doBisectBad() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.BisectBad(ctx)
+		return bisectActionMsg{cmd: "git bisect bad", err: err}
+	}
+}
+
+func (m model) doBisectGood(hash string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.BisectGood(ctx, hash)
+		cmd := "git bisect good"
+		if hash != "" {
+			cmd += " " + hash
+		}
+		return bisectActionMsg{cmd: cmd, err: err}
+	}
+}
+
+func (m model) doBisectReset() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.BisectReset(ctx)
+		return bisectActionMsg{cmd: "git bisect reset", err: err}
+	}
+}
+
 // --- init ---
 
 func (m model) Init() tea.Cmd {
@@ -654,6 +731,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.blameScroll = 0
 		m.panel = panelBlame
 
+	case bisectStateMsg:
+		m.bisectState = (*git.BisectState)(msg)
+
+	case bisectLogMsg:
+		m.bisectLog = string(msg)
+
+	case bisectActionMsg:
+		m.lastCmd = msg.cmd
+		m.actionErr = msg.err
+		return m, tea.Batch(m.fetchStatus(), m.doFetchBisectState(), m.doFetchBisectLog())
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -690,6 +778,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		if m.panel == panelBisect && m.bisectInputActive {
+			var cmd tea.Cmd
+			m.bisectInput, cmd = m.bisectInput.Update(msg)
+			return m, cmd
+		}
 		if m.panel == panelEducation {
 			return m.updateEduPanel(msg)
 		}
@@ -747,6 +840,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelBlame {
 			return m.updateBlamePanel(msg)
 		}
+		if m.panel == panelBisect {
+			return m.updateBisectPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -768,6 +864,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.panel == panelWorktreeAdd {
 		var cmd tea.Cmd
 		m.branchInput, cmd = m.branchInput.Update(msg)
+		return m, cmd
+	}
+	if m.panel == panelBisect && m.bisectInputActive {
+		var cmd tea.Cmd
+		m.bisectInput, cmd = m.bisectInput.Update(msg)
 		return m, cmd
 	}
 
@@ -973,6 +1074,14 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.blameScroll = 0
 		m.panel = panelBlame
 		return m, m.doBlame(f.entry.Path)
+
+	case "i":
+		m.panel = panelBisect
+		m.bisectState = nil
+		m.bisectLog = ""
+		m.bisectInputActive = false
+		m.actionErr = nil
+		return m, tea.Batch(m.doFetchBisectState(), m.doFetchBisectLog())
 	}
 
 	return m, nil
@@ -1328,6 +1437,73 @@ func (m model) updateBlamePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "esc", kb.Quit:
 		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) updateBisectPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	kb := m.cfg.Keybindings
+	active := m.bisectState != nil && m.bisectState.Active
+
+	if m.bisectInputActive {
+		switch msg.String() {
+		case "enter":
+			hash := strings.TrimSpace(m.bisectInput.Value())
+			m.bisectInputActive = false
+			m.bisectInput.Blur()
+			m.actionErr = nil
+			return m, m.doBisectGood(hash)
+		case "esc":
+			m.bisectInputActive = false
+			m.bisectInput.Blur()
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "s":
+		if !active {
+			m.actionErr = nil
+			return m, m.doBisectStart()
+		}
+	case "b":
+		if active {
+			m.actionErr = nil
+			return m, m.doBisectBad()
+		}
+	case "g":
+		if active {
+			ti := textinput.New()
+			ti.Placeholder = "commit hash (leave empty to mark HEAD as good)"
+			ti.Focus()
+			ti.CharLimit = 64
+			ti.Width = m.width - 6
+			m.bisectInput = ti
+			m.bisectInputActive = true
+			m.actionErr = nil
+		}
+	case "G":
+		if active {
+			m.actionErr = nil
+			return m, m.doBisectGood("")
+		}
+	case "r":
+		if active {
+			m.confirmPrompt = "reset bisect session and return to original branch?"
+			m.confirmCmd = m.doBisectReset()
+			m.panel = panelConfirm
+			m.actionErr = nil
+		}
+	case "l":
+		return m, m.doFetchBisectLog()
+	case "esc", kb.Quit:
+		if active {
+			m.actionErr = fmt.Errorf("bisect in progress - press [r] to reset first")
+		} else {
+			m.panel = panelMain
+		}
 	case "ctrl+c":
 		return m, tea.Quit
 	}
@@ -1690,6 +1866,9 @@ func (m model) View() string {
 	if m.panel == panelBlame {
 		return m.blameView()
 	}
+	if m.panel == panelBisect {
+		return m.bisectView()
+	}
 	return m.mainView()
 }
 
@@ -2035,6 +2214,10 @@ func (m model) helpView() string {
 	row("b", "create new branch")
 	row("B", "switch to another branch")
 	row("l", "commit log (recent 20)")
+	b.WriteString("\n")
+
+	section("Bisect")
+	row("i", "open bisect panel (binary search for bug-introducing commit)")
 	b.WriteString("\n")
 
 	section("App")
@@ -2601,6 +2784,84 @@ func (m model) blameView() string {
 		if len(m.blameLines) > visibleLines {
 			bar += fmt.Sprintf("  (%d/%d)", m.blameScroll+1, len(m.blameLines))
 		}
+	}
+	return content + styleDim.Render(bar) + "\n"
+}
+
+func (m model) bisectView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+
+	active := m.bisectState != nil && m.bisectState.Active
+
+	if active {
+		b.WriteString("  " + styleSection.Render("Bisect") + "  " + styleChanged.Render("(active)") + "\n\n")
+	} else {
+		b.WriteString("  " + styleSection.Render("Bisect") + "\n\n")
+	}
+
+	if m.bisectInputActive {
+		b.WriteString("  " + styleDim.Render("Enter a known-good commit hash (or leave empty for HEAD):") + "\n")
+		b.WriteString("  " + styleDim.Render("> ") + m.bisectInput.View() + "\n\n")
+	} else if active {
+		current := ""
+		if m.bisectState != nil {
+			current = m.bisectState.Current
+		}
+		b.WriteString("  " + styleDim.Render("Testing: ") + styleCmd.Render(current) + "\n")
+		if m.bisectState != nil && m.bisectState.Status != "" {
+			b.WriteString("  " + styleDim.Render(m.bisectState.Status) + "\n")
+		}
+		b.WriteString("\n")
+		b.WriteString("  " + styleCmd.Render("[b]") + "  " + styleDim.Render("this commit is bad") + "\n")
+		b.WriteString("  " + styleCmd.Render("[G]") + "  " + styleDim.Render("this commit is good (HEAD)") + "\n")
+		b.WriteString("  " + styleCmd.Render("[g]") + "  " + styleDim.Render("good - enter a specific hash") + "\n")
+		b.WriteString("  " + styleCmd.Render("[r]") + "  " + styleDim.Render("reset and end session") + "\n")
+	} else {
+		b.WriteString("  " + styleDim.Render("Binary search through commit history to find what introduced a bug.") + "\n\n")
+		b.WriteString("  " + styleDim.Render("How it works:") + "\n")
+		b.WriteString("    " + styleDim.Render("1. start a session       ") + styleCmd.Render("[s]") + "\n")
+		b.WriteString("    " + styleDim.Render("2. mark current as bad   ") + styleCmd.Render("[b]") + "\n")
+		b.WriteString("    " + styleDim.Render("3. mark a commit as good ") + styleCmd.Render("[g]") + styleDim.Render(" (enter hash) or ") + styleCmd.Render("[G]") + styleDim.Render(" (current is good)") + "\n")
+		b.WriteString("    " + styleDim.Render("4. git checks out a midpoint - test your code") + "\n")
+		b.WriteString("    " + styleDim.Render("5. repeat [b] / [G] until git finds the first bad commit") + "\n")
+		b.WriteString("    " + styleDim.Render("6. reset when done       ") + styleCmd.Render("[r]") + "\n")
+	}
+
+	if m.bisectLog != "" {
+		b.WriteString("\n")
+		b.WriteString("  " + styleDim.Render("Bisect log:") + "\n")
+		logLines := strings.Split(strings.TrimRight(m.bisectLog, "\n"), "\n")
+		// Show last N lines that fit in viewport.
+		overhead := strings.Count(b.String(), "\n") + 3
+		visible := m.height - overhead
+		if visible < 1 {
+			visible = 1
+		}
+		start := 0
+		if len(logLines) > visible {
+			start = len(logLines) - visible
+		}
+		for _, line := range logLines[start:] {
+			b.WriteString("  " + styleDim.Render(line) + "\n")
+		}
+	}
+
+	if m.actionErr != nil {
+		b.WriteString("\n  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n")
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+
+	var bar string
+	if active {
+		bar = "  [b] bad  [G] good (HEAD)  [g] good (hash)  [r] reset  [l] log"
+	} else {
+		bar = "  [s] start  [esc] back"
 	}
 	return content + styleDim.Render(bar) + "\n"
 }
