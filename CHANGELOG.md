@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.29.2] - 2026-05-16
+
+### Bug Fixes
+- Group stats contributors by email to collapse duplicate identities
+([d35bfb0](https://github.com/AgusRdz/bonsai/commit/d35bfb041ac2d715419834cace3193e2e62612a6))
 ## [0.29.1] - 2026-05-16
 
 ### Documentation
