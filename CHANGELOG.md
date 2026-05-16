@@ -2,11 +2,15 @@
 
 All notable changes to bonsai are documented here.
 
-## [0.36.0] - 2026-05-16
+## [0.35.10] - 2026-05-16
 
 ### Features
 - Configurable command bar - toggle shortcuts via [C] config or command_bar.items in TOML
 ([1596a32](https://github.com/AgusRdz/bonsai/commit/1596a320b174524d4014ab2402af1f93a9d79c95))
+
+### Performance
+- Replace O(n²) sorts with sort.Slice, cap unbounded git log in Stats
+([9955121](https://github.com/AgusRdz/bonsai/commit/995512142f3fa6f6680de7e04a7fad1a92cf1329))
 ## [0.35.9] - 2026-05-16
 
 ### Features
