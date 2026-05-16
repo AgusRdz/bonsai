@@ -115,6 +115,14 @@ func (r *Runner) Restore(ctx context.Context, paths ...string) error {
 	return err
 }
 
+// Discard removes working tree changes for the given paths.
+// Unlike Restore, this does NOT touch the index - it discards uncommitted edits permanently.
+func (r *Runner) Discard(ctx context.Context, paths ...string) error {
+	args := append([]string{"restore", "--"}, paths...)
+	_, err := r.run(ctx, args...)
+	return err
+}
+
 // Commit creates a commit with the given message.
 func (r *Runner) Commit(ctx context.Context, message string) error {
 	_, err := r.run(ctx, "commit", "-m", message)

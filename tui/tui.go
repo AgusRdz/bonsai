@@ -31,6 +31,7 @@ const (
 	panelDiff
 	panelStashList
 	panelHelp
+	panelConfirm
 )
 
 type branchMode int
@@ -72,6 +73,8 @@ type model struct {
 	diffTitle      string
 	stashes        []git.StashEntry
 	stashCursor    int
+	confirmPrompt  string
+	confirmCmd     tea.Cmd
 	edu            *educationPanel
 	eduTimer       int
 	width          int
@@ -246,6 +249,15 @@ func (m model) doStashPop(ref string) tea.Cmd {
 	}
 }
 
+func (m model) doDiscard(path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.Discard(ctx, path)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
 func (m model) doFetchStashList() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -381,6 +393,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelHelp {
 			return m.updateHelpPanel(msg)
 		}
+		if m.panel == panelConfirm {
+			return m.updateConfirmPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -507,6 +522,20 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "?":
 		m.panel = panelHelp
+
+	case "x":
+		if len(m.files) == 0 {
+			break
+		}
+		f := m.files[m.cursor]
+		if f.category != catChanged {
+			m.actionErr = fmt.Errorf("only changed (unstaged) files can be discarded")
+			break
+		}
+		m.confirmPrompt = fmt.Sprintf("discard all changes to %s? this cannot be undone", f.entry.Path)
+		m.confirmCmd = m.doDiscard(f.entry.Path)
+		m.panel = panelConfirm
+		m.actionErr = nil
 	}
 
 	return m, nil
@@ -703,6 +732,22 @@ func (m model) updateStashListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateConfirmPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y", "Y":
+		cmd := m.confirmCmd
+		m.confirmCmd = nil
+		m.panel = panelMain
+		return m, cmd
+	case "n", "N", "esc", m.cfg.Keybindings.Quit:
+		m.confirmCmd = nil
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 func (m model) updateHelpPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
@@ -749,6 +794,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelHelp {
 		return m.helpView()
+	}
+	if m.panel == panelConfirm {
+		return m.confirmView()
 	}
 	return m.mainView()
 }
@@ -999,6 +1047,20 @@ func (m model) branchListView() string {
 	return content + styleDim.Render("  [enter] switch  [esc] cancel") + "\n"
 }
 
+func (m model) confirmView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleChanged.Render("! confirm") + "\n\n")
+	b.WriteString("  " + styleDim.Render(m.confirmPrompt) + "\n\n")
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [y] yes  [n / esc] cancel") + "\n"
+}
+
 func (m model) helpView() string {
 	kb := m.cfg.Keybindings
 	var b strings.Builder
@@ -1016,6 +1078,7 @@ func (m model) helpView() string {
 	row("↑↓ / k/j", "navigate file list")
 	row("space / enter", "stage or unstage selected file")
 	row("d", "diff selected file (staged or unstaged)")
+	row("x", "discard working tree changes (with confirmation)")
 	b.WriteString("\n")
 
 	section("Git")
