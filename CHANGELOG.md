@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.36.2] - 2026-05-16
+
+### Features
+- Show rebase/merge choice when pull would diverge
+([e6e6a4e](https://github.com/AgusRdz/bonsai/commit/e6e6a4ee87ea2e6fb1f9774a436ed8feab56144b))
 ## [0.36.1] - 2026-05-16
 
 ### Performance
