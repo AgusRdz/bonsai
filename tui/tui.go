@@ -701,15 +701,23 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	visibleLines := m.height - 5
+// diffViewport returns the number of visible lines and the maximum scroll
+// offset for the diff panel. Both callers (updateDiffPanel and diffView) use
+// this to avoid duplicating the calculation.
+func (m model) diffViewport() (visibleLines, maxScroll int) {
+	visibleLines = m.height - 5
 	if visibleLines < 1 {
 		visibleLines = 1
 	}
-	maxScroll := len(m.diffLines) - visibleLines
+	maxScroll = len(m.diffLines) - visibleLines
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
+	return
+}
+
+func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	_, maxScroll := m.diffViewport()
 	switch msg.String() {
 	case "up", "k":
 		if m.diffScroll > 0 {
@@ -1220,10 +1228,7 @@ func (m model) diffView() string {
 	} else if len(m.diffLines) == 0 {
 		b.WriteString("  " + styleDim.Render("no changes") + "\n")
 	} else {
-		visibleLines := m.height - 5
-		if visibleLines < 1 {
-			visibleLines = 1
-		}
+		visibleLines, _ := m.diffViewport()
 		end := m.diffScroll + visibleLines
 		if end > len(m.diffLines) {
 			end = len(m.diffLines)

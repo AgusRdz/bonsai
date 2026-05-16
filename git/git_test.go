@@ -93,6 +93,30 @@ func TestParseBranchesEmpty(t *testing.T) {
 	}
 }
 
+func TestParseBranchLine(t *testing.T) {
+	cases := []struct {
+		input  string
+		branch string
+		ahead  int
+		behind int
+	}{
+		{"main...origin/main [ahead 2, behind 1]", "main", 2, 1},
+		{"main...origin/main [ahead 3]", "main", 3, 0},
+		{"main...origin/main [behind 5]", "main", 0, 5},
+		{"main...origin/main", "main", 0, 0},
+		{"main", "main", 0, 0},
+		{"No commits yet on feat/new", "feat/new", 0, 0},
+		{"HEAD (no branch)", "HEAD", 0, 0},
+	}
+	for _, c := range cases {
+		branch, ahead, behind := parseBranchLine(c.input)
+		if branch != c.branch || ahead != c.ahead || behind != c.behind {
+			t.Errorf("parseBranchLine(%q) = (%q, %d, %d), want (%q, %d, %d)",
+				c.input, branch, ahead, behind, c.branch, c.ahead, c.behind)
+		}
+	}
+}
+
 func TestFileEntryHelpers(t *testing.T) {
 	f := FileEntry{Code: "MM", Path: "file.go"}
 	if f.StagedCode() != 'M' {

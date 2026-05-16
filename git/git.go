@@ -73,30 +73,77 @@ func (r *Runner) run(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 // Status returns the current branch and file status.
+// A single `git status --porcelain --branch` call provides branch name,
+// ahead/behind counts, and file status - replacing the previous 4-call approach.
 func (r *Runner) Status(ctx context.Context) (*Status, error) {
-	branchOut, err := r.run(ctx, "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := r.run(ctx, "status", "--porcelain", "--branch")
 	if err != nil {
 		return nil, err
 	}
-	statusOut, err := r.run(ctx, "status", "--porcelain")
-	if err != nil {
-		return nil, err
-	}
-	s := parseStatus(strings.TrimSpace(string(branchOut)), string(statusOut))
-	s.Ahead, s.Behind = r.aheadBehind(ctx)
 	r.lastCmd = "git status"
+
+	raw := string(out)
+	branch := "HEAD"
+	var ahead, behind int
+	body := raw
+
+	if strings.HasPrefix(raw, "## ") {
+		nl := strings.IndexByte(raw, '\n')
+		var header string
+		if nl < 0 {
+			header, body = raw[3:], ""
+		} else {
+			header, body = raw[3:nl], raw[nl+1:]
+		}
+		branch, ahead, behind = parseBranchLine(header)
+	}
+
+	s := parseStatus(branch, body)
+	s.Ahead = ahead
+	s.Behind = behind
 	return s, nil
 }
 
-// aheadBehind returns how many commits the local branch is ahead of and
-// behind its remote tracking branch. Both values are zero when there is no
-// upstream configured or when the rev-list calls fail.
-func (r *Runner) aheadBehind(ctx context.Context) (ahead, behind int) {
-	if out, err := r.run(ctx, "rev-list", "--count", "@{u}..HEAD"); err == nil {
-		ahead, _ = strconv.Atoi(strings.TrimSpace(string(out)))
+// parseBranchLine parses the header line from `git status --porcelain --branch`
+// (the part after the leading "## ").
+// Examples:
+//
+//	"main...origin/main [ahead 2, behind 1]"
+//	"main...origin/main"
+//	"main"
+//	"No commits yet on main"
+//	"HEAD (no branch)"
+func parseBranchLine(line string) (branch string, ahead, behind int) {
+	// Strip [ahead N, behind M] suffix first.
+	if idx := strings.Index(line, " ["); idx >= 0 {
+		bracket := line[idx+2:]
+		if end := strings.Index(bracket, "]"); end >= 0 {
+			bracket = bracket[:end]
+		}
+		for _, part := range strings.Split(bracket, ", ") {
+			part = strings.TrimSpace(part)
+			switch {
+			case strings.HasPrefix(part, "ahead "):
+				ahead, _ = strconv.Atoi(strings.TrimPrefix(part, "ahead "))
+			case strings.HasPrefix(part, "behind "):
+				behind, _ = strconv.Atoi(strings.TrimPrefix(part, "behind "))
+			}
+		}
+		line = line[:idx]
 	}
-	if out, err := r.run(ctx, "rev-list", "--count", "HEAD..@{u}"); err == nil {
-		behind, _ = strconv.Atoi(strings.TrimSpace(string(out)))
+
+	switch {
+	case strings.HasPrefix(line, "No commits yet on "):
+		branch = strings.TrimPrefix(line, "No commits yet on ")
+	case line == "HEAD (no branch)":
+		branch = "HEAD"
+	default:
+		// "main...origin/main" or just "main"
+		if idx := strings.Index(line, "..."); idx >= 0 {
+			branch = line[:idx]
+		} else {
+			branch = line
+		}
 	}
 	return
 }
@@ -136,7 +183,7 @@ func (r *Runner) Log(ctx context.Context, n int) ([]LogEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	var entries []LogEntry
+	entries := make([]LogEntry, 0, n)
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if line != "" {
 			entries = append(entries, LogEntry{Line: line})
