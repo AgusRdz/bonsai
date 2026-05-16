@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.6.0] - 2026-05-16
+
+### Features
+- Branch convention validation with warn/strict modes
+([6cbb360](https://github.com/AgusRdz/bonsai/commit/6cbb360f15aa90c0b5422813bfea31526e9da91b))
 ## [0.5.0] - 2026-05-16
 
 ### Features
