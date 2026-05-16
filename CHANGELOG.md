@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.37.2] - 2026-05-16
+
+### Features
+- Show contextual file action hints in footer when file is selected
+([1360c68](https://github.com/AgusRdz/bonsai/commit/1360c681073925fce43190180f88959521e1e0ed))
 ## [0.37.1] - 2026-05-16
 
 ### Features
