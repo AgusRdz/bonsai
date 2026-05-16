@@ -157,33 +157,42 @@ Commands:
   update            update to the latest release
   uninstall         remove bonsai from this system
   changelog         show the changelog
-  setup             interactive setup wizard (global config)
-  setup --local     interactive setup wizard (per-project .bonsai.toml)
-  init              create a .bonsai.toml template without a wizard
+
+  setup             interactive first-run setup (global config)
+  setup --local     per-project .bonsai.toml setup wizard
+  init              create a .bonsai.toml template in the current directory
   config            open global config in your editor
   config --local    open (or create) per-project .bonsai.toml in your editor
   config --path     print the path to the global config file
+
   doctor            check global and local git configuration health
   doctor --verbose  same, with a one-line explanation per check
   stats             show repository statistics
-  patch create      create .patch files from commits (git format-patch)
-  patch apply       apply a .patch file (git am)
-  archive           export repo as tar.gz or zip
-  bundle create     pack refs into a portable bundle file
-  bundle verify     verify a bundle file
-  ssh status        show SSH key and agent status
-  ssh keygen        generate a new SSH key pair
-  ssh show          print your SSH public key
-  metrics           show locally tracked git habit and error metrics
-  lfs               git lfs commands (status, track, untrack, pull, install)
   standup           show your recent commits (today by default)
   standup --days N  show commits from the last N days (default: 1)
   standup -w        shorthand for --days 7 (the whole week)
   standup -a name   filter by author name (default: you)
+  metrics           show locally tracked habit and error metrics
+
+  patch create      create .patch files from commits (git format-patch)
+  patch apply       apply a .patch file (git am)
+  archive           export repo snapshot as tar.gz or zip
+  bundle create     pack refs into a portable bundle file
+  bundle verify     verify a bundle file
+
+  ssh status        show SSH key and agent status
+  ssh keygen        generate a new SSH key pair
+  ssh show          print your SSH public key
+
+  lfs status        show pending git lfs objects
+  lfs track <pat>   track a file pattern via git lfs (.gitattributes)
+  lfs untrack <pat> stop tracking a pattern
+  lfs pull          download all lfs objects for the current checkout
+  lfs install       install lfs hooks into this repository
 
 Options:
-  -h, --help     show help
-  -v, --version  print version
+  -h, --help        show help
+  -v, --version     print version
 `, version)
 }
 
