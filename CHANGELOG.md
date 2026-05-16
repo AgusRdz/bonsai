@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.24.0] - 2026-05-16
+
+### Features
+- Git blame panel (block 4)
+([e8c114c](https://github.com/AgusRdz/bonsai/commit/e8c114cd0db18097962c58fc6182c343040e2045))
 ## [0.23.0] - 2026-05-16
 
 ### Features
