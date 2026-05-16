@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.12.0] - 2026-05-16
+
+### Features
+- Contextual tips for novice and learning modes
+([3b77930](https://github.com/AgusRdz/bonsai/commit/3b77930fe12a46916578e18d165e8796fa2ed35e))
 ## [0.11.0] - 2026-05-16
 
 ### Features
