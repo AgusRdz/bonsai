@@ -10,6 +10,22 @@ Opens the interactive TUI. Runs the setup wizard on first launch.
 bonsai
 ```
 
+## bonsai clone
+
+Clones a remote repository and opens bonsai in the resulting directory.
+
+```sh
+bonsai clone <url> [<directory>]
+```
+
+```sh
+# Clone into a directory named after the repo
+bonsai clone https://github.com/example/repo.git
+
+# Clone into a custom directory
+bonsai clone https://github.com/example/repo.git my-project
+```
+
 ## bonsai setup
 
 Interactive wizard that walks you through flow, branch prefixes, mode, and validation. Writes to the global config.

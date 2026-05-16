@@ -64,6 +64,10 @@ const (
 	panelHunkStage
 	panelPushOpts
 	panelMastery
+	panelStashMsg
+	panelFileHistory
+	panelGraph
+	panelEduMgr
 )
 
 type branchMode int
@@ -244,6 +248,25 @@ type model struct {
 	// mastery question panel
 	masteryKey    string
 	masteryCursor int // 0 = suppress, 1 = keep showing
+
+	// stash with message
+	stashMsgInput textinput.Model
+
+	// file history
+	fileHistoryPath    string
+	fileHistoryEntries []git.LogEntry
+	fileHistoryCursor  int
+
+	// commit detail origin: which panel to return to on esc
+	commitDetailOrigin panel
+
+	// branch graph
+	graphLines  []string
+	graphScroll int
+
+	// education manager
+	eduMgrKeys   []string // ordered list of command keys shown
+	eduMgrCursor int
 }
 
 // --- messages ---
@@ -322,6 +345,9 @@ type hunkLoadMsg struct {
 	err     error
 }
 
+type fileHistoryMsg []git.LogEntry
+type graphMsg string
+
 // --- commands ---
 
 func (m model) fetchStatus() tea.Cmd {
@@ -394,6 +420,52 @@ func (m model) doSaveUsage() tea.Cmd {
 	return func() tea.Msg {
 		_ = data.Save(path)
 		return nil
+	}
+}
+
+func (m model) doStashWithMsg(msg string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.StashWithMessage(ctx, msg)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doFileHistory(path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		entries, err := m.git.FileLog(ctx, path, 200)
+		if err != nil {
+			return fileHistoryMsg(nil)
+		}
+		return fileHistoryMsg(entries)
+	}
+}
+
+func (m model) doGraph() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		out, err := m.git.Graph(ctx, 300)
+		if err != nil {
+			return graphMsg("")
+		}
+		return graphMsg(out)
+	}
+}
+
+func (m model) doFetchDiffCommit(hash string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		content, err := m.git.DiffCommit(ctx, hash)
+		if err != nil || content == "" {
+			return diffMsg{title: "diff " + hash, lines: []string{}}
+		}
+		lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+		return diffMsg{title: "diff " + hash, lines: lines}
 	}
 }
 
@@ -532,15 +604,6 @@ func (m model) doFetchDiff(path string, staged bool) tea.Cmd {
 		}
 		lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
 		return diffMsg{title: title, lines: lines}
-	}
-}
-
-func (m model) doStash() tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-		defer cancel()
-		err := m.git.Stash(ctx)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
 	}
 }
 
@@ -1506,6 +1569,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hunkCursor = 0
 		m.panel = panelHunkStage
 
+	case fileHistoryMsg:
+		m.fileHistoryEntries = []git.LogEntry(msg)
+		m.fileHistoryCursor = 0
+		m.panel = panelFileHistory
+
+	case graphMsg:
+		raw := string(msg)
+		if raw == "" {
+			m.graphLines = []string{}
+		} else {
+			m.graphLines = strings.Split(strings.TrimRight(raw, "\n"), "\n")
+		}
+		m.graphScroll = 0
+		m.panel = panelGraph
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -1768,6 +1846,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelMastery {
 			return m.updateMasteryPanel(msg)
 		}
+		if m.panel == panelStashMsg {
+			switch msg.String() {
+			case "enter", "esc", "ctrl+c":
+				// fall through to updateStashMsgPanel
+			default:
+				var cmd tea.Cmd
+				m.stashMsgInput, cmd = m.stashMsgInput.Update(msg)
+				return m, cmd
+			}
+			return m.updateStashMsgPanel(msg)
+		}
+		if m.panel == panelFileHistory {
+			return m.updateFileHistoryPanel(msg)
+		}
+		if m.panel == panelGraph {
+			return m.updateGraphPanel(msg)
+		}
+		if m.panel == panelEduMgr {
+			return m.updateEduMgrPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -1945,8 +2043,30 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.actionErr = fmt.Errorf("nothing to stash - working tree is clean")
 			break
 		}
+		ti := textinput.New()
+		ti.Placeholder = "stash message (optional)"
+		ti.Focus()
+		ti.CharLimit = 128
+		ti.Width = m.width - 6
+		m.stashMsgInput = ti
+		m.panel = panelStashMsg
 		m.actionErr = nil
-		return m, m.doStash()
+
+	case "H":
+		if len(m.files) == 0 {
+			break
+		}
+		f := m.files[m.cursor]
+		m.fileHistoryPath = f.entry.Path
+		m.fileHistoryEntries = nil
+		m.fileHistoryCursor = 0
+		return m, m.doFileHistory(f.entry.Path)
+
+	case kb.Graph, "g":
+		m.graphLines = nil
+		m.graphScroll = 0
+		m.panel = panelGraph
+		return m, m.doGraph()
 
 	case "S":
 		m.stashes = nil
@@ -2253,6 +2373,7 @@ func (m model) updateLogPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if entry.Hash != "" {
 				m.commitDetail = nil
 				m.commitDetailScroll = 0
+				m.commitDetailOrigin = panelLog
 				return m, m.doFetchCommitDetail(entry.Hash)
 			}
 		}
@@ -2314,6 +2435,10 @@ func (m model) updateCommitDetailPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.commitDetail != nil {
 			_ = clipboard.WriteAll(m.commitDetail.Hash)
 		}
+	case "d":
+		if m.commitDetail != nil && m.commitDetail.Hash != "" {
+			return m, m.doFetchDiffCommit(m.commitDetail.Hash)
+		}
 	case "p":
 		if m.commitDetail != nil && m.commitDetail.Hash != "" {
 			hash := m.commitDetail.Hash
@@ -2330,7 +2455,10 @@ func (m model) updateCommitDetailPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.panel = panelConfirm
 		}
 	case "esc", m.cfg.Keybindings.Quit:
-		m.panel = panelLog
+		m.panel = m.commitDetailOrigin
+		if m.commitDetailOrigin == 0 {
+			m.panel = panelLog
+		}
 	case "ctrl+c":
 		return m, tea.Quit
 	}
@@ -2689,7 +2817,7 @@ func (m model) updateAmendPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateConfigMenuPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	const numItems = 6
+	const numItems = 7
 	switch msg.String() {
 	case "up", "k":
 		if m.configMenuCursor > 0 {
@@ -2713,6 +2841,10 @@ func (m model) updateConfigMenuPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.doLoadRecommendations()
 		case 5:
 			return m, m.doLoadProfiles()
+		case 6:
+			m.eduMgrKeys = buildEduMgrKeys(m.usage)
+			m.eduMgrCursor = 0
+			m.panel = panelEduMgr
 		}
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
@@ -3671,6 +3803,18 @@ func (m model) View() string {
 	}
 	if m.panel == panelMastery {
 		return m.masteryView()
+	}
+	if m.panel == panelStashMsg {
+		return m.stashMsgView()
+	}
+	if m.panel == panelFileHistory {
+		return m.fileHistoryView()
+	}
+	if m.panel == panelGraph {
+		return m.graphView()
+	}
+	if m.panel == panelEduMgr {
+		return m.eduMgrView()
 	}
 	return m.mainView()
 }
@@ -4847,6 +4991,7 @@ func (m model) configMenuView() string {
 		{"Local gitignore", "(.gitignore)"},
 		{"Recommendations", "(best practices)"},
 		{"Profiles", "(includeIf conditionals)"},
+		{"Education & Usage", "(command usage and tip settings)"},
 	}
 
 	for i, item := range items {
@@ -5258,6 +5403,253 @@ func (m model) masteryView() string {
 	}
 	b.WriteString("\n")
 	b.WriteString(styleDim.Render("  [↑↓] select  [enter] confirm  [esc] keep showing") + "\n")
+	return b.String()
+}
+
+func (m model) updateStashMsgPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		message := strings.TrimSpace(m.stashMsgInput.Value())
+		m.panel = panelMain
+		return m, m.doStashWithMsg(message)
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) stashMsgView() string {
+	title := styleTitle.Render("Stash changes")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+	b.WriteString("  Enter a message for this stash (optional):\n")
+	b.WriteString("  " + m.stashMsgInput.View() + "\n\n")
+	b.WriteString(styleDim.Render("  [enter] stash  [esc] cancel") + "\n")
+	return b.String()
+}
+
+func (m model) updateFileHistoryPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.fileHistoryEntries == nil {
+		if msg.String() == "esc" || msg.String() == m.cfg.Keybindings.Quit || msg.String() == "ctrl+c" {
+			m.panel = panelMain
+			if msg.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
+		}
+		return m, nil
+	}
+	switch msg.String() {
+	case "up", "k":
+		if m.fileHistoryCursor > 0 {
+			m.fileHistoryCursor--
+		}
+	case "down", "j":
+		if m.fileHistoryCursor < len(m.fileHistoryEntries)-1 {
+			m.fileHistoryCursor++
+		}
+	case "enter":
+		if m.fileHistoryCursor < len(m.fileHistoryEntries) {
+			entry := m.fileHistoryEntries[m.fileHistoryCursor]
+			if entry.Hash != "" {
+				m.commitDetail = nil
+				m.commitDetailScroll = 0
+				m.commitDetailOrigin = panelFileHistory
+				return m, m.doFetchCommitDetail(entry.Hash)
+			}
+		}
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) fileHistoryView() string {
+	title := styleTitle.Render("File history: " + m.fileHistoryPath)
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+	if m.fileHistoryEntries == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+		return b.String()
+	}
+	if len(m.fileHistoryEntries) == 0 {
+		b.WriteString("  " + styleDim.Render("no commits found for this file") + "\n")
+	} else {
+		for i, e := range m.fileHistoryEntries {
+			cursor := "  "
+			if m.fileHistoryCursor == i {
+				cursor = styleSelected.Render("> ")
+			}
+			b.WriteString(cursor + e.Line + "\n")
+		}
+	}
+	b.WriteString("\n")
+	b.WriteString(styleDim.Render("  [↑↓] navigate  [enter] view commit  [esc] back") + "\n")
+	return b.String()
+}
+
+func (m model) updateGraphPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.graphLines == nil {
+		if msg.String() == "esc" || msg.String() == m.cfg.Keybindings.Quit || msg.String() == "ctrl+c" {
+			m.panel = panelMain
+			if msg.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
+		}
+		return m, nil
+	}
+	visible := m.height - 5
+	if visible < 1 {
+		visible = 1
+	}
+	maxScroll := len(m.graphLines) - visible
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	switch msg.String() {
+	case "up", "k":
+		if m.graphScroll > 0 {
+			m.graphScroll--
+		}
+	case "down", "j":
+		if m.graphScroll < maxScroll {
+			m.graphScroll++
+		}
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) graphView() string {
+	title := styleTitle.Render("Branch graph")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+	if m.graphLines == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+		return b.String()
+	}
+	if len(m.graphLines) == 0 {
+		b.WriteString("  " + styleDim.Render("no commits found") + "\n")
+	} else {
+		visible := m.height - 6
+		if visible < 1 {
+			visible = 1
+		}
+		end := m.graphScroll + visible
+		if end > len(m.graphLines) {
+			end = len(m.graphLines)
+		}
+		for _, line := range m.graphLines[m.graphScroll:end] {
+			b.WriteString("  " + line + "\n")
+		}
+	}
+	b.WriteString("\n")
+	b.WriteString(styleDim.Render("  [↑↓] scroll  [esc] back") + "\n")
+	return b.String()
+}
+
+// buildEduMgrKeys returns command keys ordered by usage count descending,
+// followed by any suppressed commands not yet run (count = 0).
+func buildEduMgrKeys(u *usage.Data) []string {
+	type kc struct {
+		key   string
+		count int
+	}
+	var items []kc
+	seen := map[string]bool{}
+	for k, c := range u.Counts {
+		items = append(items, kc{k, c})
+		seen[k] = true
+	}
+	for k := range u.Suppressed {
+		if !seen[k] {
+			items = append(items, kc{k, 0})
+			seen[k] = true
+		}
+	}
+	// sort by count descending, then alphabetically
+	for i := 1; i < len(items); i++ {
+		for j := i; j > 0 && (items[j].count > items[j-1].count ||
+			(items[j].count == items[j-1].count && items[j].key < items[j-1].key)); j-- {
+			items[j], items[j-1] = items[j-1], items[j]
+		}
+	}
+	keys := make([]string, len(items))
+	for i, it := range items {
+		keys[i] = it.key
+	}
+	return keys
+}
+
+func (m model) updateEduMgrPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.eduMgrCursor > 0 {
+			m.eduMgrCursor--
+		}
+	case "down", "j":
+		if m.eduMgrCursor < len(m.eduMgrKeys)-1 {
+			m.eduMgrCursor++
+		}
+	case " ", "enter":
+		if m.eduMgrCursor < len(m.eduMgrKeys) {
+			key := m.eduMgrKeys[m.eduMgrCursor]
+			if m.usage.IsSuppressed(key) {
+				delete(m.usage.Suppressed, key)
+				// allow mastery prompt to appear again so user can make a fresh choice
+				delete(m.usage.Prompted, key)
+			} else {
+				m.usage.Suppress(key)
+			}
+			return m, m.doSaveUsage()
+		}
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelConfigMenu
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) eduMgrView() string {
+	title := styleTitle.Render("Education & Usage")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+
+	if len(m.eduMgrKeys) == 0 {
+		b.WriteString("  " + styleDim.Render("no commands tracked yet - run some git operations first") + "\n\n")
+		b.WriteString(styleDim.Render("  [esc] back") + "\n")
+		return b.String()
+	}
+
+	for i, key := range m.eduMgrKeys {
+		cursor := "  "
+		if m.eduMgrCursor == i {
+			cursor = styleSelected.Render("> ")
+		}
+		tips := styleAdded.Render("[✓]")
+		if m.usage.IsSuppressed(key) {
+			tips = styleDim.Render("[ ]")
+		}
+		count := m.usage.Count(key)
+		threshold := masteryThreshold(key)
+		var countStr string
+		if count >= threshold {
+			countStr = styleDim.Render(fmt.Sprintf("  mastered (%d uses)", count))
+		} else {
+			countStr = styleDim.Render(fmt.Sprintf("  %d / %d uses", count, threshold))
+		}
+		b.WriteString(cursor + tips + "  " + fmt.Sprintf("%-18s", "git "+key) + countStr + "\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(styleDim.Render("  [✓] tips on  [ ] tips off  [space/enter] toggle  [esc] back") + "\n")
 	return b.String()
 }
 

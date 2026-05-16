@@ -547,6 +547,65 @@ func (r *Runner) Stash(ctx context.Context) error {
 	return err
 }
 
+// StashWithMessage stashes with an optional descriptive message.
+// If msg is empty it falls back to a plain stash.
+func (r *Runner) StashWithMessage(ctx context.Context, msg string) error {
+	if msg == "" {
+		return r.Stash(ctx)
+	}
+	_, err := r.run(ctx, "stash", "push", "-m", msg)
+	return err
+}
+
+// FileLog returns the commit log entries that touched the given file.
+func (r *Runner) FileLog(ctx context.Context, path string, limit int) ([]LogEntry, error) {
+	args := []string{"log", fmt.Sprintf("--max-count=%d", limit), "--oneline", "--decorate", "--", path}
+	out, err := r.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	var entries []LogEntry
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		entries = append(entries, LogEntry{Line: line, Hash: extractCommitHash(line)})
+	}
+	return entries, nil
+}
+
+// Graph returns a text representation of the full commit graph across all branches.
+func (r *Runner) Graph(ctx context.Context, limit int) (string, error) {
+	out, err := r.run(ctx, "log", "--graph", "--oneline", "--decorate", "--all",
+		fmt.Sprintf("--max-count=%d", limit), "--color=never")
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// DiffCommit returns the unified diff introduced by a single commit.
+// Works for the initial commit (no parent) by using git show.
+func (r *Runner) DiffCommit(ctx context.Context, hash string) (string, error) {
+	out, err := r.run(ctx, "show", "--format=", "--", hash)
+	if err != nil {
+		return "", err
+	}
+	// git show prefixes output with a blank line from the empty format; strip it.
+	result := strings.TrimPrefix(string(out), "\n")
+	return result, nil
+}
+
+// Clone clones a remote repository to an optional local directory.
+func (r *Runner) Clone(ctx context.Context, url, dir string) error {
+	args := []string{"clone", url}
+	if dir != "" {
+		args = append(args, dir)
+	}
+	_, err := r.run(ctx, args...)
+	return err
+}
+
 // StashPop applies the given stash ref and removes it from the stash list.
 func (r *Runner) StashPop(ctx context.Context, ref string) error {
 	_, err := r.run(ctx, "stash", "pop", ref)

@@ -61,6 +61,8 @@ func main() {
 		runArchive(os.Args[2:])
 	case "bundle":
 		runBundle(os.Args[2:])
+	case "clone":
+		runClone(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai: unknown command %q\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "Run 'bonsai help' for available commands.")
@@ -569,4 +571,30 @@ func runBundle(args []string) {
 		fmt.Fprintf(os.Stderr, "bonsai: bundle: unknown subcommand %q\n", args[0])
 		os.Exit(1)
 	}
+}
+
+func runClone(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: bonsai clone <url> [<directory>]")
+		os.Exit(1)
+	}
+	url := args[0]
+	dir := ""
+	if len(args) > 1 {
+		dir = args[1]
+	}
+	ctx := context.Background()
+	r := git.New()
+	fmt.Printf("cloning %s...\n", url)
+	if err := r.Clone(ctx, url, dir); err != nil {
+		fmt.Fprintf(os.Stderr, "bonsai: clone: %v\n", err)
+		os.Exit(1)
+	}
+	target := dir
+	if target == "" {
+		// derive from URL: last path segment without .git
+		base := filepath.Base(url)
+		target = strings.TrimSuffix(base, ".git")
+	}
+	fmt.Printf("cloned into %s\n", target)
 }

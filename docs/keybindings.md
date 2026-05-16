@@ -15,6 +15,7 @@
 |-----|--------|
 | `space` | Stage an unstaged file / unstage a staged file |
 | `h` | Stage / unstage individual hunks within a file |
+| `H` | View commit history for the selected file |
 | `d` | View diff for the selected file |
 | `x` | Discard working tree changes (confirm required) |
 | `o` | Restore file to HEAD or a specific ref |
@@ -27,6 +28,14 @@
 | `p` | Open push menu (push / force-with-lease / set-upstream) |
 | `P` | Pull from remote |
 | `f` | Fetch menu |
+| `g` | Open branch graph (git log --graph --all) |
+
+### Stash
+
+| Key | Action |
+|-----|--------|
+| `s` | Stash all changes (opens message input) |
+| `S` | Open stash list |
 
 ### Branches
 
@@ -41,13 +50,6 @@
 |-----|--------|
 | `l` | Open commit log |
 | `L` | Open reflog |
-
-### Stash
-
-| Key | Action |
-|-----|--------|
-| `s` | Stash all changes |
-| `S` | Open stash list |
 
 ### Advanced operations
 
@@ -99,7 +101,24 @@
 | Key | Action |
 |-----|--------|
 | `↑` / `↓` | Scroll |
+| `d` | View full diff of this commit |
 | `y` | Copy commit hash to clipboard |
+| `p` | Cherry-pick this commit onto current branch |
+| `esc` | Back |
+
+## File history panel
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Scroll |
+| `enter` | View commit detail |
+| `esc` | Back |
+
+## Branch graph panel
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Scroll |
 | `esc` | Back |
 
 ## Branch list panel
@@ -108,8 +127,8 @@
 |-----|--------|
 | `↑` / `↓` | Scroll |
 | `enter` | Switch to the selected branch |
-| `r` | Rename the selected branch |
-| `d` | Delete the selected branch |
+| `m` | Merge selected branch into current (confirm required) |
+| `r` | Rebase current onto selected branch (confirm required) |
 | `esc` | Back |
 
 ## Stash list panel
