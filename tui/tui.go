@@ -32,6 +32,7 @@ const (
 	panelStashList
 	panelHelp
 	panelConfirm
+	panelFlowPick
 )
 
 type branchMode int
@@ -75,6 +76,8 @@ type model struct {
 	stashCursor    int
 	confirmPrompt  string
 	confirmCmd     tea.Cmd
+	flowOptions    []flowOption
+	flowPickCursor int
 	edu            *educationPanel
 	eduTimer       int
 	width          int
@@ -348,6 +351,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		dur := m.cfg.Education.PanelDuration
 		if m.cfg.Modes.Default != "pro" && dur > 0 {
 			m.edu = newEduPanel(msg.cmd, msg.err)
+			if hint := flowHint(msg.cmd, detectFlow(m.cfg)); hint != "" {
+				if m.edu.explain != "" {
+					m.edu.explain += "\n\n" + hint
+				} else {
+					m.edu.explain = hint
+				}
+			}
 			m.eduTimer = dur
 			m.panel = panelEducation
 			return m, tea.Batch(m.fetchStatus(), startEduTimer())
@@ -395,6 +405,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelConfirm {
 			return m.updateConfirmPanel(msg)
+		}
+		if m.panel == panelFlowPick {
+			return m.updateFlowPickPanel(msg)
 		}
 		return m.updateMainPanel(msg)
 	}
@@ -469,7 +482,14 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.actionErr = nil
 		return m, m.doPull()
 
-	case "b":
+	case kb.Branch, "b":
+		if detectFlow(m.cfg) == "gitflow" {
+			m.flowOptions = gitflowOptions(m.cfg)
+			m.flowPickCursor = 0
+			m.panel = panelFlowPick
+			m.actionErr = nil
+			break
+		}
 		ti := textinput.New()
 		ti.Placeholder = "branch name"
 		ti.Focus()
@@ -732,6 +752,40 @@ func (m model) updateStashListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateFlowPickPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.flowPickCursor > 0 {
+			m.flowPickCursor--
+		}
+	case "down", "j":
+		if m.flowPickCursor < len(m.flowOptions)-1 {
+			m.flowPickCursor++
+		}
+	case "enter":
+		if len(m.flowOptions) == 0 {
+			m.panel = panelMain
+			return m, nil
+		}
+		opt := m.flowOptions[m.flowPickCursor]
+		ti := textinput.New()
+		ti.Placeholder = opt.example
+		ti.Focus()
+		ti.CharLimit = 128
+		ti.Width = m.width - 6
+		ti.SetValue(opt.prefix)
+		m.branchInput = ti
+		m.branchMode = branchModeCreate
+		m.panel = panelBranch
+		m.actionErr = nil
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 func (m model) updateConfirmPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
@@ -798,6 +852,9 @@ func (m model) View() string {
 	if m.panel == panelConfirm {
 		return m.confirmView()
 	}
+	if m.panel == panelFlowPick {
+		return m.flowPickView()
+	}
 	return m.mainView()
 }
 
@@ -815,6 +872,9 @@ func (m model) mainView() string {
 		}
 		if m.status.Behind > 0 {
 			header += "  " + styleChanged.Render(fmt.Sprintf("↓%d", m.status.Behind))
+		}
+		if flow := detectFlow(m.cfg); flow != "auto" {
+			header += "  " + styleDim.Render("["+flow+"]")
 		}
 		b.WriteString("  " + header + "\n\n")
 
@@ -1191,6 +1251,30 @@ func renderDiffLine(line string) string {
 	}
 }
 
+func (m model) flowPickView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Branch Type") + "\n\n")
+	for i, opt := range m.flowOptions {
+		cursor := "  "
+		if m.flowPickCursor == i {
+			cursor = styleSelected.Render("> ")
+		}
+		name := styleCmd.Render(fmt.Sprintf("%-10s", opt.name))
+		prefix := styleDim.Render(opt.prefix)
+		example := styleDim.Render("  e.g. " + opt.example)
+		b.WriteString(cursor + "  " + name + "  " + prefix + example + "\n")
+	}
+	b.WriteString("\n")
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [enter] select  [esc] cancel") + "\n"
+}
+
 func (m model) logView() string {
 	var b strings.Builder
 	b.WriteString("\n")
@@ -1224,6 +1308,7 @@ func contextTip(m model) string {
 		return ""
 	}
 	s := m.status
+	flow := detectFlow(m.cfg)
 	nChanged := len(s.Changed) + len(s.Untracked)
 	nStaged := len(s.Staged)
 	switch {
@@ -1236,7 +1321,16 @@ func contextTip(m model) string {
 	case nStaged > 0:
 		return fmt.Sprintf("tip: %d file(s) staged - press [c] to commit", nStaged)
 	case s.Ahead > 0:
-		return fmt.Sprintf("tip: %d commit(s) ready - press [p] to push to remote", s.Ahead)
+		switch flow {
+		case "gitflow":
+			return fmt.Sprintf("tip: %d commit(s) ready - push [p] and open a PR targeting develop", s.Ahead)
+		case "trunk":
+			return fmt.Sprintf("tip: %d commit(s) ahead - push and merge soon, keep branches short-lived", s.Ahead)
+		case "githubflow", "forking":
+			return fmt.Sprintf("tip: %d commit(s) ready - push [p] then open a PR to merge into main", s.Ahead)
+		default:
+			return fmt.Sprintf("tip: %d commit(s) ready - press [p] to push to remote", s.Ahead)
+		}
 	default:
 		return "tip: working tree is clean - edit a file to get started"
 	}
