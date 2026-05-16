@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.20.0] - 2026-05-16
+
+### Features
+- Rename and differentiate modes (novice→guided, learning→standard)
+([79e7ca1](https://github.com/AgusRdz/bonsai/commit/79e7ca13728ba0349a8420589233bf3d80afbead))
 ## [0.19.1] - 2026-05-16
 
 ### Bug Fixes
