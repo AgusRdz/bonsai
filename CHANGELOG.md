@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.37.4] - 2026-05-16
+
+### Bug Fixes
+- Show only non-obvious actions in file hint (space/diff already in command bar)
+([b04794d](https://github.com/AgusRdz/bonsai/commit/b04794d66543a60591e2e9740768995f3ec04d27))
 ## [0.37.3] - 2026-05-16
 
 ### Bug Fixes
