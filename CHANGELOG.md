@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.17.0] - 2026-05-16
+
+### Features
+- Commit detail panel and log limit increase
+([c172207](https://github.com/AgusRdz/bonsai/commit/c172207766014b0427c6f3913a8a44163afe3cb5))
 ## [0.16.0] - 2026-05-16
 
 ### Features
