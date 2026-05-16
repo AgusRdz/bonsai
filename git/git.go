@@ -1100,6 +1100,53 @@ func (r *Runner) Merge(ctx context.Context, branch string) error {
 	return err
 }
 
+// MergeNoFF merges branch into HEAD with --no-ff (always creates a merge commit).
+func (r *Runner) MergeNoFF(ctx context.Context, branch string) error {
+	_, err := r.run(ctx, "merge", "--no-ff", branch)
+	return err
+}
+
+// FinishBranch executes a multi-step gitflow finish for the given feature/bugfix
+// branch: switches to targetBranch, does a no-ff merge, then deletes branch.
+func (r *Runner) FinishBranch(ctx context.Context, branch, targetBranch string) error {
+	if err := r.Switch(ctx, targetBranch); err != nil {
+		return fmt.Errorf("switch to %s: %w", targetBranch, err)
+	}
+	if err := r.MergeNoFF(ctx, branch); err != nil {
+		return fmt.Errorf("merge %s: %w", branch, err)
+	}
+	if err := r.DeleteBranch(ctx, branch, false); err != nil {
+		return fmt.Errorf("delete %s: %w", branch, err)
+	}
+	return nil
+}
+
+// FinishRelease executes a multi-step gitflow release finish:
+// merge to mainBranch, create tag, merge to devBranch, delete branch.
+func (r *Runner) FinishRelease(ctx context.Context, branch, mainBranch, devBranch, tagName string) error {
+	if err := r.Switch(ctx, mainBranch); err != nil {
+		return fmt.Errorf("switch to %s: %w", mainBranch, err)
+	}
+	if err := r.MergeNoFF(ctx, branch); err != nil {
+		return fmt.Errorf("merge %s to %s: %w", branch, mainBranch, err)
+	}
+	if tagName != "" {
+		if err := r.CreateTag(ctx, tagName); err != nil {
+			return fmt.Errorf("create tag %s: %w", tagName, err)
+		}
+	}
+	if err := r.Switch(ctx, devBranch); err != nil {
+		return fmt.Errorf("switch to %s: %w", devBranch, err)
+	}
+	if err := r.MergeNoFF(ctx, branch); err != nil {
+		return fmt.Errorf("merge %s to %s: %w", branch, devBranch, err)
+	}
+	if err := r.DeleteBranch(ctx, branch, false); err != nil {
+		return fmt.Errorf("delete %s: %w", branch, err)
+	}
+	return nil
+}
+
 // CherryPick applies the commit hash onto the current branch.
 func (r *Runner) CherryPick(ctx context.Context, hash string) error {
 	_, err := r.run(ctx, "cherry-pick", hash)

@@ -388,10 +388,11 @@ type model struct {
 	mdb *metrics.DB
 
 	// pr integration
-	prProvider   pr.Provider
-	prStatus     *pr.PRStatus
-	prListItems  []pr.PRStatus
-	prListCursor int
+	prProvider        pr.Provider
+	prStatus          *pr.PRStatus
+	prListItems       []pr.PRStatus
+	prListCursor      int
+	protectedBranches map[string]bool // branch names known to be protected on remote
 
 	// undo: last reversible operation
 	undoCmd  tea.Cmd
@@ -411,6 +412,7 @@ type actionDoneMsg struct {
 	info string // optional human-readable summary shown in the footer
 }
 type branchListMsg []git.Branch
+type protectedBranchesMsg map[string]bool
 
 type diffMsg struct {
 	title string
@@ -1936,6 +1938,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.panel = panelBranchList
+		return m, m.doLoadProtectedBranches()
+
+	case protectedBranchesMsg:
+		m.protectedBranches = map[string]bool(msg)
 
 	case diffMsg:
 		m.diffLines = msg.lines
@@ -2117,8 +2123,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pushing = false
 		m.pulling = false
 		m.lastCmd = msg.cmd
-		m.actionErr = msg.err
 		m.lastInfo = msg.info
+		// Enhance protected-branch push errors with an actionable message.
+		if msg.err != nil && strings.Contains(msg.cmd, "push") {
+			errLower := strings.ToLower(msg.err.Error())
+			if strings.Contains(errLower, "protected branch") ||
+				strings.Contains(errLower, "push to protected") ||
+				strings.Contains(errLower, "denied") && strings.Contains(errLower, "push") {
+				msg.err = fmt.Errorf("push rejected: branch is protected - open a PR instead ([K] to open PR panel)")
+			}
+		}
+		m.actionErr = msg.err
 
 		// Metrics tracking (best-effort, never block the TUI).
 		if m.mdb != nil {
@@ -2870,6 +2885,33 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.noteEditing = false
 		m.actionErr = nil
 		return m, m.doFetchNote("HEAD")
+
+	case "F":
+		if detectFlow(m.cfg) != "gitflow" || m.status == nil {
+			break
+		}
+		branch := m.status.Branch
+		bType := gitflowBranchType(branch, m.cfg)
+		if bType == "" {
+			m.actionErr = fmt.Errorf("current branch %q does not match any gitflow prefix", branch)
+			break
+		}
+		mainBranch := gitflowMainBranch(m.branches)
+		devBranch := gitflowDevBranch(m.branches)
+		var steps string
+		switch bType {
+		case "feature", "bugfix":
+			steps = fmt.Sprintf("merge %s to %s (--no-ff), delete %s", branch, devBranch, branch)
+		case "release":
+			tag := strings.TrimPrefix(branch, "release/")
+			steps = fmt.Sprintf("merge %s to %s, tag %s, merge to %s, delete %s", branch, mainBranch, tag, devBranch, branch)
+		case "hotfix":
+			steps = fmt.Sprintf("merge %s to %s, merge to %s, delete %s", branch, mainBranch, devBranch, branch)
+		}
+		m.confirmPrompt = fmt.Sprintf("finish %s (%s)?\n  steps: %s", branch, bType, steps)
+		m.confirmCmd = m.doFinishGitflowBranch(branch, bType, mainBranch, devBranch)
+		m.panel = panelConfirm
+		m.actionErr = nil
 	}
 
 	return m, nil
@@ -4947,6 +4989,11 @@ func (m model) mainView() string {
 	if m.undoCmd != nil {
 		b.WriteString("  " + styleDim.Render("[U] undo: "+m.undoDesc) + "\n")
 	}
+	if detectFlow(m.cfg) == "gitflow" && m.status != nil {
+		if bType := gitflowBranchType(m.status.Branch, m.cfg); bType != "" {
+			b.WriteString("  " + styleDim.Render("[F] finish "+bType+": "+m.status.Branch) + "\n")
+		}
+	}
 
 	content := b.String()
 	lines := strings.Count(content, "\n")
@@ -5195,6 +5242,9 @@ func (m model) branchListView() string {
 			}
 			if br.Upstream != "" {
 				name += "  " + styleDim.Render("<- "+br.Upstream)
+			}
+			if m.protectedBranches[br.Name] {
+				name += "  " + styleChanged.Render("(protected)")
 			}
 			b.WriteString(cursor + "  " + name + "\n")
 		}
@@ -7432,6 +7482,91 @@ func (m model) fetchPRList() tea.Cmd {
 		defer cancel()
 		items, err := prov.ListPRs(ctx)
 		return prListMsg{items: items, err: err}
+	}
+}
+
+func (m model) doLoadProtectedBranches() tea.Cmd {
+	if m.prProvider == nil {
+		return nil
+	}
+	checker, ok := m.prProvider.(pr.ProtectionChecker)
+	if !ok {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		names, err := checker.ProtectedBranches(ctx)
+		if err != nil {
+			return nil // best-effort, not surfaced as error
+		}
+		result := make(map[string]bool, len(names))
+		for _, n := range names {
+			result[n] = true
+		}
+		return protectedBranchesMsg(result)
+	}
+}
+
+// gitflowBranchType returns the gitflow type ("feature", "bugfix", "release",
+// "hotfix") for branch, or "" if it does not match any configured prefix.
+func gitflowBranchType(branch string, cfg *config.Config) string {
+	for bType, rule := range cfg.Conventions.Branches {
+		if rule.Prefix != "" && strings.HasPrefix(branch, rule.Prefix) {
+			return bType
+		}
+	}
+	return ""
+}
+
+// gitflowMainBranch returns the main/master branch name by checking which
+// common names exist in the branch list. Falls back to "main".
+func gitflowMainBranch(branches []git.Branch) string {
+	for _, name := range []string{"main", "master"} {
+		for _, b := range branches {
+			if b.Name == name {
+				return name
+			}
+		}
+	}
+	return "main"
+}
+
+// gitflowDevBranch returns the develop branch name. Falls back to "develop".
+func gitflowDevBranch(branches []git.Branch) string {
+	for _, name := range []string{"develop", "development", "dev"} {
+		for _, b := range branches {
+			if b.Name == name {
+				return name
+			}
+		}
+	}
+	return "develop"
+}
+
+func (m model) doFinishGitflowBranch(branch, branchType, mainBranch, devBranch string) tea.Cmd {
+	g := m.git
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		var err error
+		var info string
+		switch branchType {
+		case "feature", "bugfix":
+			err = g.FinishBranch(ctx, branch, devBranch)
+			info = fmt.Sprintf("finished %s: merged to %s, deleted branch", branch, devBranch)
+		case "release":
+			tagName := strings.TrimPrefix(branch, "release/")
+			err = g.FinishRelease(ctx, branch, mainBranch, devBranch, tagName)
+			info = fmt.Sprintf("finished %s: merged to %s and %s, tagged %s, deleted branch", branch, mainBranch, devBranch, tagName)
+		case "hotfix":
+			tagName := ""
+			err = g.FinishRelease(ctx, branch, mainBranch, devBranch, tagName)
+			info = fmt.Sprintf("finished %s: merged to %s and %s, deleted branch", branch, mainBranch, devBranch)
+		default:
+			err = fmt.Errorf("unknown branch type %q for gitflow finish", branchType)
+		}
+		return actionDoneMsg{cmd: "gitflow finish " + branch, err: err, info: info}
 	}
 }
 

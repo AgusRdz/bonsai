@@ -86,3 +86,9 @@ type PRDiffer interface {
 type PRForker interface {
 	Fork(ctx context.Context) error
 }
+
+// ProtectionChecker is an optional Provider extension for querying which branches
+// are protected on the remote. Type-assert before calling: c, ok := p.(ProtectionChecker).
+type ProtectionChecker interface {
+	ProtectedBranches(ctx context.Context) ([]string, error)
+}

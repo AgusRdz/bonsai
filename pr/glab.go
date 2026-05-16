@@ -107,6 +107,28 @@ func (g *glabProvider) Fork(ctx context.Context) error {
 	return exec.CommandContext(ctx, "glab", "repo", "fork").Run()
 }
 
+func (g *glabProvider) ProtectedBranches(ctx context.Context) ([]string, error) {
+	if !g.CLIAvailable() {
+		return nil, fmt.Errorf("glab CLI not found")
+	}
+	out, err := exec.CommandContext(ctx, "glab", "api", "projects/:fullpath/protected_branches",
+		"--field", "per_page=100").Output()
+	if err != nil {
+		return nil, fmt.Errorf("glab api protected branches: %w", err)
+	}
+	var raw []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, fmt.Errorf("glab api protected branches parse: %w", err)
+	}
+	names := make([]string, len(raw))
+	for i, r := range raw {
+		names[i] = r.Name
+	}
+	return names, nil
+}
+
 func normaliseGlabState(s string) string {
 	switch strings.ToLower(s) {
 	case "opened":

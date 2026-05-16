@@ -111,6 +111,22 @@ func (g *ghProvider) Fork(ctx context.Context) error {
 	return exec.CommandContext(ctx, "gh", "repo", "fork", "--clone=false", "--remote=true").Run()
 }
 
+func (g *ghProvider) ProtectedBranches(ctx context.Context) ([]string, error) {
+	if !g.CLIAvailable() {
+		return nil, fmt.Errorf("gh CLI not found")
+	}
+	out, err := exec.CommandContext(ctx, "gh", "api", "repos/{owner}/{repo}/branches",
+		"--jq", "[.[] | select(.protected) | .name]").Output()
+	if err != nil {
+		return nil, fmt.Errorf("gh api branches: %w", err)
+	}
+	var names []string
+	if err := json.Unmarshal(out, &names); err != nil {
+		return nil, fmt.Errorf("gh api branches parse: %w", err)
+	}
+	return names, nil
+}
+
 // ciCheck holds one entry from gh's statusCheckRollup JSON field.
 type ciCheck struct {
 	Conclusion string `json:"conclusion"`
