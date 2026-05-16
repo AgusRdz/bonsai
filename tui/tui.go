@@ -40,6 +40,7 @@ const (
 	panelResetPick
 	panelWorktreeList
 	panelWorktreeAdd
+	panelBlame
 )
 
 type branchMode int
@@ -110,6 +111,9 @@ type model struct {
 	lastCmd            string // last git command run
 	pushing            bool
 	pulling            bool
+	blameLines         []git.BlameLine
+	blameScroll        int
+	blameTitle         string
 }
 
 // --- messages ---
@@ -142,6 +146,11 @@ type conflictLinesMsg struct {
 type tagListMsg []git.TagEntry
 
 type worktreeListMsg []git.WorktreeEntry
+
+type blameMsg struct {
+	title string
+	lines []git.BlameLine
+}
 
 // --- commands ---
 
@@ -453,6 +462,18 @@ func (m model) doRemoveWorktree(path string) tea.Cmd {
 	}
 }
 
+func (m model) doBlame(path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		lines, err := m.git.Blame(ctx, path)
+		if err != nil || lines == nil {
+			return blameMsg{title: path, lines: []git.BlameLine{}}
+		}
+		return blameMsg{title: path, lines: lines}
+	}
+}
+
 func (m model) doMerge(branch string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -627,6 +648,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.worktreeCursor = 0
 		m.panel = panelWorktreeList
 
+	case blameMsg:
+		m.blameLines = msg.lines
+		m.blameTitle = msg.title
+		m.blameScroll = 0
+		m.panel = panelBlame
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -716,6 +743,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelWorktreeAdd {
 			return m.updateWorktreeAddPanel(msg)
+		}
+		if m.panel == panelBlame {
+			return m.updateBlamePanel(msg)
 		}
 		return m.updateMainPanel(msg)
 	}
@@ -925,6 +955,24 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.panel = panelConfirm
 		m.actionErr = nil
+
+	case "e":
+		if len(m.files) == 0 {
+			break
+		}
+		f := m.files[m.cursor]
+		if f.category == catUntracked {
+			m.actionErr = fmt.Errorf("untracked file has no blame history - stage and commit it first")
+			break
+		}
+		if f.category == catConflict {
+			m.actionErr = fmt.Errorf("resolve this conflict before viewing blame")
+			break
+		}
+		m.blameLines = nil
+		m.blameScroll = 0
+		m.panel = panelBlame
+		return m, m.doBlame(f.entry.Path)
 	}
 
 	return m, nil
@@ -1245,7 +1293,40 @@ func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.diffScroll < maxScroll {
 			m.diffScroll++
 		}
+	case "e":
+		path := strings.TrimSuffix(m.diffTitle, "  (staged)")
+		m.blameLines = nil
+		m.blameScroll = 0
+		m.panel = panelBlame
+		return m, m.doBlame(path)
 	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) updateBlamePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	visibleLines := m.height - 5
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+	maxScroll := len(m.blameLines) - visibleLines
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	kb := m.cfg.Keybindings
+	switch msg.String() {
+	case "up", "k":
+		if m.blameScroll > 0 {
+			m.blameScroll--
+		}
+	case "down", "j":
+		if m.blameScroll < maxScroll {
+			m.blameScroll++
+		}
+	case "esc", kb.Quit:
 		m.panel = panelMain
 	case "ctrl+c":
 		return m, tea.Quit
@@ -1606,6 +1687,9 @@ func (m model) View() string {
 	if m.panel == panelWorktreeAdd {
 		return m.worktreeAddView()
 	}
+	if m.panel == panelBlame {
+		return m.blameView()
+	}
 	return m.mainView()
 }
 
@@ -1935,6 +2019,7 @@ func (m model) helpView() string {
 	row("↑↓ / k/j", "navigate file list")
 	row("space / enter", "stage or unstage selected file")
 	row("d", "diff selected file (staged or unstaged)")
+	row("e", "blame selected file (who last changed each line)")
 	row("x", "discard working tree changes (with confirmation)")
 	b.WriteString("\n")
 
@@ -2035,7 +2120,7 @@ func (m model) diffView() string {
 	if len(m.diffLines) > 0 {
 		pos = fmt.Sprintf("  (%d/%d)", m.diffScroll+1, len(m.diffLines))
 	}
-	return content + styleDim.Render("  [↑↓] scroll  [esc] back"+pos) + "\n"
+	return content + styleDim.Render("  [↑↓] scroll  [e] blame  [esc] back"+pos) + "\n"
 }
 
 func renderDiffLine(line string) string {
@@ -2467,6 +2552,57 @@ func (m model) worktreeAddView() string {
 		content += strings.Repeat("\n", pad)
 	}
 	return content + styleDim.Render("  [enter] create  [esc] cancel") + "\n"
+}
+
+func (m model) blameView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Blame") + "  " + styleDim.Render(m.blameTitle) + "\n\n")
+
+	if m.blameLines == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+	} else if len(m.blameLines) == 0 {
+		b.WriteString("  " + styleDim.Render("no blame data (file may be untracked or empty)") + "\n")
+	} else {
+		visibleLines := m.height - 5
+		if visibleLines < 1 {
+			visibleLines = 1
+		}
+		start := m.blameScroll
+		end := start + visibleLines
+		if end > len(m.blameLines) {
+			end = len(m.blameLines)
+		}
+		for _, bl := range m.blameLines[start:end] {
+			author := fmt.Sprintf("%-16.16s", bl.Author)
+			lineNum := fmt.Sprintf("%4d", bl.LineNum)
+			line := "  " +
+				styleCmd.Render(bl.Hash) + "  " +
+				styleDim.Render(bl.Date) + "  " +
+				styleDim.Render(author) + "  " +
+				styleDim.Render("│") + "  " +
+				styleDim.Render(lineNum) + "  " +
+				bl.Text
+			b.WriteString(line + "\n")
+		}
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	bar := "  [↑↓] scroll  [esc] back"
+	if len(m.blameLines) > 0 {
+		visibleLines := m.height - 5
+		if visibleLines < 1 {
+			visibleLines = 1
+		}
+		if len(m.blameLines) > visibleLines {
+			bar += fmt.Sprintf("  (%d/%d)", m.blameScroll+1, len(m.blameLines))
+		}
+	}
+	return content + styleDim.Render(bar) + "\n"
 }
 
 func contextTip(m model) string {

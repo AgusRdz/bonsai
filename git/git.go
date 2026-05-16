@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // FileEntry represents one file in the working tree.
@@ -605,6 +606,63 @@ func (r *Runner) CreateTag(ctx context.Context, name string) error {
 func (r *Runner) DeleteTag(ctx context.Context, name string) error {
 	_, err := r.run(ctx, "tag", "-d", name)
 	return err
+}
+
+// BlameLine is one line of git blame output.
+type BlameLine struct {
+	Hash    string // abbreviated 8-char hash
+	Author  string // author name (not email)
+	Date    string // short date YYYY-MM-DD
+	LineNum int    // 1-based line number
+	Text    string // the actual line content
+}
+
+// Blame returns the blame output for a file.
+func (r *Runner) Blame(ctx context.Context, path string) ([]BlameLine, error) {
+	out, err := r.run(ctx, "blame", "--porcelain", path)
+	if err != nil {
+		// untracked or empty file
+		return nil, nil
+	}
+	raw := strings.TrimRight(string(out), "\n")
+	if raw == "" {
+		return nil, nil
+	}
+
+	var lines []BlameLine
+	var cur BlameLine
+	inGroup := false
+
+	for _, line := range strings.Split(raw, "\n") {
+		if !inGroup {
+			// Header: <40-char-hash> <orig-line> <final-line> [<num-lines>]
+			parts := strings.Fields(line)
+			if len(parts) >= 3 && len(parts[0]) == 40 && isAllHex(parts[0]) {
+				cur = BlameLine{}
+				cur.Hash = parts[0][:8]
+				if n, e := strconv.Atoi(parts[2]); e == nil {
+					cur.LineNum = n
+				}
+				inGroup = true
+			}
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "author "):
+			cur.Author = strings.TrimPrefix(line, "author ")
+		case strings.HasPrefix(line, "author-time "):
+			ts, e := strconv.ParseInt(strings.TrimPrefix(line, "author-time "), 10, 64)
+			if e == nil {
+				cur.Date = time.Unix(ts, 0).UTC().Format("2006-01-02")
+			}
+		case strings.HasPrefix(line, "\t"):
+			cur.Text = line[1:]
+			lines = append(lines, cur)
+			inGroup = false
+		}
+	}
+
+	return lines, nil
 }
 
 // Merge merges branch into the current branch.
