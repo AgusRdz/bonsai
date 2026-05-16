@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.35.8] - 2026-05-16
+
+### Refactoring
+- Extract isGitVersionSupported/parseSizePack, add masteryThreshold/isProComplex/ResolveEditor/hashFile/replaceBinary/setup/contextTip tests
+([40e813c](https://github.com/AgusRdz/bonsai/commit/40e813cddaaf1e7e585cc11de07361454ee0d0f7))
 ## [0.35.7] - 2026-05-16
 
 ### Refactoring
