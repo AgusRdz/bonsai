@@ -260,6 +260,38 @@ func TestRenderStatLine(t *testing.T) {
 	}
 }
 
+func TestFileActionHintEmpty(t *testing.T) {
+	m := model{cfg: &config.Config{}}
+	if got := fileActionHint(m); got != "" {
+		t.Errorf("fileActionHint(no files) = %q, want empty", got)
+	}
+}
+
+func TestFileActionHintCategories(t *testing.T) {
+	cases := []struct {
+		cat      int
+		wantKeys []string
+	}{
+		{catUntracked, []string{"space", "delete from disk", "diff"}},
+		{catChanged, []string{"space", "hunks", "discard"}},
+		{catStaged, []string{"space", "untrack", "commit"}},
+		{catConflict, []string{"take ours", "take theirs"}},
+	}
+	for _, c := range cases {
+		m := model{
+			cfg:    &config.Config{},
+			files:  []fileItem{{entry: git.FileEntry{Code: "??", Path: "a.go"}, category: c.cat}},
+			cursor: 0,
+		}
+		got := fileActionHint(m)
+		for _, key := range c.wantKeys {
+			if !strings.Contains(got, key) {
+				t.Errorf("fileActionHint(cat=%d) = %q, missing %q", c.cat, got, key)
+			}
+		}
+	}
+}
+
 func TestContextTipNilStatus(t *testing.T) {
 	m := model{cfg: &config.Config{}}
 	if got := contextTip(m); got != "" {

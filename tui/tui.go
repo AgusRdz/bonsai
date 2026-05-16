@@ -4327,6 +4327,8 @@ func (m model) mainView() string {
 		b.WriteString("  " + styleDim.Render("$ "+m.lastCmd) + "\n")
 	} else if m.convViolation != nil && m.cfg.Conventions.Validation.Mode == "warn" {
 		b.WriteString("  " + styleChanged.Render("! "+m.convViolation.Branch+" does not follow conventions") + "\n")
+	} else if hint := fileActionHint(m); hint != "" {
+		b.WriteString("  " + styleDim.Render(hint) + "\n")
 	} else if m.cfg.Modes.Default != "pro" {
 		b.WriteString("  " + styleDim.Render(contextTip(m)) + "\n")
 	} else {
@@ -6254,6 +6256,23 @@ func (m model) pushOptsView() string {
 	b.WriteString("\n")
 	b.WriteString(styleDim.Render("  [↑↓] select  [enter] push  [esc] back") + "\n")
 	return b.String()
+}
+
+func fileActionHint(m model) string {
+	if len(m.files) == 0 {
+		return ""
+	}
+	switch m.files[m.cursor].category {
+	case catConflict:
+		return "[d] view conflict  [O] take ours  [T] take theirs"
+	case catStaged:
+		return "[space] unstage  [u] untrack (keep on disk)  [d] diff  [h] hunks  [c] commit"
+	case catChanged:
+		return "[space] stage  [h] hunks  [d] diff  [x] discard"
+	case catUntracked:
+		return "[space] stage  [x] delete from disk  [d] diff"
+	}
+	return ""
 }
 
 func contextTip(m model) string {
