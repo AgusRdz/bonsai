@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.11.0] - 2026-05-16
+
+### Features
+- Help panel and condensed command bar
+([ad91155](https://github.com/AgusRdz/bonsai/commit/ad91155e24376a691f5aa01ddfd1e8190be650da))
 ## [0.10.0] - 2026-05-16
 
 ### Features
