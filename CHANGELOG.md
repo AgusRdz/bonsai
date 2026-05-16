@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.47.0] - 2026-05-16
+
+### Features
+- Colored branch graph and Bitbucket PR review workflow
+([a17d3b7](https://github.com/AgusRdz/bonsai/commit/a17d3b74431021e84ec93872555e75cd12a996e9))
 ## [0.46.0] - 2026-05-16
 
 ### Features
