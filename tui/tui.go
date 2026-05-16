@@ -11,6 +11,7 @@ import (
 	"github.com/AgusRdz/bonsai/config"
 	"github.com/AgusRdz/bonsai/conventions"
 	"github.com/AgusRdz/bonsai/git"
+	"github.com/AgusRdz/bonsai/usage"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -62,6 +63,7 @@ const (
 	panelNoteView
 	panelHunkStage
 	panelPushOpts
+	panelMastery
 )
 
 type branchMode int
@@ -234,6 +236,14 @@ type model struct {
 
 	// push options
 	pushOptCursor int
+
+	// usage tracking
+	usage     *usage.Data
+	usagePath string
+
+	// mastery question panel
+	masteryKey    string
+	masteryCursor int // 0 = suppress, 1 = keep showing
 }
 
 // --- messages ---
@@ -375,6 +385,15 @@ func (m model) doPushWithOpts() tea.Cmd {
 		defer cancel()
 		err := m.git.PushWithOptions(ctx, opt.force, opt.setUpstream, remote, branch)
 		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doSaveUsage() tea.Cmd {
+	data := m.usage
+	path := m.usagePath
+	return func() tea.Msg {
+		_ = data.Save(path)
+		return nil
 	}
 }
 
@@ -1492,11 +1511,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pulling = false
 		m.lastCmd = msg.cmd
 		m.actionErr = msg.err
+
+		var baseCmds []tea.Cmd
+		baseCmds = append(baseCmds, m.fetchStatus())
+
+		key := commandKey(msg.cmd)
+		if key != "" && msg.err == nil {
+			count := m.usage.Increment(key)
+			baseCmds = append(baseCmds, m.doSaveUsage())
+
+			// Ask once when the user first reaches the mastery threshold.
+			if count >= masteryThreshold(key) && !m.usage.WasPrompted(key) {
+				m.usage.SetPrompted(key)
+				m.masteryKey = key
+				m.masteryCursor = 0
+				m.panel = panelMastery
+				return m, tea.Batch(baseCmds...)
+			}
+		}
+
+		suppressed := key != "" && m.usage.IsSuppressed(key)
 		dur := m.cfg.Education.PanelDuration
-		if m.cfg.Modes.Default != "pro" && dur > 0 {
+
+		var showEdu bool
+		if suppressed {
+			showEdu = false
+		} else if m.cfg.Modes.Default == "pro" {
+			// Pro mode: only show education for commands the user has rarely run.
+			showEdu = key != "" && msg.err == nil && m.usage.Count(key) <= 3
+		} else {
+			showEdu = dur > 0
+		}
+
+		if showEdu {
 			m.edu = newEduPanel(msg.cmd, msg.err)
 			if m.cfg.Modes.Default == "standard" {
-				// standard mode: command confirmation only, no explanation text.
 				m.edu.explain = ""
 			} else if hint := flowHint(msg.cmd, detectFlow(m.cfg)); hint != "" {
 				if m.edu.explain != "" {
@@ -1505,11 +1554,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.edu.explain = hint
 				}
 			}
-			m.eduTimer = dur
+			eduDur := dur
+			if eduDur <= 0 {
+				eduDur = 5
+			}
+			m.eduTimer = eduDur
 			m.panel = panelEducation
-			return m, tea.Batch(m.fetchStatus(), startEduTimer())
+			baseCmds = append(baseCmds, startEduTimer())
 		}
-		return m, m.fetchStatus()
+
+		return m, tea.Batch(baseCmds...)
 
 	case eduTickMsg:
 		if m.panel == panelEducation {
@@ -1710,6 +1764,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelPushOpts {
 			return m.updatePushOptsPanel(msg)
+		}
+		if m.panel == panelMastery {
+			return m.updateMasteryPanel(msg)
 		}
 		return m.updateMainPanel(msg)
 	}
@@ -3612,6 +3669,9 @@ func (m model) View() string {
 	if m.panel == panelPushOpts {
 		return m.pushOptsView()
 	}
+	if m.panel == panelMastery {
+		return m.masteryView()
+	}
 	return m.mainView()
 }
 
@@ -5156,6 +5216,51 @@ func (m model) noteView() string {
 	return b.String()
 }
 
+func (m model) updateMasteryPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.masteryCursor > 0 {
+			m.masteryCursor--
+		}
+	case "down", "j":
+		if m.masteryCursor < 1 {
+			m.masteryCursor++
+		}
+	case "enter":
+		if m.masteryCursor == 0 {
+			m.usage.Suppress(m.masteryKey)
+		}
+		m.panel = panelMain
+		return m, m.doSaveUsage()
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) masteryView() string {
+	threshold := masteryThreshold(m.masteryKey)
+	title := styleTitle.Render("Command mastered")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+	b.WriteString(fmt.Sprintf("  You've run `git %s` %d times.\n\n", m.masteryKey, threshold))
+	b.WriteString("  Stop showing tips for this command?\n\n")
+
+	options := []string{"Yes, I've got it", "No, keep showing tips"}
+	for i, opt := range options {
+		cursor := "  "
+		if m.masteryCursor == i {
+			cursor = styleSelected.Render("▶ ")
+		}
+		b.WriteString(cursor + opt + "\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(styleDim.Render("  [↑↓] select  [enter] confirm  [esc] keep showing") + "\n")
+	return b.String()
+}
+
 func (m model) hunkStageView() string {
 	action := "Stage hunks"
 	if m.hunkStaged {
@@ -5354,7 +5459,24 @@ func Run(cfg *config.Config) error {
 	fi := textinput.New()
 	fi.Placeholder = "message text  |  author:name  |  since:2026-01-01  |  until:2026-03-01"
 	fi.CharLimit = 120
-	m := model{cfg: cfg, git: g, logFilterInput: fi}
+
+	usagePath, _ := config.UsageFilePath()
+	usageData, _ := usage.Load(usagePath)
+	if usageData == nil {
+		usageData = &usage.Data{
+			Counts:     map[string]int{},
+			Suppressed: map[string]bool{},
+			Prompted:   map[string]bool{},
+		}
+	}
+
+	m := model{
+		cfg:            cfg,
+		git:            g,
+		logFilterInput: fi,
+		usage:          usageData,
+		usagePath:      usagePath,
+	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err

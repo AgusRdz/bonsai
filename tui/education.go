@@ -31,6 +31,106 @@ func newEduPanel(cmd string, err error) *educationPanel {
 	}
 }
 
+// commandKey maps a raw git command string to a canonical short key used for
+// usage tracking. Returns "" for commands we do not track.
+func commandKey(cmd string) string {
+	switch {
+	case strings.HasPrefix(cmd, "git add"):
+		return "add"
+	case strings.HasPrefix(cmd, "git restore --staged"):
+		return "unstage"
+	case strings.HasPrefix(cmd, "git restore"):
+		return "restore"
+	case strings.HasPrefix(cmd, "git commit --amend"):
+		return "amend"
+	case strings.HasPrefix(cmd, "git commit"):
+		return "commit"
+	case strings.HasPrefix(cmd, "git push"):
+		return "push"
+	case strings.HasPrefix(cmd, "git pull"):
+		return "pull"
+	case strings.HasPrefix(cmd, "git switch -c"):
+		return "branch"
+	case strings.HasPrefix(cmd, "git switch"):
+		return "switch"
+	case strings.HasPrefix(cmd, "git branch -m"):
+		return "branch-rename"
+	case strings.HasPrefix(cmd, "git stash pop"):
+		return "stash-pop"
+	case strings.HasPrefix(cmd, "git stash"):
+		return "stash"
+	case strings.HasPrefix(cmd, "git rebase"):
+		return "rebase"
+	case strings.HasPrefix(cmd, "git merge"):
+		return "merge"
+	case strings.HasPrefix(cmd, "git cherry-pick"):
+		return "cherry-pick"
+	case strings.HasPrefix(cmd, "git reset --soft"):
+		return "reset-soft"
+	case strings.HasPrefix(cmd, "git reset --mixed"):
+		return "reset-mixed"
+	case strings.HasPrefix(cmd, "git reset --hard"):
+		return "reset-hard"
+	case strings.HasPrefix(cmd, "git tag"):
+		return "tag"
+	case strings.HasPrefix(cmd, "git worktree"):
+		return "worktree"
+	case strings.HasPrefix(cmd, "git fetch"):
+		return "fetch"
+	case strings.HasPrefix(cmd, "git clean"):
+		return "clean"
+	case strings.HasPrefix(cmd, "git remote"):
+		return "remote"
+	case strings.HasPrefix(cmd, "git submodule"):
+		return "submodule"
+	case strings.HasPrefix(cmd, "git notes"):
+		return "notes"
+	case strings.HasPrefix(cmd, "git apply"):
+		return "apply"
+	default:
+		return ""
+	}
+}
+
+// masteryThresholds defines how many successful uses are needed before the
+// user is considered familiar with a command.
+var masteryThresholds = map[string]int{
+	"add":           20,
+	"unstage":       20,
+	"commit":        20,
+	"push":          15,
+	"pull":          15,
+	"branch":        12,
+	"switch":        12,
+	"stash":         10,
+	"stash-pop":     10,
+	"fetch":         10,
+	"merge":         8,
+	"rebase":        8,
+	"restore":       8,
+	"amend":         8,
+	"cherry-pick":   8,
+	"reset-soft":    6,
+	"reset-mixed":   6,
+	"reset-hard":    6,
+	"apply":         5,
+	"branch-rename": 5,
+	"tag":           5,
+	"worktree":      5,
+	"clean":         5,
+	"remote":        5,
+	"submodule":     5,
+	"notes":         5,
+}
+
+// masteryThreshold returns the number of uses needed to master a command.
+func masteryThreshold(key string) int {
+	if t, ok := masteryThresholds[key]; ok {
+		return t
+	}
+	return 10
+}
+
 func actionTitle(cmd string, err error) string {
 	if err != nil {
 		return "Action failed"

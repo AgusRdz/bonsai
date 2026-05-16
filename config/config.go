@@ -83,6 +83,15 @@ type TrackConfig struct {
 	Habits      bool `toml:"habits"`
 }
 
+// UsageFilePath returns the path to the command usage tracking file.
+func UsageFilePath() (string, error) {
+	p, err := globalConfigPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(p), "usage.json"), nil
+}
+
 // GlobalExists reports whether the global config file already exists.
 func GlobalExists() (bool, error) {
 	p, err := globalConfigPath()
