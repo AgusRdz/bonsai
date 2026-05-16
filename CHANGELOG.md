@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.42.2] - 2026-05-16
+
+### Bug Fixes
+- Standup null-byte crash and setup re-run shows current values
+([200a632](https://github.com/AgusRdz/bonsai/commit/200a6321b64d257be54132b2ae6875c1964ef95f))
 ## [0.42.1] - 2026-05-16
 
 ### Documentation
