@@ -2,11 +2,16 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.34.0] - 2026-05-16
+
+### Features
+- Detect SSH remote host dynamically for connectivity checks
+([bee3639](https://github.com/AgusRdz/bonsai/commit/bee36392590ec559a07a1cc4d8f029b2e0be319d))
 ## [0.33.0] - 2026-05-16
 
 ### Features
-- Branch delete/rename from branch list, stash apply/drop, tag push, SSH doctor checks, bonsai ssh CLI
-
+- Branch delete/rename, stash apply/drop, tag push, SSH checks, bonsai ssh CLI
+([a829800](https://github.com/AgusRdz/bonsai/commit/a829800ccf39b435e12c83c5407f70a6444962a6))
 ## [0.32.0] - 2026-05-16
 
 ### Features
