@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.49.0] - 2026-05-16
+
+### Features
+- Diff syntax highlighting via chroma
+([888bf08](https://github.com/AgusRdz/bonsai/commit/888bf08e1c346bb2e258796df120c5d0a670cd5c))
 ## [0.48.0] - 2026-05-16
 
 ### Features
