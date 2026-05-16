@@ -278,6 +278,20 @@ func TestContextTipBehind(t *testing.T) {
 	}
 }
 
+func TestContextTipDiverged(t *testing.T) {
+	m := model{
+		cfg:    &config.Config{},
+		status: &git.Status{Ahead: 30, Behind: 84},
+	}
+	got := contextTip(m)
+	if !strings.Contains(got, "30") || !strings.Contains(got, "84") {
+		t.Errorf("contextTip(diverged) = %q, want counts in tip", got)
+	}
+	if !strings.Contains(got, "diverged") {
+		t.Errorf("contextTip(diverged) = %q, want 'diverged' in tip", got)
+	}
+}
+
 func TestContextTipChangedUnstaged(t *testing.T) {
 	m := model{
 		cfg:    &config.Config{},

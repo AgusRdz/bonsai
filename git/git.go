@@ -520,9 +520,21 @@ func (r *Runner) ApplyHunks(ctx context.Context, fileHeader string, hunks []Hunk
 	return nil
 }
 
-// Pull fetches and merges the upstream into the current branch.
+// Pull fetches and fast-forwards the current branch.
 func (r *Runner) Pull(ctx context.Context) error {
 	_, err := r.run(ctx, "pull")
+	return err
+}
+
+// PullRebase fetches and rebases local commits on top of the upstream.
+func (r *Runner) PullRebase(ctx context.Context) error {
+	_, err := r.run(ctx, "pull", "--rebase")
+	return err
+}
+
+// PullMerge fetches and creates a merge commit when branches have diverged.
+func (r *Runner) PullMerge(ctx context.Context) error {
+	_, err := r.run(ctx, "pull", "--no-ff")
 	return err
 }
 

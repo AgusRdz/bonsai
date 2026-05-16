@@ -68,6 +68,7 @@ const (
 	panelGraph
 	panelEduMgr
 	panelCommandBar
+	panelDiverged
 )
 
 type branchMode int
@@ -583,6 +584,24 @@ func (m model) doPull() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 		defer cancel()
 		err := m.git.Pull(ctx)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doPullRebase() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+		defer cancel()
+		err := m.git.PullRebase(ctx)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doPullMerge() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+		defer cancel()
+		err := m.git.PullMerge(ctx)
 		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
 	}
 }
@@ -1934,6 +1953,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelCommandBar {
 			return m.updateCommandBarPanel(msg)
 		}
+		if m.panel == panelDiverged {
+			return m.updateDivergedPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -2052,8 +2074,12 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.pulling || m.pushing {
 			break
 		}
-		m.pulling = true
 		m.actionErr = nil
+		if m.status != nil && m.status.Ahead > 0 && m.status.Behind > 0 {
+			m.panel = panelDiverged
+			break
+		}
+		m.pulling = true
 		return m, m.doPull()
 
 	case kb.Branch, "b":
@@ -3965,6 +3991,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelCommandBar {
 		return m.commandBarConfigView()
+	}
+	if m.panel == panelDiverged {
+		return m.divergedView()
 	}
 	return m.mainView()
 }
@@ -5970,6 +5999,8 @@ func contextTip(m model) string {
 	nChanged := len(s.Changed) + len(s.Untracked)
 	nStaged := len(s.Staged)
 	switch {
+	case s.Ahead > 0 && s.Behind > 0:
+		return fmt.Sprintf("tip: branches diverged (↑%d local ↓%d remote) - press [P] to choose rebase or merge", s.Ahead, s.Behind)
 	case s.Behind > 0:
 		return fmt.Sprintf("tip: %d commit(s) available on remote - press [P] to pull", s.Behind)
 	case nChanged > 0 && nStaged == 0:
@@ -6153,6 +6184,47 @@ func min(a, b int) int {
 // the platform-specific clipboard dependency.
 func writeClipboard(s string) error {
 	return clipboard.WriteAll(s)
+}
+
+func (m model) updateDivergedPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "r", "R":
+		m.panel = panelMain
+		m.pulling = true
+		m.actionErr = nil
+		return m, m.doPullRebase()
+	case "m", "M":
+		m.panel = panelMain
+		m.pulling = true
+		m.actionErr = nil
+		return m, m.doPullMerge()
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) divergedView() string {
+	ahead, behind := 0, 0
+	if m.status != nil {
+		ahead = m.status.Ahead
+		behind = m.status.Behind
+	}
+	title := styleTitle.Render("Pull - branches have diverged")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+	b.WriteString(fmt.Sprintf("  %s  %s\n\n",
+		styleDim.Render(fmt.Sprintf("↑%d local", ahead)),
+		styleChanged.Render(fmt.Sprintf("↓%d remote", behind)),
+	))
+	b.WriteString("  How do you want to integrate the remote changes?\n\n")
+	b.WriteString("  " + styleSelected.Render("[R]") + "  Rebase  - replay your commits on top of the remote (linear history)\n")
+	b.WriteString("  " + styleSelected.Render("[M]") + "  Merge   - create a merge commit preserving both histories\n")
+	b.WriteString("\n")
+	b.WriteString(styleDim.Render("  [esc] cancel") + "\n")
+	return b.String()
 }
 
 // Run starts the bonsai TUI.
