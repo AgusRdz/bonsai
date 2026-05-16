@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.37.3] - 2026-05-16
+
+### Bug Fixes
+- Always show file action hint as dedicated footer line, drop 'hunks' jargon
+([d383d97](https://github.com/AgusRdz/bonsai/commit/d383d97db67673538c66b6bb7065b1e810531a6a))
 ## [0.37.2] - 2026-05-16
 
 ### Features
