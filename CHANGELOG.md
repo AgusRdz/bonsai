@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.35.4] - 2026-05-16
+
+### Bug Fixes
+- Correct log panel docs, add parser tests, parseLogFilter tests
+([5d9bb57](https://github.com/AgusRdz/bonsai/commit/5d9bb579dada7b62ea0bb34cfc52fc80711cb9e4))
 ## [0.35.3] - 2026-05-16
 
 ### Bug Fixes
