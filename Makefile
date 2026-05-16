@@ -3,6 +3,8 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
+GIT_CLIFF := docker compose run --rm dev git-cliff
+
 build:
 	docker compose run --rm dev go build -ldflags="$(LDFLAGS)" -o bin/bonsai .
 
@@ -60,19 +62,12 @@ cross:
 
 # --- Key generation ---
 # Run once before the first release to generate the Ed25519 signing key pair.
-# Paste the hex public key into updater/updater.go and store the base64 private key
-# as a GitHub Secret named SIGNING_KEY.
 keygen:
 	docker compose run --rm dev go run ./cmd/keygen
 
 # --- Changelog ---
-# Requires: git-cliff (https://git-cliff.org/docs/installation)
-.PHONY: _require-git-cliff
-_require-git-cliff:
-	@command -v git-cliff >/dev/null 2>&1 || { echo "git-cliff is required. See https://git-cliff.org/docs/installation"; exit 1; }
-
-changelog: _require-git-cliff
-	git-cliff --output CHANGELOG.md
+changelog:
+	$(GIT_CLIFF) --output CHANGELOG.md
 	@echo "updated CHANGELOG.md"
 
 # --- Release helpers ---
@@ -93,28 +88,28 @@ release:
 	echo "detected: $$BUMP"; \
 	$(MAKE) release-$$BUMP
 
-release-patch: _require-git-cliff
+release-patch:
 	@NEXT=v$(MAJOR).$(MINOR).$(shell echo $$(($(PATCH)+1))); \
 	echo "$(CURRENT_TAG) -> $$NEXT"; \
-	git-cliff --tag $$NEXT --output CHANGELOG.md && \
+	$(GIT_CLIFF) --tag $$NEXT --output CHANGELOG.md && \
 	git add CHANGELOG.md && \
 	git commit -m "chore: update changelog for $$NEXT" && \
 	git tag $$NEXT && \
 	{ git push origin HEAD $$NEXT && echo "released $$NEXT"; } || { git tag -d $$NEXT; git reset --soft HEAD~1; echo "push failed — tag and commit rolled back"; exit 1; }
 
-release-minor: _require-git-cliff
+release-minor:
 	@NEXT=v$(MAJOR).$(shell echo $$(($(MINOR)+1))).0; \
 	echo "$(CURRENT_TAG) -> $$NEXT"; \
-	git-cliff --tag $$NEXT --output CHANGELOG.md && \
+	$(GIT_CLIFF) --tag $$NEXT --output CHANGELOG.md && \
 	git add CHANGELOG.md && \
 	git commit -m "chore: update changelog for $$NEXT" && \
 	git tag $$NEXT && \
 	{ git push origin HEAD $$NEXT && echo "released $$NEXT"; } || { git tag -d $$NEXT; git reset --soft HEAD~1; echo "push failed — tag and commit rolled back"; exit 1; }
 
-release-major: _require-git-cliff
+release-major:
 	@NEXT=v$(shell echo $$(($(MAJOR)+1))).0.0; \
 	echo "$(CURRENT_TAG) -> $$NEXT"; \
-	git-cliff --tag $$NEXT --output CHANGELOG.md && \
+	$(GIT_CLIFF) --tag $$NEXT --output CHANGELOG.md && \
 	git add CHANGELOG.md && \
 	git commit -m "chore: update changelog for $$NEXT" && \
 	git tag $$NEXT && \
