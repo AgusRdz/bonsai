@@ -217,6 +217,37 @@ bonsai changelog
 bonsai changelog | less
 ```
 
+## bonsai ssh
+
+Manage SSH keys and check connectivity.
+
+### ssh status
+
+```sh
+bonsai ssh status
+```
+
+Prints:
+- Path of the active SSH key in `~/.ssh`
+- ssh-agent status and number of loaded keys
+- Authentication result against `git@github.com`
+
+### ssh keygen
+
+```sh
+bonsai ssh keygen
+```
+
+Generates a new `ed25519` key at `~/.ssh/id_ed25519`. Uses `user.email` from your global git config as the key comment. Prints the public key and the GitHub/GitLab URLs to add it. Does nothing if a key already exists.
+
+### ssh show
+
+```sh
+bonsai ssh show
+```
+
+Prints the public key from the first SSH key found in `~/.ssh`.
+
 ## bonsai version
 
 Prints the current version.

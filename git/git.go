@@ -612,6 +612,18 @@ func (r *Runner) StashPop(ctx context.Context, ref string) error {
 	return err
 }
 
+// StashApply applies the given stash ref without removing it from the list.
+func (r *Runner) StashApply(ctx context.Context, ref string) error {
+	_, err := r.run(ctx, "stash", "apply", ref)
+	return err
+}
+
+// StashDrop removes the given stash ref without applying it.
+func (r *Runner) StashDrop(ctx context.Context, ref string) error {
+	_, err := r.run(ctx, "stash", "drop", ref)
+	return err
+}
+
 // StashList returns all stash entries in order.
 func (r *Runner) StashList(ctx context.Context) ([]StashEntry, error) {
 	out, err := r.run(ctx, "stash", "list")
@@ -772,6 +784,34 @@ func (r *Runner) CreateTag(ctx context.Context, name string) error {
 // DeleteTag deletes a local tag by name.
 func (r *Runner) DeleteTag(ctx context.Context, name string) error {
 	_, err := r.run(ctx, "tag", "-d", name)
+	return err
+}
+
+// PushTag pushes a local tag to the given remote.
+func (r *Runner) PushTag(ctx context.Context, remote, tag string) error {
+	_, err := r.run(ctx, "push", remote, tag)
+	return err
+}
+
+// DeleteBranch deletes a local branch. Use force=true for unmerged branches.
+func (r *Runner) DeleteBranch(ctx context.Context, name string, force bool) error {
+	flag := "-d"
+	if force {
+		flag = "-D"
+	}
+	_, err := r.run(ctx, "branch", flag, name)
+	return err
+}
+
+// RenameBranch renames a branch (any branch, not just the current one).
+func (r *Runner) RenameBranch(ctx context.Context, oldName, newName string) error {
+	_, err := r.run(ctx, "branch", "-m", oldName, newName)
+	return err
+}
+
+// DeleteRemoteBranch deletes a branch on the given remote.
+func (r *Runner) DeleteRemoteBranch(ctx context.Context, remote, branch string) error {
+	_, err := r.run(ctx, "push", remote, "--delete", branch)
 	return err
 }
 

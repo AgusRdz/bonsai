@@ -110,6 +110,15 @@ func runGlobalChecks() []Check {
 	// 12. gpg signing
 	checks = append(checks, checkGPGSigning())
 
+	// 13. SSH key
+	checks = append(checks, checkSSHKey())
+
+	// 14. SSH agent
+	checks = append(checks, checkSSHAgent())
+
+	// 15. SSH connectivity (GitHub)
+	checks = append(checks, checkSSHConnectivity())
+
 	return checks
 }
 
@@ -602,6 +611,121 @@ func checkBranchConventions() Check {
 		}
 	}
 	return Check{Level: OK, Label: "branch conventions", Message: fmt.Sprintf("'%s' matches '%s'", branch, result.Match.Name), Explain: explainBranchConventions}
+}
+
+// ---------------------------------------------------------------------------
+// SSH checks
+// ---------------------------------------------------------------------------
+
+const explainSSHKey = "An SSH key lets you authenticate with GitHub/GitLab without a password. Without one you must use HTTPS with a credential helper or a personal access token."
+
+// SSHKeyInfo describes a found SSH key pair.
+type SSHKeyInfo struct {
+	PrivateKey string
+	PublicKey  string
+}
+
+// FindSSHKey returns the first SSH key pair found in ~/.ssh, or nil.
+func FindSSHKey() *SSHKeyInfo {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	names := []string{"id_ed25519", "id_ecdsa", "id_rsa", "id_dsa"}
+	for _, name := range names {
+		priv := filepath.Join(home, ".ssh", name)
+		pub := priv + ".pub"
+		if _, err := os.Stat(priv); err == nil {
+			return &SSHKeyInfo{PrivateKey: priv, PublicKey: pub}
+		}
+	}
+	return nil
+}
+
+func checkSSHKey() Check {
+	key := FindSSHKey()
+	if key == nil {
+		return Check{
+			Level:   Warn,
+			Label:   "ssh key",
+			Message: "no SSH key found in ~/.ssh",
+			Fix:     "run: bonsai ssh keygen",
+			Explain: explainSSHKey,
+		}
+	}
+	return Check{Level: OK, Label: "ssh key", Message: key.PrivateKey, Explain: explainSSHKey}
+}
+
+const explainSSHAgent = "ssh-agent holds your decrypted key in memory so you do not have to type your passphrase on every push. Without it, git prompts for your passphrase each time."
+
+func checkSSHAgent() Check {
+	sock := os.Getenv("SSH_AUTH_SOCK")
+	if sock == "" {
+		return Check{
+			Level:   Warn,
+			Label:   "ssh-agent",
+			Message: "SSH_AUTH_SOCK not set - ssh-agent may not be running",
+			Fix:     "run: eval $(ssh-agent -s) && ssh-add",
+			Explain: explainSSHAgent,
+		}
+	}
+	// Check whether the agent has any loaded keys.
+	out, err := exec.Command("ssh-add", "-l").CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if strings.Contains(msg, "no identities") {
+			return Check{
+				Level:   Warn,
+				Label:   "ssh-agent",
+				Message: "agent running but no keys loaded",
+				Fix:     "run: ssh-add ~/.ssh/id_ed25519",
+				Explain: explainSSHAgent,
+			}
+		}
+		return Check{
+			Level:   Warn,
+			Label:   "ssh-agent",
+			Message: "agent socket found but not responding",
+			Fix:     "run: eval $(ssh-agent -s) && ssh-add",
+			Explain: explainSSHAgent,
+		}
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	return Check{Level: OK, Label: "ssh-agent", Message: fmt.Sprintf("%d key(s) loaded", len(lines)), Explain: explainSSHAgent}
+}
+
+const explainSSHConnectivity = "Verifies that git@github.com is reachable via SSH. A failure here usually means a firewall blocks port 22, the key is not added to GitHub, or the agent has no loaded keys."
+
+func checkSSHConnectivity() Check {
+	// ssh exits 1 on success (GitHub closes the session), but stdout/stderr
+	// contains "successfully authenticated" or "Hi <user>!".
+	cmd := exec.Command("ssh",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=5",
+		"-T", "git@github.com",
+	)
+	out, _ := cmd.CombinedOutput()
+	combined := strings.ToLower(string(out))
+	if strings.Contains(combined, "successfully authenticated") || strings.Contains(combined, "hi ") {
+		// Extract the greeting if present.
+		msg := strings.TrimSpace(string(out))
+		if idx := strings.Index(msg, "\n"); idx != -1 {
+			msg = msg[:idx]
+		}
+		return Check{Level: OK, Label: "ssh github.com", Message: msg, Explain: explainSSHConnectivity}
+	}
+	msg := strings.TrimSpace(string(out))
+	if msg == "" {
+		msg = "connection failed or timed out"
+	}
+	return Check{
+		Level:   Warn,
+		Label:   "ssh github.com",
+		Message: msg,
+		Fix:     "ensure your SSH public key is added to github.com/settings/keys",
+		Explain: explainSSHConnectivity,
+	}
 }
 
 const explainLargeRepo = "Large pack sizes (> 100 MB) slow down clone, fetch, and CI. Common causes are accidentally committed binaries or build artifacts; git lfs or a cleanup rewrite can help."

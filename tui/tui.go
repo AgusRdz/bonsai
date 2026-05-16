@@ -264,6 +264,9 @@ type model struct {
 	graphLines  []string
 	graphScroll int
 
+	// branch rename from branch list
+	branchRenameTarget string
+
 	// education manager
 	eduMgrKeys   []string // ordered list of command keys shown
 	eduMgrCursor int
@@ -453,6 +456,56 @@ func (m model) doGraph() tea.Cmd {
 			return graphMsg("")
 		}
 		return graphMsg(out)
+	}
+}
+
+func (m model) doStashApply(ref string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.StashApply(ctx, ref)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doStashDrop(ref string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.StashDrop(ctx, ref)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doDeleteBranch(name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.DeleteBranch(ctx, name, false)
+		if err != nil {
+			// if safe delete fails because branch is unmerged, suggest -D
+			return actionDoneMsg{cmd: "git branch -d " + name,
+				err: fmt.Errorf("%w (branch has unmerged work - use force delete)", err)}
+		}
+		return actionDoneMsg{cmd: "git branch -d " + name, err: nil}
+	}
+}
+
+func (m model) doRenameBranch(oldName, newName string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.RenameBranch(ctx, oldName, newName)
+		return actionDoneMsg{cmd: "git branch -m " + oldName + " " + newName, err: err}
+	}
+}
+
+func (m model) doPushTag(remote, tag string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+		defer cancel()
+		err := m.git.PushTag(ctx, remote, tag)
+		return actionDoneMsg{cmd: "git push " + remote + " " + tag, err: err}
 	}
 }
 
@@ -2294,6 +2347,11 @@ func (m model) updateBranchPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.panel = panelMain
 		m.actionErr = nil
 		if m.branchMode == branchModeRename {
+			if m.branchRenameTarget != "" {
+				target := m.branchRenameTarget
+				m.branchRenameTarget = ""
+				return m, m.doRenameBranch(target, name)
+			}
 			return m, m.doRename(name)
 		}
 		return m, m.doCreateBranch(name)
@@ -2528,6 +2586,34 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirmPrompt = fmt.Sprintf("rebase %s onto %s?", current, b.Name)
 		m.confirmCmd = m.doRebase(b.Name)
 		m.panel = panelConfirm
+		m.actionErr = nil
+	case "d":
+		if len(m.branches) == 0 {
+			break
+		}
+		b := m.branches[m.branchCursor]
+		if b.Current {
+			m.actionErr = fmt.Errorf("cannot delete the current branch - switch to another branch first")
+			break
+		}
+		m.confirmPrompt = fmt.Sprintf("delete branch %s? (unmerged work will be lost)", b.Name)
+		m.confirmCmd = m.doDeleteBranch(b.Name)
+		m.panel = panelConfirm
+	case "n":
+		if len(m.branches) == 0 {
+			break
+		}
+		b := m.branches[m.branchCursor]
+		ti := textinput.New()
+		ti.Placeholder = "new branch name"
+		ti.SetValue(b.Name)
+		ti.Focus()
+		ti.CharLimit = 128
+		ti.Width = m.width - 6
+		m.branchInput = ti
+		m.branchMode = branchModeRename
+		m.branchRenameTarget = b.Name
+		m.panel = panelBranch
 		m.actionErr = nil
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
@@ -3408,6 +3494,21 @@ func (m model) updateStashListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		ref := m.stashes[m.stashCursor].Ref
 		m.panel = panelMain
 		return m, m.doStashPop(ref)
+	case "a":
+		if len(m.stashes) == 0 {
+			break
+		}
+		ref := m.stashes[m.stashCursor].Ref
+		m.panel = panelMain
+		return m, m.doStashApply(ref)
+	case "d":
+		if len(m.stashes) == 0 {
+			break
+		}
+		ref := m.stashes[m.stashCursor].Ref
+		m.confirmPrompt = fmt.Sprintf("drop %s? this cannot be undone", ref)
+		m.confirmCmd = m.doStashDrop(ref)
+		m.panel = panelConfirm
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
 	case "ctrl+c":
@@ -3575,6 +3676,14 @@ func (m model) updateTagListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		tag := m.tags[m.tagCursor]
 		m.confirmPrompt = fmt.Sprintf("delete tag %s?", tag.Name)
 		m.confirmCmd = m.doDeleteTag(tag.Name)
+		m.panel = panelConfirm
+	case "p":
+		if len(m.tags) == 0 {
+			break
+		}
+		tag := m.tags[m.tagCursor]
+		m.confirmPrompt = fmt.Sprintf("push tag %s to origin?", tag.Name)
+		m.confirmCmd = m.doPushTag("origin", tag.Name)
 		m.panel = panelConfirm
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain

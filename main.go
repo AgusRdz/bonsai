@@ -63,6 +63,8 @@ func main() {
 		runBundle(os.Args[2:])
 	case "clone":
 		runClone(os.Args[2:])
+	case "ssh":
+		runSSH(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai: unknown command %q\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "Run 'bonsai help' for available commands.")
@@ -146,6 +148,9 @@ Commands:
   archive           export repo as tar.gz or zip
   bundle create     pack refs into a portable bundle file
   bundle verify     verify a bundle file
+  ssh status        show SSH key and agent status
+  ssh keygen        generate a new SSH key pair
+  ssh show          print your SSH public key
 
 Options:
   -h, --help     show help
@@ -597,4 +602,193 @@ func runClone(args []string) {
 		target = strings.TrimSuffix(base, ".git")
 	}
 	fmt.Printf("cloned into %s\n", target)
+}
+
+// ---------------------------------------------------------------------------
+// bonsai ssh
+// ---------------------------------------------------------------------------
+
+func runSSH(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: bonsai ssh status")
+		fmt.Fprintln(os.Stderr, "       bonsai ssh keygen")
+		fmt.Fprintln(os.Stderr, "       bonsai ssh show")
+		os.Exit(1)
+	}
+	switch args[0] {
+	case "status":
+		runSSHStatus()
+	case "keygen":
+		runSSHKeygen()
+	case "show":
+		runSSHShow()
+	default:
+		fmt.Fprintf(os.Stderr, "bonsai: ssh: unknown subcommand %q\n", args[0])
+		os.Exit(1)
+	}
+}
+
+func runSSHStatus() {
+	color := isTTY()
+	green := func(s string) string {
+		if color {
+			return "\033[32m" + s + "\033[0m"
+		}
+		return s
+	}
+	yellow := func(s string) string {
+		if color {
+			return "\033[33m" + s + "\033[0m"
+		}
+		return s
+	}
+	bold := func(s string) string {
+		if color {
+			return "\033[1m" + s + "\033[0m"
+		}
+		return s
+	}
+
+	fmt.Println(bold("SSH Status"))
+	fmt.Println()
+
+	// Key files
+	key := doctor.FindSSHKey()
+	fmt.Print("  key file       ")
+	if key != nil {
+		fmt.Println(green(key.PrivateKey))
+		fmt.Print("  public key     ")
+		if _, err := os.Stat(key.PublicKey); err == nil {
+			fmt.Println(green(key.PublicKey))
+		} else {
+			fmt.Println(yellow("not found"))
+		}
+	} else {
+		fmt.Println(yellow("no key found in ~/.ssh"))
+		fmt.Println("  run: bonsai ssh keygen")
+	}
+	fmt.Println()
+
+	// ssh-agent
+	fmt.Print("  ssh-agent      ")
+	sock := os.Getenv("SSH_AUTH_SOCK")
+	if sock == "" {
+		fmt.Println(yellow("not running (SSH_AUTH_SOCK not set)"))
+	} else {
+		out, err := exec.Command("ssh-add", "-l").CombinedOutput()
+		if err != nil {
+			msg := strings.TrimSpace(string(out))
+			if strings.Contains(msg, "no identities") {
+				fmt.Println(yellow("running but no keys loaded"))
+				fmt.Println("  run: ssh-add " + func() string {
+					if key != nil {
+						return key.PrivateKey
+					}
+					return "~/.ssh/id_ed25519"
+				}())
+			} else {
+				fmt.Println(yellow("socket found but agent not responding"))
+			}
+		} else {
+			lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+			fmt.Printf("%s (%d key(s) loaded)\n", green("running"), len(lines))
+		}
+	}
+	fmt.Println()
+
+	// Connectivity
+	fmt.Print("  github.com     ")
+	cmd := exec.Command("ssh",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=5",
+		"-T", "git@github.com",
+	)
+	out, _ := cmd.CombinedOutput()
+	combined := strings.ToLower(string(out))
+	if strings.Contains(combined, "successfully authenticated") || strings.Contains(combined, "hi ") {
+		msg := strings.TrimSpace(string(out))
+		if idx := strings.Index(msg, "\n"); idx != -1 {
+			msg = msg[:idx]
+		}
+		fmt.Println(green(msg))
+	} else {
+		fmt.Println(yellow("authentication failed or connection timed out"))
+		fmt.Println("  add your public key at: https://github.com/settings/keys")
+	}
+}
+
+func runSSHKeygen() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bonsai: ssh keygen: %v\n", err)
+		os.Exit(1)
+	}
+	sshDir := filepath.Join(home, ".ssh")
+	keyPath := filepath.Join(sshDir, "id_ed25519")
+
+	if _, err := os.Stat(keyPath); err == nil {
+		fmt.Printf("SSH key already exists at %s\n", keyPath)
+		fmt.Println("use 'bonsai ssh show' to print your public key")
+		return
+	}
+
+	// Use git user.email as the key comment if available.
+	email := strings.TrimSpace(func() string {
+		out, err := exec.Command("git", "config", "--global", "--get", "user.email").Output()
+		if err != nil {
+			return ""
+		}
+		return string(out)
+	}())
+	if email == "" {
+		fmt.Print("enter your email address for the key comment: ")
+		if _, err := fmt.Scanln(&email); err != nil || strings.TrimSpace(email) == "" {
+			email = "bonsai"
+		}
+	}
+
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		fmt.Fprintf(os.Stderr, "bonsai: ssh keygen: %v\n", err)
+		os.Exit(1)
+	}
+
+	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-C", email, "-f", keyPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "bonsai: ssh keygen: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println()
+	fmt.Printf("key generated: %s\n", keyPath)
+	fmt.Println()
+	fmt.Println("your public key (add this to GitHub/GitLab):")
+	fmt.Println()
+	pubKey, err := os.ReadFile(keyPath + ".pub")
+	if err == nil {
+		fmt.Println(strings.TrimSpace(string(pubKey)))
+	}
+	fmt.Println()
+	fmt.Println("  GitHub: https://github.com/settings/keys")
+	fmt.Println("  GitLab: https://gitlab.com/-/profile/keys")
+	fmt.Println()
+	fmt.Println("then add your key to the agent: ssh-add " + keyPath)
+}
+
+func runSSHShow() {
+	key := doctor.FindSSHKey()
+	if key == nil {
+		fmt.Fprintln(os.Stderr, "no SSH key found in ~/.ssh")
+		fmt.Fprintln(os.Stderr, "run: bonsai ssh keygen")
+		os.Exit(1)
+	}
+	pub, err := os.ReadFile(key.PublicKey)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "bonsai: ssh show: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Print(string(pub))
 }

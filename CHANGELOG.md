@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.33.0] - 2026-05-16
+
+### Features
+- Branch delete/rename from branch list, stash apply/drop, tag push, SSH doctor checks, bonsai ssh CLI
+
 ## [0.32.0] - 2026-05-16
 
 ### Features

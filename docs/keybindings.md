@@ -129,6 +129,8 @@
 | `enter` | Switch to the selected branch |
 | `m` | Merge selected branch into current (confirm required) |
 | `r` | Rebase current onto selected branch (confirm required) |
+| `d` | Delete the selected branch (confirm required) |
+| `n` | Rename the selected branch |
 | `esc` | Back |
 
 ## Stash list panel
@@ -165,6 +167,7 @@
 | `↑` / `↓` | Scroll |
 | `n` | Create a new tag at HEAD |
 | `d` | Delete the selected tag |
+| `p` | Push the selected tag to origin (confirm required) |
 | `esc` | Back |
 
 ## Worktree list panel
