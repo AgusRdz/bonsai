@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.44.0] - 2026-05-16
+
+### Features
+- Branch protection awareness and gitflow finish automation
+([4d5035a](https://github.com/AgusRdz/bonsai/commit/4d5035a1a63d0afec3a752226d5b8f009b3fb7ad))
 ## [0.43.0] - 2026-05-16
 
 ### Features
