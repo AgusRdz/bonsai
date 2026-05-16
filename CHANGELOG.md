@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.36.0] - 2026-05-16
+
+### Features
+- Configurable command bar - toggle shortcuts via [C] config or command_bar.items in TOML
+([1596a32](https://github.com/AgusRdz/bonsai/commit/1596a320b174524d4014ab2402af1f93a9d79c95))
 ## [0.35.9] - 2026-05-16
 
 ### Features
