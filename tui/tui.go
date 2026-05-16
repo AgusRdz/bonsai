@@ -809,6 +809,29 @@ func (m model) doDiscard(path string) tea.Cmd {
 	}
 }
 
+func (m model) doDeleteFromDisk(path string) tea.Cmd {
+	return func() tea.Msg {
+		err := os.RemoveAll(strings.TrimSuffix(path, "/"))
+		if err != nil {
+			return actionDoneMsg{cmd: "rm " + path, err: err}
+		}
+		return actionDoneMsg{cmd: "rm " + path, err: nil, info: "deleted " + path + " from disk"}
+	}
+}
+
+func (m model) doGitRmCached(path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.RmCached(ctx, path)
+		var info string
+		if err == nil {
+			info = path + " untracked (file kept on disk)"
+		}
+		return actionDoneMsg{cmd: "git rm --cached " + path, err: err, info: info}
+	}
+}
+
 func (m model) doFetchStashList() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -2391,12 +2414,37 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		f := m.files[m.cursor]
-		if f.category != catChanged {
-			m.actionErr = fmt.Errorf("only changed (unstaged) files can be discarded")
+		switch f.category {
+		case catChanged:
+			m.confirmPrompt = fmt.Sprintf("discard all changes to %s? this cannot be undone", f.entry.Path)
+			m.confirmCmd = m.doDiscard(f.entry.Path)
+			m.panel = panelConfirm
+			m.actionErr = nil
+		case catUntracked:
+			isDir := strings.HasSuffix(f.entry.Path, "/")
+			if isDir {
+				m.confirmPrompt = fmt.Sprintf("delete directory %s and all its contents from disk? this cannot be undone", f.entry.Path)
+			} else {
+				m.confirmPrompt = fmt.Sprintf("delete %s from disk? this cannot be undone", f.entry.Path)
+			}
+			m.confirmCmd = m.doDeleteFromDisk(f.entry.Path)
+			m.panel = panelConfirm
+			m.actionErr = nil
+		default:
+			m.actionErr = fmt.Errorf("select an unstaged changed file to discard, or an untracked file to delete from disk")
+		}
+
+	case "u":
+		if len(m.files) == 0 {
 			break
 		}
-		m.confirmPrompt = fmt.Sprintf("discard all changes to %s? this cannot be undone", f.entry.Path)
-		m.confirmCmd = m.doDiscard(f.entry.Path)
+		f := m.files[m.cursor]
+		if f.category != catStaged {
+			m.actionErr = fmt.Errorf("select a staged file to untrack (git rm --cached)")
+			break
+		}
+		m.confirmPrompt = fmt.Sprintf("untrack %s? removes from git index, file stays on disk", f.entry.Path)
+		m.confirmCmd = m.doGitRmCached(f.entry.Path)
 		m.panel = panelConfirm
 		m.actionErr = nil
 
@@ -4547,7 +4595,8 @@ func (m model) helpView() string {
 	row("d", "diff selected file (staged or unstaged)")
 	row("H", "file history - every commit that touched this file")
 	row("e", "blame - who last changed each line")
-	row("x", "discard working tree changes (with confirmation)")
+	row("x", "discard changes (changed), or delete from disk (untracked) - with confirmation")
+	row("u", "untrack staged file: git rm --cached (removes from index, keeps on disk)")
 	row("o", "restore file to HEAD or a specific ref")
 	b.WriteString("\n")
 

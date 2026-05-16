@@ -236,6 +236,13 @@ func (r *Runner) Discard(ctx context.Context, paths ...string) error {
 	return err
 }
 
+// RmCached removes a path from the git index (stops tracking it) without
+// touching the file on disk. Equivalent to git rm --cached <path>.
+func (r *Runner) RmCached(ctx context.Context, path string) error {
+	_, err := r.run(ctx, "rm", "--cached", "--", path)
+	return err
+}
+
 // Commit creates a commit with the given message.
 func (r *Runner) Commit(ctx context.Context, message string) error {
 	_, err := r.run(ctx, "commit", "-m", message)
