@@ -75,6 +75,7 @@ const (
 	panelDiverged
 	panelPR
 	panelPRReview
+	panelIssues
 )
 
 type branchMode int
@@ -398,6 +399,13 @@ type model struct {
 	prReviewMode      string // "approve" | "changes" | "comment"
 	prReviewNumber    int
 
+	// issues
+	issues           []pr.Issue
+	issueCursor      int
+	issueFilter      string
+	issueFilterInput textinput.Model
+	issueFiltering   bool
+
 	// undo: last reversible operation
 	undoCmd  tea.Cmd
 	undoDesc string
@@ -417,6 +425,10 @@ type actionDoneMsg struct {
 }
 type branchListMsg []git.Branch
 type protectedBranchesMsg map[string]bool
+type issueListMsg struct {
+	items []pr.Issue
+	err   error
+}
 
 type diffMsg struct {
 	title string
@@ -1947,6 +1959,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case protectedBranchesMsg:
 		m.protectedBranches = map[string]bool(msg)
 
+	case issueListMsg:
+		if msg.err != nil {
+			m.actionErr = msg.err
+		} else {
+			m.issues = msg.items
+			m.issueCursor = 0
+		}
+		m.panel = panelIssues
+
 	case diffMsg:
 		m.diffLines = msg.lines
 		m.diffTitle = msg.title
@@ -2473,6 +2494,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelPRReview {
 			return m.updatePRReviewPanel(msg)
 		}
+		if m.panel == panelIssues {
+			return m.updateIssuesPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -2606,6 +2630,16 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.prListCursor = 0
 			m.panel = panelPR
 			return m, m.fetchPRList()
+		}
+	case "I":
+		if m.prProvider != nil {
+			if _, ok := m.prProvider.(pr.IssueProvider); ok {
+				m.issues = nil
+				m.issueCursor = 0
+				m.issueFilter = ""
+				m.issueFilterInput.SetValue("")
+				return m, m.fetchIssues()
+			}
 		}
 
 	case kb.Branch, "b":
@@ -4900,6 +4934,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelPRReview {
 		return m.prReviewView()
+	}
+	if m.panel == panelIssues {
+		return m.issuesView()
 	}
 	return m.mainView()
 }
@@ -7541,6 +7578,152 @@ func (m model) prView() string {
 	return b.String()
 }
 
+func filterIssues(issues []pr.Issue, q string) []pr.Issue {
+	if q == "" {
+		return issues
+	}
+	q = strings.ToLower(q)
+	var out []pr.Issue
+	for _, i := range issues {
+		if strings.Contains(strings.ToLower(i.Title), q) ||
+			strings.Contains(fmt.Sprintf("%d", i.Number), q) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+func (m model) updateIssuesPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	visible := filterIssues(m.issues, m.issueFilter)
+
+	if m.issueFiltering {
+		switch msg.String() {
+		case "enter", "esc":
+			m.issueFiltering = false
+			m.issueFilterInput.Blur()
+		default:
+			var cmd tea.Cmd
+			m.issueFilterInput, cmd = m.issueFilterInput.Update(msg)
+			m.issueFilter = m.issueFilterInput.Value()
+			m.issueCursor = 0
+			return m, cmd
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "up", "k":
+		if m.issueCursor > 0 {
+			m.issueCursor--
+		}
+	case "down", "j":
+		if m.issueCursor < len(visible)-1 {
+			m.issueCursor++
+		}
+	case "enter", "o":
+		if len(visible) > 0 && visible[m.issueCursor].URL != "" {
+			url := visible[m.issueCursor].URL
+			ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+			defer cancel()
+			// Re-use the PR provider's Open to avoid duplicating browser-open logic.
+			_ = m.prProvider.Open(ctx, url)
+		}
+	case "b":
+		if len(visible) == 0 {
+			break
+		}
+		if _, ok := m.prProvider.(pr.IssueProvider); !ok {
+			break
+		}
+		issue := visible[m.issueCursor]
+		branchName := fmt.Sprintf("issue/%d", issue.Number)
+		m.panel = panelMain
+		return m, m.doCreateIssueBranch(issue.Number, branchName)
+	case "/":
+		m.issueFiltering = true
+		m.issueFilterInput.Focus()
+	case "r":
+		m.issues = nil
+		m.issueCursor = 0
+		return m, m.fetchIssues()
+	case "esc", m.cfg.Keybindings.Quit:
+		if m.issueFilter != "" {
+			m.issueFilter = ""
+			m.issueFilterInput.SetValue("")
+			m.issueCursor = 0
+			return m, nil
+		}
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) issuesView() string {
+	visible := filterIssues(m.issues, m.issueFilter)
+	title := "Issues"
+	if len(m.issues) > 0 {
+		if m.issueFilter != "" {
+			title = fmt.Sprintf("Issues (%d/%d)  %s", len(visible), len(m.issues), styleCmd.Render("["+m.issueFilter+"]"))
+		} else {
+			title = fmt.Sprintf("Issues (%d)", len(m.issues))
+		}
+	}
+	var b strings.Builder
+	b.WriteString("\n  " + styleTitle.Render(title) + "\n\n")
+
+	if m.issueFiltering {
+		b.WriteString("  " + styleDim.Render("/") + " " + m.issueFilterInput.View() + "\n\n")
+	}
+
+	if m.issues == nil {
+		b.WriteString(styleDim.Render("  loading...") + "\n")
+	} else if len(visible) == 0 {
+		if m.issueFilter != "" {
+			b.WriteString(styleDim.Render("  no issues matched - press esc to clear") + "\n")
+		} else {
+			b.WriteString(styleDim.Render("  no open issues") + "\n")
+		}
+	} else {
+		overhead := 6
+		if m.issueFiltering {
+			overhead += 2
+		}
+		visibleLines := m.height - overhead
+		if visibleLines < 1 {
+			visibleLines = 1
+		}
+		start := 0
+		if m.issueCursor >= visibleLines {
+			start = m.issueCursor - visibleLines + 1
+		}
+		end := start + visibleLines
+		if end > len(visible) {
+			end = len(visible)
+		}
+		for i := start; i < end; i++ {
+			issue := visible[i]
+			cursor := "  "
+			if i == m.issueCursor {
+				cursor = styleSelected.Render(">>")
+			}
+			b.WriteString(fmt.Sprintf("  %s #%-4d %s\n", cursor, issue.Number, issue.Title))
+			if i == m.issueCursor {
+				if len(issue.Labels) > 0 {
+					b.WriteString("        " + styleDim.Render("labels: "+strings.Join(issue.Labels, ", ")) + "\n")
+				}
+				if len(issue.Assignees) > 0 {
+					b.WriteString("        " + styleDim.Render("assignees: "+strings.Join(issue.Assignees, ", ")) + "\n")
+				}
+			}
+		}
+	}
+	b.WriteString("\n")
+	b.WriteString(styleDim.Render("  [enter/o] open  [b] create branch  [/] search  [r] refresh  [esc] back") + "\n")
+	return b.String()
+}
+
 func (m model) updatePRReviewPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
@@ -7620,6 +7803,36 @@ func (m model) fetchPRList() tea.Cmd {
 		defer cancel()
 		items, err := prov.ListPRs(ctx)
 		return prListMsg{items: items, err: err}
+	}
+}
+
+func (m model) fetchIssues() tea.Cmd {
+	if m.prProvider == nil {
+		return nil
+	}
+	ip, ok := m.prProvider.(pr.IssueProvider)
+	if !ok {
+		return func() tea.Msg { return issueListMsg{err: fmt.Errorf("this provider does not support issues")} }
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		items, err := ip.ListIssues(ctx)
+		return issueListMsg{items: items, err: err}
+	}
+}
+
+func (m model) doCreateIssueBranch(number int, branchName string) tea.Cmd {
+	ip := m.prProvider.(pr.IssueProvider)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		err := ip.CreateIssueBranch(ctx, number, branchName)
+		info := ""
+		if err == nil {
+			info = fmt.Sprintf("created branch %s for issue #%d", branchName, number)
+		}
+		return actionDoneMsg{cmd: fmt.Sprintf("issue branch #%d", number), err: err, info: info}
 	}
 }
 
@@ -7725,6 +7938,7 @@ func Run(cfg *config.Config, mdb *metrics.DB) error {
 	stashFI := newFilter("ref or description")
 	tagFI := newFilter("tag name")
 	reflogFI := newFilter("hash, ref, action or message")
+	issueFI := newFilter("issue number or title")
 
 	usagePath, _ := config.UsageFilePath()
 	usageData, _ := usage.Load(usagePath)
@@ -7750,6 +7964,7 @@ func Run(cfg *config.Config, mdb *metrics.DB) error {
 		stashFilterInput:  stashFI,
 		tagFilterInput:    tagFI,
 		reflogFilterInput: reflogFI,
+		issueFilterInput:  issueFI,
 		usage:             usageData,
 		usagePath:         usagePath,
 		prProvider:        prov,

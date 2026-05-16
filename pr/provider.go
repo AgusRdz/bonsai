@@ -55,6 +55,17 @@ func Detect(remoteURL string) Provider {
 	return nil
 }
 
+// DetectByCLI returns the first registered provider whose CLI is available on
+// the system. Useful as a fallback when no remote URL is configured.
+func DetectByCLI() Provider {
+	for _, p := range registry {
+		if p.CLIAvailable() {
+			return p
+		}
+	}
+	return nil
+}
+
 // ParseRemoteHost extracts the hostname from an SSH or HTTPS remote URL.
 // Examples: "git@github.com:owner/repo" -> "github.com"
 //
@@ -95,6 +106,29 @@ type PRForker interface {
 // are protected on the remote. Type-assert before calling: c, ok := p.(ProtectionChecker).
 type ProtectionChecker interface {
 	ProtectedBranches(ctx context.Context) ([]string, error)
+}
+
+// Issue holds the data for one issue from the hosting platform.
+type Issue struct {
+	Number    int
+	Title     string
+	State     string
+	URL       string
+	Labels    []string
+	Assignees []string
+}
+
+// IssueProvider is an optional Provider extension for fetching issues.
+// Type-assert before calling: ip, ok := p.(IssueProvider).
+type IssueProvider interface {
+	ListIssues(ctx context.Context) ([]Issue, error)
+	CreateIssueBranch(ctx context.Context, number int, branchName string) error
+}
+
+// RepoCreator is an optional Provider extension for creating a new remote repo.
+// Type-assert before calling: rc, ok := p.(RepoCreator).
+type RepoCreator interface {
+	CreateRepo(ctx context.Context, name, visibility string) error
 }
 
 // PRReviewer is an optional Provider extension for submitting PR reviews.

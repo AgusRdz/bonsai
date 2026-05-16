@@ -76,6 +76,8 @@ func main() {
 		runLFS(os.Args[2:])
 	case "standup":
 		runStandup(os.Args[2:])
+	case "repo":
+		runRepo(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai: unknown command %q\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "Run 'bonsai help' for available commands.")
@@ -1093,4 +1095,69 @@ func runStandup(args []string) {
 		fmt.Println(dim("  run 'bonsai standup --days 7' to see the week"))
 	}
 	fmt.Println()
+}
+
+func runRepo(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: bonsai repo create [--private] <name>")
+		fmt.Fprintln(os.Stderr, "       bonsai repo open")
+		os.Exit(1)
+	}
+	switch args[0] {
+	case "create":
+		name := ""
+		visibility := "public"
+		for _, a := range args[1:] {
+			if a == "--private" {
+				visibility = "private"
+			} else if a == "--internal" {
+				visibility = "internal"
+			} else if name == "" {
+				name = a
+			}
+		}
+		if name == "" {
+			fmt.Fprintln(os.Stderr, "bonsai repo create: a repository name is required")
+			os.Exit(1)
+		}
+		// Detect provider from origin URL (best-effort).
+		g := git.New()
+		ctx := context.Background()
+		remoteURL := g.OriginURL(ctx)
+		prov := pr.Detect(remoteURL)
+		if prov == nil {
+			prov = pr.DetectByCLI()
+		}
+		if prov == nil {
+			fmt.Fprintln(os.Stderr, "bonsai repo create: no supported CLI found (gh or glab)")
+			os.Exit(1)
+		}
+		creator, ok := prov.(pr.RepoCreator)
+		if !ok {
+			fmt.Fprintln(os.Stderr, "bonsai repo create: provider does not support repo creation")
+			os.Exit(1)
+		}
+		if err := creator.CreateRepo(ctx, name, visibility); err != nil {
+			fmt.Fprintf(os.Stderr, "bonsai repo create: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("repository %s created (%s)\n", name, visibility)
+	case "open":
+		g := git.New()
+		ctx := context.Background()
+		remoteURL := g.OriginURL(ctx)
+		prov := pr.Detect(remoteURL)
+		if prov == nil {
+			fmt.Fprintln(os.Stderr, "bonsai repo open: no supported provider detected for this remote")
+			os.Exit(1)
+		}
+		// Open the repo URL - use pr.Open with empty string to open the repo root.
+		if err := prov.Open(ctx, ""); err != nil {
+			fmt.Fprintf(os.Stderr, "bonsai repo open: %v\n", err)
+			os.Exit(1)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "bonsai repo: unknown subcommand %q\n", args[0])
+		os.Exit(1)
+	}
 }

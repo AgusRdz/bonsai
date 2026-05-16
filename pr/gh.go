@@ -172,6 +172,77 @@ func (g *ghProvider) Fork(ctx context.Context) error {
 	return exec.CommandContext(ctx, "gh", "repo", "fork", "--clone=false", "--remote=true").Run()
 }
 
+func (g *ghProvider) ListIssues(ctx context.Context) ([]Issue, error) {
+	if !g.CLIAvailable() {
+		return nil, fmt.Errorf("gh CLI not found")
+	}
+	out, err := exec.CommandContext(ctx, "gh", "issue", "list",
+		"--json", "number,title,state,url,labels,assignees").Output()
+	if err != nil {
+		return nil, fmt.Errorf("gh issue list: %w", err)
+	}
+	var raw []struct {
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+		State  string `json:"state"`
+		URL    string `json:"url"`
+		Labels []struct {
+			Name string `json:"name"`
+		} `json:"labels"`
+		Assignees []struct {
+			Login string `json:"login"`
+		} `json:"assignees"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, fmt.Errorf("gh issue list parse: %w", err)
+	}
+	issues := make([]Issue, len(raw))
+	for i, r := range raw {
+		labels := make([]string, len(r.Labels))
+		for j, l := range r.Labels {
+			labels[j] = l.Name
+		}
+		assignees := make([]string, len(r.Assignees))
+		for j, a := range r.Assignees {
+			assignees[j] = a.Login
+		}
+		issues[i] = Issue{
+			Number:    r.Number,
+			Title:     r.Title,
+			State:     strings.ToLower(r.State),
+			URL:       r.URL,
+			Labels:    labels,
+			Assignees: assignees,
+		}
+	}
+	return issues, nil
+}
+
+func (g *ghProvider) CreateIssueBranch(ctx context.Context, number int, branchName string) error {
+	if !g.CLIAvailable() {
+		return fmt.Errorf("gh CLI not found")
+	}
+	// gh issue develop creates a branch linked to the issue.
+	return exec.CommandContext(ctx, "gh", "issue", "develop",
+		fmt.Sprintf("%d", number), "--name", branchName).Run()
+}
+
+func (g *ghProvider) CreateRepo(ctx context.Context, name, visibility string) error {
+	if !g.CLIAvailable() {
+		return fmt.Errorf("gh CLI not found")
+	}
+	args := []string{"repo", "create", name}
+	switch visibility {
+	case "private":
+		args = append(args, "--private")
+	case "internal":
+		args = append(args, "--internal")
+	default:
+		args = append(args, "--public")
+	}
+	return exec.CommandContext(ctx, "gh", args...).Run()
+}
+
 func (g *ghProvider) ProtectedBranches(ctx context.Context) ([]string, error) {
 	if !g.CLIAvailable() {
 		return nil, fmt.Errorf("gh CLI not found")

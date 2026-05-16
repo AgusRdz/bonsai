@@ -107,6 +107,57 @@ func (g *glabProvider) Fork(ctx context.Context) error {
 	return exec.CommandContext(ctx, "glab", "repo", "fork").Run()
 }
 
+func (g *glabProvider) ListIssues(ctx context.Context) ([]Issue, error) {
+	if !g.CLIAvailable() {
+		return nil, fmt.Errorf("glab CLI not found")
+	}
+	out, err := exec.CommandContext(ctx, "glab", "issue", "list", "--output", "json").Output()
+	if err != nil {
+		return nil, fmt.Errorf("glab issue list: %w", err)
+	}
+	var raw []struct {
+		IID       int      `json:"iid"`
+		Title     string   `json:"title"`
+		State     string   `json:"state"`
+		URL       string   `json:"web_url"`
+		Labels    []string `json:"labels"`
+		Assignees []struct {
+			Username string `json:"username"`
+		} `json:"assignees"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, fmt.Errorf("glab issue list parse: %w", err)
+	}
+	issues := make([]Issue, len(raw))
+	for i, r := range raw {
+		assignees := make([]string, len(r.Assignees))
+		for j, a := range r.Assignees {
+			assignees[j] = a.Username
+		}
+		issues[i] = Issue{Number: r.IID, Title: r.Title, State: strings.ToLower(r.State), URL: r.URL, Labels: r.Labels, Assignees: assignees}
+	}
+	return issues, nil
+}
+
+func (g *glabProvider) CreateIssueBranch(ctx context.Context, number int, branchName string) error {
+	if !g.CLIAvailable() {
+		return fmt.Errorf("glab CLI not found")
+	}
+	return exec.CommandContext(ctx, "glab", "issue", "create-branch",
+		fmt.Sprintf("%d", number), "--name", branchName).Run()
+}
+
+func (g *glabProvider) CreateRepo(ctx context.Context, name, visibility string) error {
+	if !g.CLIAvailable() {
+		return fmt.Errorf("glab CLI not found")
+	}
+	args := []string{"repo", "create", name}
+	if visibility == "private" {
+		args = append(args, "--visibility", "private")
+	}
+	return exec.CommandContext(ctx, "glab", args...).Run()
+}
+
 func (g *glabProvider) Approve(ctx context.Context, number int) error {
 	if !g.CLIAvailable() {
 		return fmt.Errorf("glab CLI not found")
