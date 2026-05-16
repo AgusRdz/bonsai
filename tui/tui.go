@@ -1929,6 +1929,7 @@ func (m model) commandBar() string {
 		fmt.Sprintf("[%s] push", kb.Push),
 		"[P] pull",
 		"[b/B] branch",
+		"[l] log",
 		"[?] help",
 		fmt.Sprintf("[%s] quit", kb.Quit),
 	}
