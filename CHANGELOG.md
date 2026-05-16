@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.28.3] - 2026-05-16
+
+### Refactoring
+- Standardize CLI subcommands to use flags
+([c8cd9ac](https://github.com/AgusRdz/bonsai/commit/c8cd9ac47ae2d1406b5c397dfef6bf15d66b2f4b))
 ## [0.28.2] - 2026-05-16
 
 ### Features
