@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.35.7] - 2026-05-16
+
+### Refactoring
+- Extract parseBlamePorcelain, add isAllHex/fileCode/commitDetail/render tests
+([d5594d5](https://github.com/AgusRdz/bonsai/commit/d5594d590d9c6528e7690a095ef4c121e1861230))
 ## [0.35.6] - 2026-05-16
 
 ### Refactoring
