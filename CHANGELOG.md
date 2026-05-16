@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.31.0] - 2026-05-16
+
+### Features
+- Adaptive education panel with per-command usage tracking
+([979d290](https://github.com/AgusRdz/bonsai/commit/979d29050e35a083c8b12cab5a1c05223cd89b4c))
 ## [0.30.0] - 2026-05-16
 
 ### Features
