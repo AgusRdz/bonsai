@@ -26,6 +26,7 @@ const (
 	panelEducation
 	panelBranch
 	panelConvention
+	panelLog
 )
 
 type branchMode int
@@ -58,6 +59,8 @@ type model struct {
 	branchMode     branchMode
 	convViolation  *conventions.Result
 	convPanelShown bool // panel already shown for current branch violation
+	logEntries     []git.LogEntry
+	logCursor      int
 	edu            *educationPanel
 	eduTimer       int
 	width          int
@@ -67,6 +70,7 @@ type model struct {
 	actionErr      error  // error from last action
 	lastCmd        string // last git command run
 	pushing        bool
+	pulling        bool
 }
 
 // --- messages ---
@@ -77,6 +81,7 @@ type actionDoneMsg struct {
 	cmd string
 	err error
 }
+type logMsg []git.LogEntry
 
 // --- commands ---
 
@@ -146,6 +151,27 @@ func (m model) doRename(name string) tea.Cmd {
 	}
 }
 
+func (m model) doPull() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+		defer cancel()
+		err := m.git.Pull(ctx)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doFetchLog() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		entries, err := m.git.Log(ctx, 20)
+		if err != nil || entries == nil {
+			return logMsg([]git.LogEntry{})
+		}
+		return logMsg(entries)
+	}
+}
+
 // --- init ---
 
 func (m model) Init() tea.Cmd {
@@ -191,8 +217,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		m.ready = true
 
+	case logMsg:
+		m.logEntries = []git.LogEntry(msg)
+		m.logCursor = 0
+		m.panel = panelLog
+
 	case actionDoneMsg:
 		m.pushing = false
+		m.pulling = false
 		m.lastCmd = msg.cmd
 		m.actionErr = msg.err
 		dur := m.cfg.Education.PanelDuration
@@ -227,6 +259,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelConvention {
 			return m.updateConventionPanel(msg)
+		}
+		if m.panel == panelLog {
+			return m.updateLogPanel(msg)
 		}
 		return m.updateMainPanel(msg)
 	}
@@ -293,6 +328,14 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.actionErr = nil
 		return m, m.doPush()
 
+	case "P":
+		if m.pulling || m.pushing {
+			break
+		}
+		m.pulling = true
+		m.actionErr = nil
+		return m, m.doPull()
+
 	case "b":
 		ti := textinput.New()
 		ti.Placeholder = "branch name"
@@ -303,6 +346,12 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.branchMode = branchModeCreate
 		m.panel = panelBranch
 		m.actionErr = nil
+
+	case "l":
+		m.logEntries = nil
+		m.logCursor = 0
+		m.panel = panelLog
+		return m, m.doFetchLog()
 	}
 
 	return m, nil
@@ -401,6 +450,24 @@ func (m model) updateConventionPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateLogPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.logCursor > 0 {
+			m.logCursor--
+		}
+	case "down", "j":
+		if m.logCursor < len(m.logEntries)-1 {
+			m.logCursor++
+		}
+	case "esc", "enter", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 // --- view ---
 
 func (m model) View() string {
@@ -423,6 +490,9 @@ func (m model) View() string {
 	if m.panel == panelConvention {
 		return m.conventionView()
 	}
+	if m.panel == panelLog {
+		return m.logView()
+	}
 	return m.mainView()
 }
 
@@ -434,7 +504,14 @@ func (m model) mainView() string {
 		b.WriteString("  " + styleChanged.Render("git error") + "  " + styleDim.Render(m.err.Error()) + "\n\n")
 		b.WriteString("  " + styleDim.Render("open bonsai from inside a git repository") + "\n")
 	} else {
-		b.WriteString("  " + styleBranch.Render(" "+m.status.Branch+" ") + "\n\n")
+		header := styleBranch.Render(" " + m.status.Branch + " ")
+		if m.status.Ahead > 0 {
+			header += "  " + styleDim.Render(fmt.Sprintf("↑%d", m.status.Ahead))
+		}
+		if m.status.Behind > 0 {
+			header += "  " + styleChanged.Render(fmt.Sprintf("↓%d", m.status.Behind))
+		}
+		b.WriteString("  " + header + "\n\n")
 
 		m.renderSection(&b, "Staged", m.status.Staged, catStaged, styleStaged)
 		m.renderSection(&b, "Changed", m.status.Changed, catChanged, styleChanged)
@@ -624,15 +701,48 @@ func (m model) conventionView() string {
 	return content + styleDim.Render("  [r] rename branch  [enter] dismiss") + "\n"
 }
 
+func (m model) logView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Recent Commits") + "\n\n")
+
+	if m.logEntries == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+	} else if len(m.logEntries) == 0 {
+		b.WriteString("  " + styleDim.Render("no commits yet") + "\n")
+	} else {
+		for i, e := range m.logEntries {
+			if m.logCursor == i {
+				b.WriteString("  " + styleSelected.Render(">") + " " + styleDim.Render(e.Line) + "\n")
+			} else {
+				b.WriteString("    " + styleDim.Render(e.Line) + "\n")
+			}
+		}
+	}
+	b.WriteString("\n")
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [↑↓] scroll  [esc] back") + "\n"
+}
+
 func (m model) commandBar() string {
 	if m.pushing {
 		return styleDim.Render("  pushing...") + "\n"
+	}
+	if m.pulling {
+		return styleDim.Render("  pulling...") + "\n"
 	}
 	kb := m.cfg.Keybindings
 	parts := []string{
 		fmt.Sprintf("[%s] commit", kb.Commit),
 		fmt.Sprintf("[%s] push", kb.Push),
+		"[P] pull",
 		"[b] branch",
+		"[l] log",
 		"[space] stage/unstage",
 		"[↑↓] navigate",
 		fmt.Sprintf("[%s] quit", kb.Quit),

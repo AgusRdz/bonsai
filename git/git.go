@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -25,6 +26,8 @@ type Status struct {
 	Staged    []FileEntry
 	Changed   []FileEntry
 	Untracked []FileEntry
+	Ahead     int // local commits not on remote tracking branch
+	Behind    int // remote commits not yet pulled
 }
 
 // LogEntry is one line of `git log --oneline --graph` output.
@@ -73,8 +76,23 @@ func (r *Runner) Status(ctx context.Context) (*Status, error) {
 	if err != nil {
 		return nil, err
 	}
+	s := parseStatus(strings.TrimSpace(string(branchOut)), string(statusOut))
+	s.Ahead, s.Behind = r.aheadBehind(ctx)
 	r.lastCmd = "git status"
-	return parseStatus(strings.TrimSpace(string(branchOut)), string(statusOut)), nil
+	return s, nil
+}
+
+// aheadBehind returns how many commits the local branch is ahead of and
+// behind its remote tracking branch. Both values are zero when there is no
+// upstream configured or when the rev-list calls fail.
+func (r *Runner) aheadBehind(ctx context.Context) (ahead, behind int) {
+	if out, err := r.run(ctx, "rev-list", "--count", "@{u}..HEAD"); err == nil {
+		ahead, _ = strconv.Atoi(strings.TrimSpace(string(out)))
+	}
+	if out, err := r.run(ctx, "rev-list", "--count", "HEAD..@{u}"); err == nil {
+		behind, _ = strconv.Atoi(strings.TrimSpace(string(out)))
+	}
+	return
 }
 
 // Add stages the given paths.
