@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.38.0] - 2026-05-16
+
+### Features
+- Multi-provider PR integration layer with plugin support
+([55d3f8b](https://github.com/AgusRdz/bonsai/commit/55d3f8bf081ce1bdc16b55c327e9458351e5c891))
 ## [0.37.4] - 2026-05-16
 
 ### Bug Fixes
