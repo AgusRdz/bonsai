@@ -510,6 +510,70 @@ func (r *Runner) ConflictLines(path string) ([]string, error) {
 	return lines, nil
 }
 
+// WorktreeEntry is one entry from `git worktree list`.
+type WorktreeEntry struct {
+	Path    string // absolute path to the worktree
+	Branch  string // checked-out branch name, or "(detached)" for detached HEAD
+	Current bool   // true if this is the main worktree (the one we're in)
+}
+
+// Worktrees returns all worktrees including the main one.
+func (r *Runner) Worktrees(ctx context.Context) ([]WorktreeEntry, error) {
+	out, err := r.run(ctx, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	return parseWorktrees(string(out)), nil
+}
+
+// parseWorktrees parses the porcelain output of `git worktree list --porcelain`.
+// Blocks are separated by blank lines; the first block is the main worktree.
+func parseWorktrees(output string) []WorktreeEntry {
+	var entries []WorktreeEntry
+	blocks := strings.Split(strings.TrimRight(output, "\n"), "\n\n")
+	for idx, block := range blocks {
+		block = strings.TrimSpace(block)
+		if block == "" {
+			continue
+		}
+		var entry WorktreeEntry
+		entry.Current = idx == 0
+		for _, line := range strings.Split(block, "\n") {
+			switch {
+			case strings.HasPrefix(line, "worktree "):
+				entry.Path = strings.TrimPrefix(line, "worktree ")
+			case strings.HasPrefix(line, "branch "):
+				entry.Branch = strings.TrimPrefix(strings.TrimPrefix(line, "branch "), "refs/heads/")
+			case line == "detached":
+				entry.Branch = "(detached)"
+			}
+		}
+		if entry.Path != "" {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+// AddWorktree creates a new worktree at path checked out to branch.
+// If branch is empty, creates a new branch named after the last path component.
+func (r *Runner) AddWorktree(ctx context.Context, path, branch string) error {
+	var err error
+	if branch == "" {
+		base := filepath.Base(path)
+		_, err = r.run(ctx, "worktree", "add", "-b", base, path)
+	} else {
+		_, err = r.run(ctx, "worktree", "add", path, branch)
+	}
+	return err
+}
+
+// RemoveWorktree removes a worktree by path. Uses --force to handle unclean state.
+func (r *Runner) RemoveWorktree(ctx context.Context, path string) error {
+	_, err := r.run(ctx, "worktree", "remove", "--force", path)
+	return err
+}
+
 // TagEntry is one tag returned by git tag.
 type TagEntry struct {
 	Name string

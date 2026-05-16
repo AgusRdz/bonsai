@@ -38,6 +38,8 @@ const (
 	panelTagList
 	panelTagCreate
 	panelResetPick
+	panelWorktreeList
+	panelWorktreeAdd
 )
 
 type branchMode int
@@ -96,6 +98,8 @@ type model struct {
 	conflictScroll     int
 	tags               []git.TagEntry
 	tagCursor          int
+	worktrees          []git.WorktreeEntry
+	worktreeCursor     int
 	edu                *educationPanel
 	eduTimer           int
 	width              int
@@ -136,6 +140,8 @@ type conflictLinesMsg struct {
 }
 
 type tagListMsg []git.TagEntry
+
+type worktreeListMsg []git.WorktreeEntry
 
 // --- commands ---
 
@@ -417,6 +423,36 @@ func (m model) doDeleteTag(name string) tea.Cmd {
 	}
 }
 
+func (m model) doFetchWorktrees() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		entries, err := m.git.Worktrees(ctx)
+		if err != nil || entries == nil {
+			return worktreeListMsg([]git.WorktreeEntry{})
+		}
+		return worktreeListMsg(entries)
+	}
+}
+
+func (m model) doAddWorktree(path, branch string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.AddWorktree(ctx, path, branch)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doRemoveWorktree(path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.RemoveWorktree(ctx, path)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
 func (m model) doMerge(branch string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -586,6 +622,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tagCursor = 0
 		m.panel = panelTagList
 
+	case worktreeListMsg:
+		m.worktrees = []git.WorktreeEntry(msg)
+		m.worktreeCursor = 0
+		m.panel = panelWorktreeList
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -670,6 +711,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelTagCreate {
 			return m.updateTagCreatePanel(msg)
 		}
+		if m.panel == panelWorktreeList {
+			return m.updateWorktreeListPanel(msg)
+		}
+		if m.panel == panelWorktreeAdd {
+			return m.updateWorktreeAddPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -684,6 +731,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	if m.panel == panelTagCreate {
+		var cmd tea.Cmd
+		m.branchInput, cmd = m.branchInput.Update(msg)
+		return m, cmd
+	}
+	if m.panel == panelWorktreeAdd {
 		var cmd tea.Cmd
 		m.branchInput, cmd = m.branchInput.Update(msg)
 		return m, cmd
@@ -849,6 +901,12 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.tagCursor = 0
 		m.panel = panelTagList
 		return m, m.doFetchTags()
+
+	case "W":
+		m.worktrees = nil
+		m.worktreeCursor = 0
+		m.panel = panelWorktreeList
+		return m, m.doFetchWorktrees()
 
 	case "a":
 		if m.status == nil || m.status.MergeState == "" {
@@ -1412,6 +1470,78 @@ func (m model) updateTagCreatePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m model) updateWorktreeListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	kb := m.cfg.Keybindings
+	switch msg.String() {
+	case "up", "k":
+		if m.worktreeCursor > 0 {
+			m.worktreeCursor--
+		}
+	case "down", "j":
+		if m.worktreeCursor < len(m.worktrees)-1 {
+			m.worktreeCursor++
+		}
+	case "n":
+		ti := textinput.New()
+		ti.Placeholder = "path/to/worktree  branch-name"
+		ti.Focus()
+		ti.CharLimit = 256
+		ti.Width = m.width - 6
+		m.branchInput = ti
+		m.panel = panelWorktreeAdd
+		m.actionErr = nil
+	case "d":
+		if len(m.worktrees) == 0 {
+			break
+		}
+		wt := m.worktrees[m.worktreeCursor]
+		if wt.Current {
+			m.actionErr = fmt.Errorf("cannot remove the current (main) worktree")
+			break
+		}
+		m.confirmPrompt = fmt.Sprintf("remove worktree at %s?", wt.Path)
+		m.confirmCmd = m.doRemoveWorktree(wt.Path)
+		m.panel = panelConfirm
+		m.actionErr = nil
+	case "esc", kb.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) updateWorktreeAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		raw := strings.TrimSpace(m.branchInput.Value())
+		if raw == "" {
+			m.actionErr = fmt.Errorf("path cannot be empty")
+			return m, nil
+		}
+		var path, branch string
+		if idx := strings.Index(raw, " "); idx >= 0 {
+			path = strings.TrimSpace(raw[:idx])
+			branch = strings.TrimSpace(raw[idx+1:])
+		} else {
+			path = raw
+		}
+		m.panel = panelMain
+		m.actionErr = nil
+		return m, m.doAddWorktree(path, branch)
+	case "esc":
+		m.panel = panelWorktreeList
+		m.actionErr = nil
+		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+
+	var cmd tea.Cmd
+	m.branchInput, cmd = m.branchInput.Update(msg)
+	return m, cmd
+}
+
 // --- view ---
 
 func (m model) View() string {
@@ -1469,6 +1599,12 @@ func (m model) View() string {
 	}
 	if m.panel == panelTagCreate {
 		return m.tagCreateView()
+	}
+	if m.panel == panelWorktreeList {
+		return m.worktreeListView()
+	}
+	if m.panel == panelWorktreeAdd {
+		return m.worktreeAddView()
 	}
 	return m.mainView()
 }
@@ -2271,6 +2407,68 @@ func (m model) tagCreateView() string {
 	return content + styleDim.Render("  [enter] create  [esc] cancel") + "\n"
 }
 
+func (m model) worktreeListView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+
+	title := "Worktrees"
+	if len(m.worktrees) > 0 {
+		title = fmt.Sprintf("Worktrees (%d)", len(m.worktrees))
+	}
+	b.WriteString("  " + styleSection.Render(title) + "\n\n")
+
+	if m.worktrees == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+	} else if len(m.worktrees) == 0 {
+		b.WriteString("  " + styleDim.Render("no worktrees found") + "\n")
+	} else {
+		for i, wt := range m.worktrees {
+			cursor := "  "
+			if m.worktreeCursor == i {
+				cursor = styleSelected.Render("> ")
+			}
+			mark := "  "
+			if wt.Current {
+				mark = styleStaged.Render("* ")
+			}
+			path := styleCmd.Render(wt.Path)
+			branch := styleDim.Render(wt.Branch)
+			b.WriteString(cursor + mark + path + "  " + branch + "\n")
+		}
+	}
+	b.WriteString("\n")
+
+	if m.actionErr != nil {
+		b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n")
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [n] add  [d] remove  [esc] back") + "\n"
+}
+
+func (m model) worktreeAddView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Add Worktree") + "\n\n")
+	b.WriteString("  " + m.branchInput.View() + "\n\n")
+	b.WriteString("  " + styleDim.Render("enter path and branch name separated by a space (e.g. ../project-feature feat/my-feature)") + "\n\n")
+
+	if m.actionErr != nil {
+		b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n\n")
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [enter] create  [esc] cancel") + "\n"
+}
+
 func contextTip(m model) string {
 	if m.status == nil {
 		return ""
@@ -2321,6 +2519,7 @@ func (m model) commandBar() string {
 		"[l] log",
 		"[z] reset",
 		"[t] tags",
+		"[W] worktrees",
 		"[?] help",
 		fmt.Sprintf("[%s] quit", kb.Quit),
 	}

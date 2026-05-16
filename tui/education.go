@@ -82,6 +82,10 @@ func actionTitle(cmd string, err error) string {
 		return "Tag deleted"
 	case strings.HasPrefix(cmd, "git tag"):
 		return "Tag created"
+	case strings.HasPrefix(cmd, "git worktree add"):
+		return "Worktree created"
+	case strings.HasPrefix(cmd, "git worktree remove"):
+		return "Worktree removed"
 	default:
 		return "Done"
 	}
@@ -165,6 +169,13 @@ func explain(cmd string, err error) string {
 		return "A lightweight tag was created at the current HEAD commit. " +
 			"Tags mark specific points in history, commonly used for releases. " +
 			"Push the tag to remote with: git push origin <tag>."
+	case strings.HasPrefix(cmd, "git worktree add"):
+		return "A linked worktree was created at the given path. " +
+			"Worktrees let you check out a different branch in a separate directory without losing your current work. " +
+			"Useful for reviewing a PR, running a hot-fix, or comparing versions side by side - all from the same repo."
+	case strings.HasPrefix(cmd, "git worktree remove"):
+		return "The linked worktree was removed. The branch it contained still exists in the repository. " +
+			"Removing a worktree only deletes the working directory link - your commits are safe."
 	default:
 		return ""
 	}
