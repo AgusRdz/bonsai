@@ -379,6 +379,13 @@ type model struct {
 	prStatus     *pr.PRStatus
 	prListItems  []pr.PRStatus
 	prListCursor int
+
+	// undo: last reversible operation
+	undoCmd  tea.Cmd
+	undoDesc string
+
+	// which panel to return to when escaping the diff viewer
+	diffOrigin panel
 }
 
 // --- messages ---
@@ -507,13 +514,23 @@ func (m model) doCommit(msg string) tea.Cmd {
 	if m.status != nil {
 		branch = m.status.Branch
 	}
+	sign := m.cfg.Signing.Enabled
+	key := m.cfg.Signing.Key
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
-		err := m.git.Commit(ctx, msg)
+		var err error
+		if sign {
+			err = m.git.CommitSigned(ctx, msg, key)
+		} else {
+			err = m.git.Commit(ctx, msg)
+		}
 		var info string
 		if err == nil {
 			info = "committed to " + branch
+			if sign {
+				info += " (signed)"
+			}
 		}
 		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
@@ -1130,6 +1147,19 @@ func (m model) doReset(mode string) tea.Cmd {
 			info = "reset last commit (--" + mode + ")"
 		}
 		return actionDoneMsg{cmd: "git reset --" + mode + " HEAD~1", err: err, info: info}
+	}
+}
+
+func (m model) doResetOrig() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.ResetOrig(ctx)
+		var info string
+		if err == nil {
+			info = "reset to ORIG_HEAD"
+		}
+		return actionDoneMsg{cmd: "git reset --hard ORIG_HEAD", err: err, info: info}
 	}
 }
 
@@ -2078,19 +2108,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Fire plugin events asynchronously (never block the TUI on plugins).
+		// Fire plugin events and track undoable operations.
 		if msg.err == nil {
 			branch := ""
 			if m.status != nil {
 				branch = m.status.Branch
 			}
 			switch commandKey(msg.cmd) {
-			case "commit", "amend":
+			case "commit":
+				plugins.Fire(plugins.Request{Event: plugins.EventCommitCreated, Branch: branch})
+				m.undoCmd = m.doReset("soft")
+				m.undoDesc = "uncommit (soft reset)"
+			case "amend":
 				plugins.Fire(plugins.Request{Event: plugins.EventCommitCreated, Branch: branch})
 			case "push":
 				plugins.Fire(plugins.Request{Event: plugins.EventPushAfter, Branch: branch})
 			case "branch":
 				plugins.Fire(plugins.Request{Event: plugins.EventBranchCreated, Branch: branch})
+			case "merge":
+				m.undoCmd = m.doResetOrig()
+				m.undoDesc = "undo merge"
+			case "rebase":
+				m.undoCmd = m.doResetOrig()
+				m.undoDesc = "undo rebase"
+			case "cherry-pick":
+				m.undoCmd = m.doReset("soft")
+				m.undoDesc = "undo cherry-pick"
 			}
 		}
 
@@ -2561,6 +2604,7 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.diffLines = nil
 		m.diffScroll = 0
+		m.diffOrigin = panelMain
 		m.panel = panelDiff
 		return m, m.doFetchDiff(f.entry.Path, f.category == catStaged)
 
@@ -2645,6 +2689,17 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case kb.Undo, "z":
 		m.panel = panelResetPick
 		m.actionErr = nil
+
+	case "U":
+		if m.undoCmd == nil {
+			m.actionErr = fmt.Errorf("nothing to undo - [z] for reset options")
+			break
+		}
+		cmd := m.undoCmd
+		m.undoCmd = nil
+		m.undoDesc = ""
+		m.actionErr = nil
+		return m, cmd
 
 	case "t":
 		m.tags = nil
@@ -3173,7 +3228,8 @@ func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.panel = panelBlame
 		return m, m.doBlame(path)
 	case "esc", m.cfg.Keybindings.Quit:
-		m.panel = panelMain
+		m.panel = m.diffOrigin
+		m.diffOrigin = panelMain
 	case "ctrl+c":
 		return m, tea.Quit
 	}
@@ -3736,6 +3792,25 @@ func (m model) updateRemoteListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.remoteRenameTarget = m.remotes[m.remoteCursor].Name
 		m.remoteRenameInput = ti
 		m.panel = panelRemoteRename
+	case "f":
+		forker, ok := m.prProvider.(pr.PRForker)
+		if !ok {
+			m.actionErr = fmt.Errorf("no PR provider available - detect a remote first")
+			break
+		}
+		prov := forker
+		m.confirmPrompt = "fork this repository? a fork will be created on your account"
+		m.confirmCmd = func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			err := prov.Fork(ctx)
+			var info string
+			if err == nil {
+				info = "repository forked successfully"
+			}
+			return actionDoneMsg{cmd: "repo fork", err: err, info: info}
+		}
+		m.panel = panelConfirm
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
 	case "ctrl+c":
@@ -4659,6 +4734,9 @@ func (m model) mainView() string {
 	if hint := prHint(m); hint != "" {
 		b.WriteString("  " + styleStaged.Render(hint) + "\n")
 	}
+	if m.undoCmd != nil {
+		b.WriteString("  " + styleDim.Render("[U] undo: "+m.undoDesc) + "\n")
+	}
 
 	content := b.String()
 	lines := strings.Count(content, "\n")
@@ -4953,6 +5031,7 @@ func (m model) helpView() string {
 	section("Advanced")
 	row("i", "bisect - binary search for a bug-introducing commit")
 	row("z", "reset menu (soft / mixed / hard)")
+	row("U", "undo last commit / merge / rebase / cherry-pick (shown when available)")
 	row("W", "worktree list - add, remove linked worktrees")
 	row("O", "remote management - add, remove, rename")
 	row("M", "submodule management - add, update, deinit")
@@ -6123,7 +6202,7 @@ func (m model) remoteListView() string {
 		}
 	}
 	b.WriteString("\n")
-	b.WriteString(styleDim.Render("  [a] add  [d] remove  [r] rename  [esc] back") + "\n")
+	b.WriteString(styleDim.Render("  [a] add  [d] remove  [r] rename  [f] fork  [esc] back") + "\n")
 	return b.String()
 }
 
@@ -6942,6 +7021,34 @@ func (m model) updatePRPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				_ = m.prProvider.Open(ctx, item.URL)
 			}
 		}
+	case "d":
+		if len(m.prListItems) == 0 {
+			break
+		}
+		differ, ok := m.prProvider.(pr.PRDiffer)
+		if !ok {
+			m.actionErr = fmt.Errorf("this provider does not support PR diffs")
+			break
+		}
+		item := m.prListItems[m.prListCursor]
+		num := item.Number
+		m.diffLines = nil
+		m.diffScroll = 0
+		m.diffOrigin = panelPR
+		m.panel = panelDiff
+		return m, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			raw, err := differ.Diff(ctx, num)
+			if err != nil {
+				return actionDoneMsg{cmd: "pr diff", err: fmt.Errorf("pr diff: %w", err)}
+			}
+			var lines []string
+			if raw != "" {
+				lines = strings.Split(strings.TrimRight(raw, "\n"), "\n")
+			}
+			return diffMsg{title: fmt.Sprintf("PR #%d diff", num), lines: lines}
+		}
 	case "n":
 		if m.prProvider != nil && m.status != nil {
 			branch := m.status.Branch
@@ -6996,7 +7103,7 @@ func (m model) prView() string {
 		}
 	}
 	b.WriteString("\n")
-	b.WriteString(styleDim.Render("  [enter/o] open in browser  [n] new PR  [r] refresh  [esc] back") + "\n")
+	b.WriteString(styleDim.Render("  [enter/o] open  [d] diff  [n] new PR  [r] refresh  [esc] back") + "\n")
 	return b.String()
 }
 

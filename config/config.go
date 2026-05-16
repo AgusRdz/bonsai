@@ -26,6 +26,7 @@ type Config struct {
 	Metrics     MetricsConfig     `toml:"metrics"`
 	Editor      EditorConfig      `toml:"editor"`
 	CommandBar  CommandBarConfig  `toml:"command_bar"`
+	Signing     SigningConfig     `toml:"signing"`
 }
 
 // CommandBarConfig controls which shortcuts appear in the main command bar.
@@ -38,6 +39,12 @@ type EditorConfig struct {
 	// Command is the editor binary (e.g. "vim", "nano", "code --wait").
 	// When empty, bonsai falls back to $VISUAL, then $EDITOR, then "vi".
 	Command string `toml:"command"`
+}
+
+// SigningConfig controls GPG/SSH commit signing.
+type SigningConfig struct {
+	Enabled bool   `toml:"enabled"`
+	Key     string `toml:"key"` // GPG key ID or SSH key path; empty = git default
 }
 
 type FlowConfig struct {

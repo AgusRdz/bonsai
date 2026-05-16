@@ -249,6 +249,19 @@ func (r *Runner) Commit(ctx context.Context, message string) error {
 	return err
 }
 
+// CommitSigned commits with GPG/SSH signing. key may be empty to use the git
+// default signing key (commit.gpgsign / user.signingkey).
+func (r *Runner) CommitSigned(ctx context.Context, message, key string) error {
+	args := []string{"commit", "-m", message}
+	if key != "" {
+		args = append(args, "--gpg-sign="+key)
+	} else {
+		args = append(args, "-S")
+	}
+	_, err := r.run(ctx, args...)
+	return err
+}
+
 // LogOptions controls what git log returns.
 type LogOptions struct {
 	MaxCount int    // number of commits to fetch; 0 → 100
@@ -1075,6 +1088,13 @@ func (r *Runner) Reset(ctx context.Context, mode string) error {
 	return err
 }
 
+// ResetOrig resets the branch to ORIG_HEAD - the state before the last merge,
+// rebase, or amend. Returns an error if ORIG_HEAD does not exist.
+func (r *Runner) ResetOrig(ctx context.Context) error {
+	_, err := r.run(ctx, "reset", "--hard", "ORIG_HEAD")
+	return err
+}
+
 // Rebase rebases the current branch onto the named branch.
 func (r *Runner) Rebase(ctx context.Context, branch string) error {
 	_, err := r.run(ctx, "rebase", branch)
@@ -1780,6 +1800,40 @@ func mostFrequentName(names map[string]int) string {
 		}
 	}
 	return best
+}
+
+// LFSStatus returns the output of git lfs status. Returns an error when git-lfs
+// is not installed.
+func (r *Runner) LFSStatus(ctx context.Context) (string, error) {
+	out, err := r.run(ctx, "lfs", "status")
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// LFSTrack adds pattern to .gitattributes so matching files are stored via LFS.
+func (r *Runner) LFSTrack(ctx context.Context, pattern string) error {
+	_, err := r.run(ctx, "lfs", "track", pattern)
+	return err
+}
+
+// LFSUntrack removes a pattern from .gitattributes LFS tracking.
+func (r *Runner) LFSUntrack(ctx context.Context, pattern string) error {
+	_, err := r.run(ctx, "lfs", "untrack", pattern)
+	return err
+}
+
+// LFSPull downloads all LFS objects for the current checkout.
+func (r *Runner) LFSPull(ctx context.Context) error {
+	_, err := r.run(ctx, "lfs", "pull")
+	return err
+}
+
+// LFSInstall installs git-lfs hooks into the current repository.
+func (r *Runner) LFSInstall(ctx context.Context) error {
+	_, err := r.run(ctx, "lfs", "install")
+	return err
 }
 
 // Stats computes repository statistics. May be slow on large repos.

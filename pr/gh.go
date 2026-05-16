@@ -93,6 +93,24 @@ func (g *ghProvider) Open(ctx context.Context, branch string) error {
 	return exec.CommandContext(ctx, "gh", "pr", "view", branch, "--web").Run()
 }
 
+func (g *ghProvider) Diff(ctx context.Context, number int) (string, error) {
+	if !g.CLIAvailable() {
+		return "", fmt.Errorf("gh CLI not found")
+	}
+	out, err := exec.CommandContext(ctx, "gh", "pr", "diff", fmt.Sprintf("%d", number)).Output()
+	if err != nil {
+		return "", fmt.Errorf("gh pr diff: %w", err)
+	}
+	return string(out), nil
+}
+
+func (g *ghProvider) Fork(ctx context.Context) error {
+	if !g.CLIAvailable() {
+		return fmt.Errorf("gh CLI not found")
+	}
+	return exec.CommandContext(ctx, "gh", "repo", "fork", "--clone=false", "--remote=true").Run()
+}
+
 // ciCheck holds one entry from gh's statusCheckRollup JSON field.
 type ciCheck struct {
 	Conclusion string `json:"conclusion"`

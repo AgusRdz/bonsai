@@ -107,6 +107,14 @@ func (b *bbProvider) Open(ctx context.Context, branch string) error {
 	return exec.CommandContext(ctx, "bb", "pr", "view", "--current", "--browser").Run()
 }
 
+func (b *bbProvider) Diff(_ context.Context, _ int) (string, error) {
+	return "", fmt.Errorf("bb CLI does not support PR diff - open in browser instead")
+}
+
+func (b *bbProvider) Fork(_ context.Context) error {
+	return fmt.Errorf("bb CLI does not support forking - use the Bitbucket web interface")
+}
+
 func normaliseBBState(s string) string {
 	switch strings.ToUpper(s) {
 	case "OPEN":

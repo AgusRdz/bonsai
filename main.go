@@ -70,6 +70,10 @@ func main() {
 		runClone(os.Args[2:])
 	case "ssh":
 		runSSH(os.Args[2:])
+	case "metrics":
+		runMetrics()
+	case "lfs":
+		runLFS(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai: unknown command %q\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "Run 'bonsai help' for available commands.")
@@ -168,6 +172,8 @@ Commands:
   ssh status        show SSH key and agent status
   ssh keygen        generate a new SSH key pair
   ssh show          print your SSH public key
+  metrics           show locally tracked git habit and error metrics
+  lfs               git lfs commands (status, track, untrack, pull, install)
 
 Options:
   -h, --help     show help
@@ -794,6 +800,144 @@ func runSSHKeygen() {
 	fmt.Println("  Gitea/Forgejo/self-hosted: Settings -> SSH Keys in your profile")
 	fmt.Println()
 	fmt.Println("then load it into the agent: ssh-add " + keyPath)
+}
+
+func runMetrics() {
+	p, err := metrics.DefaultPath()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai metrics:", err)
+		os.Exit(1)
+	}
+	if _, err := os.Stat(p); os.IsNotExist(err) {
+		fmt.Println("no metrics data found")
+		fmt.Println("enable metrics in your config: run 'bonsai config' and set [metrics] enabled = true")
+		return
+	}
+	db, err := metrics.Open(p)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai metrics:", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+	s, err := db.Summarize()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai metrics:", err)
+		os.Exit(1)
+	}
+
+	color := isTTY()
+	bold := func(v string) string {
+		if color {
+			return "\033[1m" + v + "\033[0m"
+		}
+		return v
+	}
+
+	fmt.Println(bold("bonsai metrics"))
+	fmt.Println()
+	fmt.Printf("  commits tracked:  %d\n", s.TotalCommits)
+	fmt.Printf("  sessions:         %d\n", s.Sessions)
+	fmt.Printf("  errors recorded:  %d\n", s.TotalErrors)
+	fmt.Printf("  violations:       %d\n", s.TotalViolations)
+
+	if len(s.TopErrorCmds) > 0 {
+		fmt.Print("\n  " + bold("top error sources:") + "\n")
+		for _, c := range s.TopErrorCmds {
+			fmt.Printf("    %-28s %d\n", c.Name, c.Count)
+		}
+	}
+	if len(s.TopBranches) > 0 {
+		fmt.Print("\n  " + bold("top violating branches:") + "\n")
+		for _, c := range s.TopBranches {
+			fmt.Printf("    %-28s %d\n", c.Name, c.Count)
+		}
+	}
+	if s.TotalCommits > 0 {
+		fmt.Print("\n  " + bold("commit activity by hour (local time):") + "\n  ")
+		bars := []string{" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
+		maxN := 1
+		for _, n := range s.HourDist {
+			if n > maxN {
+				maxN = n
+			}
+		}
+		for h, n := range s.HourDist {
+			idx := 0
+			if n > 0 {
+				idx = 1 + (n*(len(bars)-2))/maxN
+				if idx >= len(bars) {
+					idx = len(bars) - 1
+				}
+			}
+			fmt.Print(bars[idx])
+			if h < 23 {
+				fmt.Print(" ")
+			}
+		}
+		fmt.Println()
+		fmt.Println("  00 02 04 06 08 10 12 14 16 18 20 22")
+	}
+	fmt.Println()
+}
+
+func runLFS(args []string) {
+	g := git.New()
+	ctx := context.Background()
+
+	sub := ""
+	if len(args) > 0 {
+		sub = args[0]
+	}
+
+	switch sub {
+	case "", "status":
+		out, err := g.LFSStatus(ctx)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai lfs: git lfs may not be installed:", err)
+			os.Exit(1)
+		}
+		if strings.TrimSpace(out) == "" {
+			fmt.Println("git lfs is active - nothing pending")
+		} else {
+			fmt.Print(out)
+		}
+	case "track":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: bonsai lfs track <pattern>")
+			os.Exit(1)
+		}
+		if err := g.LFSTrack(ctx, args[1]); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai lfs track:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("tracking %s via git lfs\n", args[1])
+	case "untrack":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: bonsai lfs untrack <pattern>")
+			os.Exit(1)
+		}
+		if err := g.LFSUntrack(ctx, args[1]); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai lfs untrack:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("untracked %s from git lfs\n", args[1])
+	case "pull":
+		if err := g.LFSPull(ctx); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai lfs pull:", err)
+			os.Exit(1)
+		}
+		fmt.Println("lfs objects downloaded")
+	case "install":
+		if err := g.LFSInstall(ctx); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai lfs install:", err)
+			os.Exit(1)
+		}
+		fmt.Println("git lfs hooks installed")
+	default:
+		fmt.Fprintf(os.Stderr, "bonsai lfs: unknown subcommand %q\n", sub)
+		fmt.Fprintln(os.Stderr, "usage: bonsai lfs [status|track <pat>|untrack <pat>|pull|install]")
+		os.Exit(1)
+	}
 }
 
 func runSSHShow() {

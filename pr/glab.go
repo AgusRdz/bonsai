@@ -89,6 +89,24 @@ func (g *glabProvider) Open(ctx context.Context, branch string) error {
 	return exec.CommandContext(ctx, "glab", "mr", "view", branch, "--web").Run()
 }
 
+func (g *glabProvider) Diff(ctx context.Context, number int) (string, error) {
+	if !g.CLIAvailable() {
+		return "", fmt.Errorf("glab CLI not found")
+	}
+	out, err := exec.CommandContext(ctx, "glab", "mr", "diff", fmt.Sprintf("%d", number)).Output()
+	if err != nil {
+		return "", fmt.Errorf("glab mr diff: %w", err)
+	}
+	return string(out), nil
+}
+
+func (g *glabProvider) Fork(ctx context.Context) error {
+	if !g.CLIAvailable() {
+		return fmt.Errorf("glab CLI not found")
+	}
+	return exec.CommandContext(ctx, "glab", "repo", "fork").Run()
+}
+
 func normaliseGlabState(s string) string {
 	switch strings.ToLower(s) {
 	case "opened":

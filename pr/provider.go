@@ -74,3 +74,15 @@ func cliExists(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
 }
+
+// PRDiffer is an optional Provider extension for fetching a PR/MR unified diff.
+// Type-assert the Provider before calling: d, ok := p.(PRDiffer).
+type PRDiffer interface {
+	Diff(ctx context.Context, number int) (string, error)
+}
+
+// PRForker is an optional Provider extension for forking the current repo.
+// Type-assert the Provider before calling: f, ok := p.(PRForker).
+type PRForker interface {
+	Fork(ctx context.Context) error
+}
