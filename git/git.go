@@ -3,7 +3,9 @@ package git
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -22,12 +24,35 @@ func (f FileEntry) UnstagedCode() byte { return f.Code[1] }
 
 // Status holds the result of parsing `git status`.
 type Status struct {
-	Branch    string
-	Staged    []FileEntry
-	Changed   []FileEntry
-	Untracked []FileEntry
-	Ahead     int // local commits not on remote tracking branch
-	Behind    int // remote commits not yet pulled
+	Branch     string
+	Staged     []FileEntry
+	Changed    []FileEntry
+	Untracked  []FileEntry
+	Conflicts  []FileEntry // files with unresolved merge conflicts
+	Ahead      int         // local commits not on remote tracking branch
+	Behind     int         // remote commits not yet pulled
+	MergeState string      // "merge", "cherry-pick", "rebase", or ""
+}
+
+// ConflictDesc returns a short human description for a conflict status code.
+func ConflictDesc(code string) string {
+	switch code {
+	case "UU":
+		return "both modified"
+	case "AA":
+		return "both added"
+	case "DD":
+		return "both deleted"
+	case "AU":
+		return "added by us"
+	case "UA":
+		return "added by them"
+	case "DU":
+		return "deleted by us"
+	case "UD":
+		return "deleted by them"
+	}
+	return "conflict"
 }
 
 // LogEntry is one line of `git log --oneline --graph` output.
@@ -112,7 +137,33 @@ func (r *Runner) Status(ctx context.Context) (*Status, error) {
 	s := parseStatus(branch, body)
 	s.Ahead = ahead
 	s.Behind = behind
+	s.MergeState = detectMergeState(ctx)
 	return s, nil
+}
+
+// detectMergeState checks sentinel files that git leaves in .git/ to indicate
+// an in-progress operation. Returns "merge", "cherry-pick", "rebase", or "".
+func detectMergeState(ctx context.Context) string {
+	out, err := exec.CommandContext(ctx, "git", "rev-parse", "--git-dir").Output()
+	if err != nil {
+		return ""
+	}
+	gitDir := strings.TrimSpace(string(out))
+	sentinels := []struct {
+		path  string
+		label string
+	}{
+		{filepath.Join(gitDir, "MERGE_HEAD"), "merge"},
+		{filepath.Join(gitDir, "CHERRY_PICK_HEAD"), "cherry-pick"},
+		{filepath.Join(gitDir, "rebase-merge"), "rebase"},
+		{filepath.Join(gitDir, "rebase-apply"), "rebase"},
+	}
+	for _, s := range sentinels {
+		if _, err := os.Stat(s.path); err == nil {
+			return s.label
+		}
+	}
+	return ""
 }
 
 // parseBranchLine parses the header line from `git status --porcelain --branch`
@@ -421,8 +472,55 @@ func parseStashList(output string) []StashEntry {
 	return entries
 }
 
+// AcceptOurs resolves a conflict by keeping our version (current branch HEAD)
+// and staging the result. Works for UU, AU, UD conflicts.
+func (r *Runner) AcceptOurs(ctx context.Context, path string) error {
+	if _, err := r.run(ctx, "checkout", "--ours", "--", path); err != nil {
+		return err
+	}
+	_, err := r.run(ctx, "add", "--", path)
+	return err
+}
+
+// AcceptTheirs resolves a conflict by keeping the incoming version
+// and staging the result. Works for UU, UA, DU conflicts.
+func (r *Runner) AcceptTheirs(ctx context.Context, path string) error {
+	if _, err := r.run(ctx, "checkout", "--theirs", "--", path); err != nil {
+		return err
+	}
+	_, err := r.run(ctx, "add", "--", path)
+	return err
+}
+
+// RemoveConflict resolves a DD (both deleted) conflict by removing the file
+// from the index.
+func (r *Runner) RemoveConflict(ctx context.Context, path string) error {
+	_, err := r.run(ctx, "rm", "--", path)
+	return err
+}
+
+// ConflictLines reads a conflicted file from the working tree and returns its
+// lines. The caller is responsible for rendering the conflict markers.
+func (r *Runner) ConflictLines(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	return lines, nil
+}
+
 // parseStatus converts `git status --porcelain` output into a Status.
 // Files with both staged and unstaged changes appear in both slices.
+// conflictCodes are the two-character porcelain codes that indicate an
+// unresolved merge conflict. These must be routed to Status.Conflicts and
+// never treated as ordinary staged/changed entries.
+var conflictCodes = map[string]bool{
+	"UU": true, "AA": true, "DD": true,
+	"AU": true, "UA": true,
+	"DU": true, "UD": true,
+}
+
 func parseStatus(branch, porcelain string) *Status {
 	s := &Status{Branch: branch}
 	for _, line := range strings.Split(porcelain, "\n") {
@@ -435,6 +533,10 @@ func parseStatus(branch, porcelain string) *Status {
 
 		if code == "??" {
 			s.Untracked = append(s.Untracked, FileEntry{Code: code, Path: path})
+			continue
+		}
+		if conflictCodes[code] {
+			s.Conflicts = append(s.Conflicts, FileEntry{Code: code, Path: path})
 			continue
 		}
 		if x != ' ' && x != '?' {

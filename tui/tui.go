@@ -34,6 +34,7 @@ const (
 	panelConfirm
 	panelFlowPick
 	panelCommitDetail
+	panelConflict
 )
 
 type branchMode int
@@ -49,6 +50,7 @@ type fileItem struct {
 }
 
 const (
+	catConflict  = -1 // shown first; not stageable until resolved
 	catStaged    = 0
 	catChanged   = 1
 	catUntracked = 2
@@ -86,6 +88,9 @@ type model struct {
 	flowPickCursor     int
 	commitDetail       *git.CommitDetail
 	commitDetailScroll int
+	conflictPath       string
+	conflictLines      []string
+	conflictScroll     int
 	edu                *educationPanel
 	eduTimer           int
 	width              int
@@ -119,6 +124,10 @@ type logPageMsg struct {
 	entries []git.LogEntry
 	hasMore bool
 	append  bool // true = append to existing list; false = replace
+}
+type conflictLinesMsg struct {
+	path  string
+	lines []string
 }
 
 // --- commands ---
@@ -334,6 +343,43 @@ func (m model) doFetchCommitDetail(hash string) tea.Cmd {
 	}
 }
 
+func (m model) doReadConflict(path string) tea.Cmd {
+	return func() tea.Msg {
+		lines, err := m.git.ConflictLines(path)
+		if err != nil {
+			return conflictLinesMsg{path: path, lines: []string{"error reading file: " + err.Error()}}
+		}
+		return conflictLinesMsg{path: path, lines: lines}
+	}
+}
+
+func (m model) doAcceptOurs(path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.AcceptOurs(ctx, path)
+		return actionDoneMsg{cmd: "git checkout --ours -- " + path, err: err}
+	}
+}
+
+func (m model) doAcceptTheirs(path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.AcceptTheirs(ctx, path)
+		return actionDoneMsg{cmd: "git checkout --theirs -- " + path, err: err}
+	}
+}
+
+func (m model) doRemoveConflict(path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.RemoveConflict(ctx, path)
+		return actionDoneMsg{cmd: "git rm -- " + path, err: err}
+	}
+}
+
 // --- init ---
 
 func (m model) Init() tea.Cmd {
@@ -420,6 +466,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.commitDetailScroll = 0
 		m.panel = panelCommitDetail
 
+	case conflictLinesMsg:
+		m.conflictPath = msg.path
+		m.conflictLines = msg.lines
+		m.conflictScroll = 0
+		m.panel = panelConflict
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -489,6 +541,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelCommitDetail {
 			return m.updateCommitDetailPanel(msg)
 		}
+		if m.panel == panelConflict {
+			return m.updateConflictPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -527,6 +582,10 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		f := m.files[m.cursor]
+		if f.category == catConflict {
+			m.actionErr = fmt.Errorf("resolve this conflict first - press [d] to view and resolve")
+			break
+		}
 		if f.category == catStaged {
 			return m, m.doRestore(f.entry.Path)
 		}
@@ -597,6 +656,12 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		f := m.files[m.cursor]
+		if f.category == catConflict {
+			m.conflictLines = nil
+			m.conflictScroll = 0
+			m.conflictPath = f.entry.Path
+			return m, m.doReadConflict(f.entry.Path)
+		}
 		if f.category == catUntracked {
 			m.actionErr = fmt.Errorf("untracked file has no diff - stage it first")
 			break
@@ -1003,6 +1068,59 @@ func (m model) updateHelpPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateConflictPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	visibleLines := m.height - 7
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+	maxScroll := len(m.conflictLines) - visibleLines
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+
+	// Find the conflict code for the current file.
+	code := ""
+	if m.status != nil {
+		for _, f := range m.status.Conflicts {
+			if f.Path == m.conflictPath {
+				code = f.Code
+				break
+			}
+		}
+	}
+
+	switch msg.String() {
+	case "up", "k":
+		if m.conflictScroll > 0 {
+			m.conflictScroll--
+		}
+	case "down", "j":
+		if m.conflictScroll < maxScroll {
+			m.conflictScroll++
+		}
+	case "o":
+		if code != "DD" {
+			m.panel = panelMain
+			return m, m.doAcceptOurs(m.conflictPath)
+		}
+	case "t":
+		if code != "DD" {
+			m.panel = panelMain
+			return m, m.doAcceptTheirs(m.conflictPath)
+		}
+	case "r":
+		if code == "DD" {
+			m.panel = panelMain
+			return m, m.doRemoveConflict(m.conflictPath)
+		}
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 // --- view ---
 
 func (m model) View() string {
@@ -1049,6 +1167,9 @@ func (m model) View() string {
 	if m.panel == panelCommitDetail {
 		return m.commitDetailView()
 	}
+	if m.panel == panelConflict {
+		return m.conflictView()
+	}
 	return m.mainView()
 }
 
@@ -1073,6 +1194,18 @@ func (m model) mainView() string {
 		header += "  " + styleDim.Render("[mode:"+m.cfg.Modes.Default+"]")
 		b.WriteString("  " + header + "\n\n")
 
+		// Merge/cherry-pick banner.
+		if m.status.MergeState != "" {
+			banner := "  " + m.status.MergeState + " in progress"
+			if len(m.status.Conflicts) > 0 {
+				banner += fmt.Sprintf(" - resolve %d conflict(s) below, then [c] to complete", len(m.status.Conflicts))
+			} else {
+				banner += " - all conflicts resolved, press [c] to commit"
+			}
+			b.WriteString("  " + styleChanged.Render(banner) + "\n\n")
+		}
+
+		m.renderConflictSection(&b)
 		m.renderSection(&b, "Staged", m.status.Staged, catStaged, styleStaged)
 		m.renderSection(&b, "Changed", m.status.Changed, catChanged, styleChanged)
 		m.renderSection(&b, "Untracked", m.status.Untracked, catUntracked, styleUntracked)
@@ -1101,6 +1234,24 @@ func (m model) mainView() string {
 		content += strings.Repeat("\n", pad)
 	}
 	return content + m.commandBar()
+}
+
+func (m model) renderConflictSection(b *strings.Builder) {
+	if len(m.status.Conflicts) == 0 {
+		return
+	}
+	offset := 0 // conflicts are always first in m.files
+
+	b.WriteString("  " + styleChanged.Render(fmt.Sprintf("Conflicts (%d)", len(m.status.Conflicts))) + "\n")
+	for i, f := range m.status.Conflicts {
+		cursor := "  "
+		if m.cursor == offset+i {
+			cursor = styleSelected.Render("> ")
+		}
+		desc := git.ConflictDesc(f.Code)
+		b.WriteString(cursor + "  " + styleChanged.Render("!  "+f.Path) + "  " + styleDim.Render(desc) + "\n")
+	}
+	b.WriteString("\n")
 }
 
 func (m model) renderSection(b *strings.Builder, title string, entries []git.FileEntry, cat int, style lipgloss.Style) {
@@ -1628,6 +1779,106 @@ func (m model) logView() string {
 	return content + styleDim.Render(hint) + "\n"
 }
 
+func (m model) conflictView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+
+	path := m.conflictPath
+	code := ""
+	if m.status != nil {
+		for _, f := range m.status.Conflicts {
+			if f.Path == path {
+				code = f.Code
+				break
+			}
+		}
+	}
+
+	desc := git.ConflictDesc(code)
+	b.WriteString("  " + styleSection.Render("Conflict") + "  " + styleChanged.Render(path) + "  " + styleDim.Render(desc) + "\n\n")
+
+	if code == "DD" {
+		b.WriteString("  " + styleDim.Render("both sides deleted this file") + "\n")
+		b.WriteString("  " + styleDim.Render("press [r] to accept the deletion and remove it from the index") + "\n")
+	} else if m.conflictLines == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+	} else if len(m.conflictLines) == 0 {
+		b.WriteString("  " + styleDim.Render("(empty file)") + "\n")
+	} else {
+		// Precompute the kind for each line:
+		// 0=context, 1=ours marker, 2=ours content, 3=separator, 4=theirs content, 5=theirs marker
+		kind := make([]int, len(m.conflictLines))
+		state := 0 // 0=context, 2=in-ours, 4=in-theirs
+		for i, line := range m.conflictLines {
+			switch {
+			case strings.HasPrefix(line, "<<<<<<<"):
+				kind[i] = 1
+				state = 2
+			case line == "=======" && state == 2:
+				kind[i] = 3
+				state = 4
+			case strings.HasPrefix(line, ">>>>>>>") && state == 4:
+				kind[i] = 5
+				state = 0
+			case state == 2:
+				kind[i] = 2
+			case state == 4:
+				kind[i] = 4
+			default:
+				kind[i] = 0
+			}
+		}
+
+		visibleLines := m.height - 7
+		if visibleLines < 1 {
+			visibleLines = 1
+		}
+		start := m.conflictScroll
+		end := start + visibleLines
+		if end > len(m.conflictLines) {
+			end = len(m.conflictLines)
+		}
+		for i := start; i < end; i++ {
+			line := m.conflictLines[i]
+			var rendered string
+			switch kind[i] {
+			case 1:
+				rendered = "  " + styleStaged.Render("<<<<<<< YOUR CHANGES")
+			case 2:
+				rendered = "  " + styleStaged.Render(line)
+			case 3:
+				rendered = "  " + styleDim.Render("======= (above: yours / below: incoming)")
+			case 4:
+				rendered = "  " + styleChanged.Render(line)
+			case 5:
+				rendered = "  " + styleChanged.Render(">>>>>>> INCOMING CHANGES")
+			default:
+				rendered = "  " + styleDim.Render(line)
+			}
+			b.WriteString(rendered + "\n")
+		}
+	}
+
+	b.WriteString("\n")
+	content := b.String()
+	lineCount := strings.Count(content, "\n")
+	if pad := m.height - lineCount - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+
+	var bar string
+	if code == "DD" {
+		bar = "  [r] remove file  [esc] back"
+	} else {
+		bar = "  [o] keep ours (green)  [t] keep theirs (red)  [↑↓] scroll  [esc] back"
+		if len(m.conflictLines) > 0 {
+			total := len(m.conflictLines)
+			bar += fmt.Sprintf("  (%d/%d)", m.conflictScroll+1, total)
+		}
+	}
+	return content + styleDim.Render(bar) + "\n"
+}
+
 func contextTip(m model) string {
 	if m.status == nil {
 		return ""
@@ -1694,6 +1945,10 @@ func fileCode(f git.FileEntry, cat int) string {
 
 func buildFileList(s *git.Status) []fileItem {
 	var items []fileItem
+	// Conflicts come first - they block commit and must be resolved.
+	for _, f := range s.Conflicts {
+		items = append(items, fileItem{entry: f, category: catConflict})
+	}
 	for _, f := range s.Staged {
 		items = append(items, fileItem{entry: f, category: catStaged})
 	}
