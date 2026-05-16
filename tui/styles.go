@@ -20,6 +20,10 @@ var (
 	styleUntracked = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("3"))
 
+	styleSelected = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("5"))
+
 	styleDim = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("8"))
 )
