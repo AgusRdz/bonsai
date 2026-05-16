@@ -41,6 +41,12 @@ type Branch struct {
 	Current bool
 }
 
+// StashEntry is one entry from `git stash list`.
+type StashEntry struct {
+	Ref         string // e.g. stash@{0}
+	Description string // e.g. "On main: WIP on login flow"
+}
+
 // Runner wraps the git binary. All commands run in the current working directory.
 // LastCmd is updated after every operation so the education panel can show the
 // exact command that was executed.
@@ -184,6 +190,46 @@ func (r *Runner) Diff(ctx context.Context, path string, staged bool) (string, er
 func (r *Runner) Rename(ctx context.Context, newName string) error {
 	_, err := r.run(ctx, "branch", "-m", newName)
 	return err
+}
+
+// Stash saves the current working tree changes to the stash.
+func (r *Runner) Stash(ctx context.Context) error {
+	_, err := r.run(ctx, "stash", "push")
+	return err
+}
+
+// StashPop applies the given stash ref and removes it from the stash list.
+func (r *Runner) StashPop(ctx context.Context, ref string) error {
+	_, err := r.run(ctx, "stash", "pop", ref)
+	return err
+}
+
+// StashList returns all stash entries in order.
+func (r *Runner) StashList(ctx context.Context) ([]StashEntry, error) {
+	out, err := r.run(ctx, "stash", "list")
+	if err != nil {
+		return nil, err
+	}
+	return parseStashList(string(out)), nil
+}
+
+func parseStashList(output string) []StashEntry {
+	var entries []StashEntry
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		idx := strings.Index(line, ": ")
+		if idx < 0 {
+			continue
+		}
+		entries = append(entries, StashEntry{
+			Ref:         line[:idx],
+			Description: line[idx+2:],
+		})
+	}
+	return entries
 }
 
 // parseStatus converts `git status --porcelain` output into a Status.

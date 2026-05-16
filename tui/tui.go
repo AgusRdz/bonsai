@@ -29,6 +29,7 @@ const (
 	panelLog
 	panelBranchList
 	panelDiff
+	panelStashList
 )
 
 type branchMode int
@@ -68,6 +69,8 @@ type model struct {
 	diffLines      []string
 	diffScroll     int
 	diffTitle      string
+	stashes        []git.StashEntry
+	stashCursor    int
 	edu            *educationPanel
 	eduTimer       int
 	width          int
@@ -95,6 +98,7 @@ type diffMsg struct {
 	title string
 	lines []string
 }
+type stashListMsg []git.StashEntry
 
 // --- commands ---
 
@@ -223,6 +227,36 @@ func (m model) doFetchDiff(path string, staged bool) tea.Cmd {
 	}
 }
 
+func (m model) doStash() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.Stash(ctx)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doStashPop(ref string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.StashPop(ctx, ref)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doFetchStashList() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		entries, err := m.git.StashList(ctx)
+		if err != nil {
+			return stashListMsg([]git.StashEntry{})
+		}
+		return stashListMsg(entries)
+	}
+}
+
 // --- init ---
 
 func (m model) Init() tea.Cmd {
@@ -288,6 +322,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.diffLines = msg.lines
 		m.diffTitle = msg.title
 
+	case stashListMsg:
+		m.stashes = []git.StashEntry(msg)
+		m.stashCursor = 0
+		m.panel = panelStashList
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -334,6 +373,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelDiff {
 			return m.updateDiffPanel(msg)
+		}
+		if m.panel == panelStashList {
+			return m.updateStashListPanel(msg)
 		}
 		return m.updateMainPanel(msg)
 	}
@@ -444,6 +486,20 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.diffScroll = 0
 		m.panel = panelDiff
 		return m, m.doFetchDiff(f.entry.Path, f.category == catStaged)
+
+	case "s":
+		if len(m.files) == 0 {
+			m.actionErr = fmt.Errorf("nothing to stash - working tree is clean")
+			break
+		}
+		m.actionErr = nil
+		return m, m.doStash()
+
+	case "S":
+		m.stashes = nil
+		m.stashCursor = 0
+		m.panel = panelStashList
+		return m, m.doFetchStashList()
 	}
 
 	return m, nil
@@ -615,6 +671,31 @@ func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateStashListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.stashCursor > 0 {
+			m.stashCursor--
+		}
+	case "down", "j":
+		if m.stashCursor < len(m.stashes)-1 {
+			m.stashCursor++
+		}
+	case "enter":
+		if len(m.stashes) == 0 {
+			break
+		}
+		ref := m.stashes[m.stashCursor].Ref
+		m.panel = panelMain
+		return m, m.doStashPop(ref)
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 // --- view ---
 
 func (m model) View() string {
@@ -645,6 +726,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelDiff {
 		return m.diffView()
+	}
+	if m.panel == panelStashList {
+		return m.stashListView()
 	}
 	return m.mainView()
 }
@@ -893,6 +977,41 @@ func (m model) branchListView() string {
 	return content + styleDim.Render("  [enter] switch  [esc] cancel") + "\n"
 }
 
+func (m model) stashListView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+
+	title := "Stashes"
+	if len(m.stashes) > 0 {
+		title = fmt.Sprintf("Stashes (%d)", len(m.stashes))
+	}
+	b.WriteString("  " + styleSection.Render(title) + "\n\n")
+
+	if m.stashes == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+	} else if len(m.stashes) == 0 {
+		b.WriteString("  " + styleDim.Render("no stashes") + "\n")
+	} else {
+		for i, st := range m.stashes {
+			cursor := "  "
+			if m.stashCursor == i {
+				cursor = styleSelected.Render("> ")
+			}
+			ref := styleCmd.Render(st.Ref)
+			desc := styleDim.Render(st.Description)
+			b.WriteString(cursor + "  " + ref + "  " + desc + "\n")
+		}
+	}
+	b.WriteString("\n")
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [enter] pop  [esc] cancel") + "\n"
+}
+
 func (m model) diffView() string {
 	var b strings.Builder
 	b.WriteString("\n")
@@ -983,6 +1102,8 @@ func (m model) commandBar() string {
 		"[P] pull",
 		"[b] branch",
 		"[B] switch",
+		"[s] stash",
+		"[S] stashes",
 		"[d] diff",
 		"[l] log",
 		"[space] stage/unstage",

@@ -52,6 +52,10 @@ func actionTitle(cmd string, err error) string {
 		return "Branch switched"
 	case strings.HasPrefix(cmd, "git branch -m"):
 		return "Branch renamed"
+	case strings.HasPrefix(cmd, "git stash pop"):
+		return "Stash applied"
+	case strings.HasPrefix(cmd, "git stash"):
+		return "Changes stashed"
 	default:
 		return "Done"
 	}
@@ -86,6 +90,12 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git branch -m"):
 		return "The current branch was renamed locally. If this branch was already pushed to the remote, " +
 			"push the new name (git push -u origin <new-name>) and delete the old remote branch."
+	case strings.HasPrefix(cmd, "git stash pop"):
+		return "The stash was applied to your working tree and removed from the stash list. " +
+			"If there are conflicts you will need to resolve them manually before committing."
+	case strings.HasPrefix(cmd, "git stash"):
+		return "Your uncommitted changes were saved to the stash and the working tree was cleaned. " +
+			"The stash is a temporary shelf - use [S] to view stashes and pop them when you are ready to continue."
 	default:
 		return ""
 	}
