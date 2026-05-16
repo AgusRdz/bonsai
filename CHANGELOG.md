@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.19.1] - 2026-05-16
+
+### Bug Fixes
+- Restore keybinding defaults when config has empty strings
+([bd30a02](https://github.com/AgusRdz/bonsai/commit/bd30a029d8fe0a7ad264cdce0f02148958282a81))
 ## [0.19.0] - 2026-05-16
 
 ### Features
