@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.31.1] - 2026-05-16
+
+### Bug Fixes
+- Limit pro mode education override to complex commands only
+([e9b9c51](https://github.com/AgusRdz/bonsai/commit/e9b9c51c4a2e1b4d5712639e9e50f92cc653b31c))
 ## [0.31.0] - 2026-05-16
 
 ### Features
