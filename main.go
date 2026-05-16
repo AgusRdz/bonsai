@@ -88,17 +88,18 @@ func runTUI() {
 }
 
 func runSetup(args []string) {
-	sub := "global"
-	if len(args) > 0 {
-		sub = args[0]
+	local := false
+	for _, a := range args {
+		if a == "--local" {
+			local = true
+		}
 	}
-	switch sub {
-	case "local":
+	if local {
 		if err := setup.RunLocal(); err != nil {
 			fmt.Fprintln(os.Stderr, "bonsai: setup:", err)
 			os.Exit(1)
 		}
-	default:
+	} else {
 		if err := setup.RunGlobal(); err != nil {
 			fmt.Fprintln(os.Stderr, "bonsai: setup:", err)
 			os.Exit(1)
@@ -120,12 +121,11 @@ Commands:
   uninstall         remove bonsai from this system
   changelog         show the changelog
   setup             interactive setup wizard (global config)
-  setup local       interactive setup wizard (per-project .bonsai.toml)
+  setup --local     interactive setup wizard (per-project .bonsai.toml)
   init              create a .bonsai.toml template without a wizard
   config            open global config in your editor
-  config local      open (or create) per-project .bonsai.toml in your editor
-  config global     open global config in your editor (same as 'config')
-  config path       print the path to the global config file
+  config --local    open (or create) per-project .bonsai.toml in your editor
+  config --path     print the path to the global config file
   doctor            check global and local git configuration health
   doctor --verbose  same, with a one-line explanation per check
 
@@ -136,16 +136,18 @@ Options:
 }
 
 func runConfig(args []string) {
-	sub := "global"
-	if len(args) > 0 {
-		sub = args[0]
+	local := false
+	path := false
+	for _, a := range args {
+		switch a {
+		case "--local":
+			local = true
+		case "--path":
+			path = true
+		}
 	}
 
-	cfg, _ := config.Load()
-	editor := config.ResolveEditor(cfg)
-
-	switch sub {
-	case "path":
+	if path {
 		p, err := config.GlobalConfigPath()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "bonsai: config:", err)
@@ -153,9 +155,14 @@ func runConfig(args []string) {
 		}
 		fmt.Println(p)
 		return
-	case "local":
+	}
+
+	cfg, _ := config.Load()
+	editor := config.ResolveEditor(cfg)
+
+	if local {
 		openInEditor(editor, ".bonsai.toml")
-	default:
+	} else {
 		p, err := config.GlobalConfigPath()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "bonsai: config:", err)
@@ -187,7 +194,7 @@ func runInit() {
 	}
 	fmt.Printf("created %s\n", local)
 	fmt.Println("edit it to customise conventions, mode, and flow for this project")
-	fmt.Println("run 'bonsai config local' to open it in your editor")
+	fmt.Println("run 'bonsai config --local' to open it in your editor")
 }
 
 func runDoctor(args []string) {

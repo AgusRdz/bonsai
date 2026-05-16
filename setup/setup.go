@@ -28,7 +28,7 @@ func RunGlobal() error {
 	}
 	fmt.Println()
 	fmt.Printf("config written to %s\n", p)
-	fmt.Println("run 'bonsai setup local' inside a repo to add per-project overrides")
+	fmt.Println("run 'bonsai setup --local' inside a repo to add per-project overrides")
 	return nil
 }
 
