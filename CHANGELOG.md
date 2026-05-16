@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.35.1] - 2026-05-16
+
+### Bug Fixes
+- Test failures, education gaps, and doc refresh
+([b8eda30](https://github.com/AgusRdz/bonsai/commit/b8eda307653864e35ec41e2e96e0b66f61d4daae))
 ## [0.35.0] - 2026-05-16
 
 ### Features
