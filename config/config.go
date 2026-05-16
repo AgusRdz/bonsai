@@ -133,11 +133,49 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("config: .bonsai.toml: %w", err)
 	}
 
+	// Keybindings written by older setup runs may be empty strings; fill in
+	// defaults for any that are missing so the TUI always has valid bindings.
+	applyKeybindingDefaults(&cfg)
+
 	if err := validate(&cfg); err != nil {
 		return nil, err
 	}
 
 	return &cfg, nil
+}
+
+// DefaultKeybindings returns the default keybinding set.
+func DefaultKeybindings() KeybindingsConfig {
+	return defaults().Keybindings
+}
+
+func applyKeybindingDefaults(cfg *Config) {
+	d := defaults().Keybindings
+	kb := &cfg.Keybindings
+	if kb.Graph == "" {
+		kb.Graph = d.Graph
+	}
+	if kb.Commit == "" {
+		kb.Commit = d.Commit
+	}
+	if kb.Branch == "" {
+		kb.Branch = d.Branch
+	}
+	if kb.Push == "" {
+		kb.Push = d.Push
+	}
+	if kb.Pull == "" {
+		kb.Pull = d.Pull
+	}
+	if kb.Stash == "" {
+		kb.Stash = d.Stash
+	}
+	if kb.Undo == "" {
+		kb.Undo = d.Undo
+	}
+	if kb.Quit == "" {
+		kb.Quit = d.Quit
+	}
 }
 
 func validate(cfg *Config) error {

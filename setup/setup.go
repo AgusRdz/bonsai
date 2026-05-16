@@ -204,6 +204,9 @@ func wizard(local bool) (*config.Config, error) {
 		if cfg.Flow.Type == "" {
 			cfg.Flow.Type = "trunk"
 		}
+		// Wizard doesn't ask about keybindings; always write the defaults so
+		// the config file doesn't end up with empty strings that break the TUI.
+		cfg.Keybindings = config.DefaultKeybindings()
 	}
 
 	return cfg, nil
