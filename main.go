@@ -46,7 +46,7 @@ func main() {
 	case "config":
 		runConfig(os.Args[2:])
 	case "doctor":
-		runDoctor()
+		runDoctor(os.Args[2:])
 	case "init":
 		runInit()
 	case "setup":
@@ -127,6 +127,7 @@ Commands:
   config global     open global config in your editor (same as 'config')
   config path       print the path to the global config file
   doctor            check global and local git configuration health
+  doctor --verbose  same, with a one-line explanation per check
 
 Options:
   -h, --help     show help
@@ -189,13 +190,19 @@ func runInit() {
 	fmt.Println("run 'bonsai config local' to open it in your editor")
 }
 
-func runDoctor() {
+func runDoctor(args []string) {
+	verbose := false
+	for _, a := range args {
+		if a == "--verbose" || a == "-v" {
+			verbose = true
+		}
+	}
 	report, err := doctor.Run()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "bonsai: doctor: %v\n", err)
 		os.Exit(1)
 	}
-	printReport(report)
+	printReport(report, verbose)
 }
 
 // isTTY reports whether stdout is an interactive terminal.
@@ -207,7 +214,7 @@ func isTTY() bool {
 	return (stat.Mode() & os.ModeCharDevice) != 0
 }
 
-func printReport(report *doctor.Report) {
+func printReport(report *doctor.Report, verbose bool) {
 	color := isTTY()
 
 	green := func(s string) string {
@@ -225,6 +232,12 @@ func printReport(report *doctor.Report) {
 	red := func(s string) string {
 		if color {
 			return "\033[31m" + s + "\033[0m"
+		}
+		return s
+	}
+	dim := func(s string) string {
+		if color {
+			return "\033[2m" + s + "\033[0m"
 		}
 		return s
 	}
@@ -248,6 +261,9 @@ func printReport(report *doctor.Report) {
 				label += " "
 			}
 			fmt.Printf("  %s  %s  %s\n", icon(c.Level), label, c.Message)
+			if verbose && c.Explain != "" {
+				fmt.Printf("     %s\n", dim(c.Explain))
+			}
 			if c.Fix != "" && c.Level != doctor.OK {
 				fmt.Printf("     fix: %s\n", c.Fix)
 			}
