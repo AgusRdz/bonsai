@@ -12,6 +12,7 @@ import (
 	"github.com/AgusRdz/bonsai/conventions"
 	"github.com/AgusRdz/bonsai/git"
 	"github.com/AgusRdz/bonsai/metrics"
+	"github.com/AgusRdz/bonsai/plugins"
 	"github.com/AgusRdz/bonsai/pr"
 	"github.com/AgusRdz/bonsai/usage"
 	"github.com/atotto/clipboard"
@@ -2074,6 +2075,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					_ = m.mdb.RecordCommit(repo, branch, m.cfg.Modes.Default)
 				}
+			}
+		}
+
+		// Fire plugin events asynchronously (never block the TUI on plugins).
+		if msg.err == nil {
+			branch := ""
+			if m.status != nil {
+				branch = m.status.Branch
+			}
+			switch commandKey(msg.cmd) {
+			case "commit", "amend":
+				plugins.Fire(plugins.Request{Event: plugins.EventCommitCreated, Branch: branch})
+			case "push":
+				plugins.Fire(plugins.Request{Event: plugins.EventPushAfter, Branch: branch})
+			case "branch":
+				plugins.Fire(plugins.Request{Event: plugins.EventBranchCreated, Branch: branch})
 			}
 		}
 

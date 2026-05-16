@@ -14,6 +14,7 @@ import (
 	"github.com/AgusRdz/bonsai/git"
 	"github.com/AgusRdz/bonsai/gitcheck"
 	"github.com/AgusRdz/bonsai/metrics"
+	"github.com/AgusRdz/bonsai/plugins"
 	"github.com/AgusRdz/bonsai/pr"
 	"github.com/AgusRdz/bonsai/setup"
 	"github.com/AgusRdz/bonsai/tui"
@@ -28,6 +29,7 @@ var version = "dev"
 
 func main() {
 	pr.RegisterBuiltins()
+	plugins.Discover()
 	updater.CleanupStaleUpdate()
 	gitcheck.EnsureInstalled()
 
