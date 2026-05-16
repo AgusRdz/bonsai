@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.35.6] - 2026-05-16
+
+### Refactoring
+- Extract parseDiffOutput, add commandKey/build*/format tests
+([f40ac6c](https://github.com/AgusRdz/bonsai/commit/f40ac6c574ab552ecff61858f5f2713c87d36bb4))
 ## [0.35.5] - 2026-05-16
 
 ### Refactoring
