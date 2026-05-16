@@ -1325,8 +1325,13 @@ func (r *Runner) Reflog(ctx context.Context) ([]ReflogEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseReflogOutput(string(out)), nil
+}
+
+// parseReflogOutput converts the \x1e-delimited reflog output into entries.
+func parseReflogOutput(output string) []ReflogEntry {
 	var entries []ReflogEntry
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		if line == "" {
 			continue
 		}
@@ -1335,10 +1340,11 @@ func (r *Runner) Reflog(ctx context.Context) ([]ReflogEntry, error) {
 			continue
 		}
 		action := parts[2]
-		// Extract the first word as the action type (commit, checkout, reset, etc.)
-		actionType := strings.Fields(action)[0]
-		// Clean trailing colon from action type if present.
-		actionType = strings.TrimSuffix(actionType, ":")
+		fields := strings.Fields(action)
+		if len(fields) == 0 {
+			continue
+		}
+		actionType := strings.TrimSuffix(fields[0], ":")
 		entries = append(entries, ReflogEntry{
 			Hash:    parts[0],
 			Ref:     parts[1],
@@ -1346,7 +1352,7 @@ func (r *Runner) Reflog(ctx context.Context) ([]ReflogEntry, error) {
 			Subject: action,
 		})
 	}
-	return entries, nil
+	return entries
 }
 
 // ---------------------------------------------------------------------------
@@ -1366,9 +1372,15 @@ func (r *Runner) Remotes(ctx context.Context) ([]RemoteEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseRemoteList(string(out)), nil
+}
+
+// parseRemoteList converts `git remote -v` output into RemoteEntry values.
+// Each remote appears twice (fetch and push); the function deduplicates them.
+func parseRemoteList(output string) []RemoteEntry {
 	seen := map[string]*RemoteEntry{}
 	var order []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		if line == "" {
 			continue
 		}
@@ -1397,7 +1409,7 @@ func (r *Runner) Remotes(ctx context.Context) ([]RemoteEntry, error) {
 	for _, name := range order {
 		result = append(result, *seen[name])
 	}
-	return result, nil
+	return result
 }
 
 // RemoteAdd adds a new remote.

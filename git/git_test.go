@@ -257,6 +257,101 @@ func TestParseConfigListEmpty(t *testing.T) {
 	}
 }
 
+func TestParseReflogOutput(t *testing.T) {
+	output := "abc1234\x1eHEAD@{0}\x1ecommit: add login\nabc5678\x1eHEAD@{1}\x1echeckout: moving from main to feat/x\nabc9012\x1eHEAD@{2}\x1ereset: moving to HEAD~1\n"
+	entries := parseReflogOutput(output)
+
+	if len(entries) != 3 {
+		t.Fatalf("entry count = %d, want 3", len(entries))
+	}
+	cases := []struct {
+		hash    string
+		ref     string
+		action  string
+		subject string
+	}{
+		{"abc1234", "HEAD@{0}", "commit", "commit: add login"},
+		{"abc5678", "HEAD@{1}", "checkout", "checkout: moving from main to feat/x"},
+		{"abc9012", "HEAD@{2}", "reset", "reset: moving to HEAD~1"},
+	}
+	for i, c := range cases {
+		if entries[i].Hash != c.hash {
+			t.Errorf("entries[%d].Hash = %q, want %q", i, entries[i].Hash, c.hash)
+		}
+		if entries[i].Ref != c.ref {
+			t.Errorf("entries[%d].Ref = %q, want %q", i, entries[i].Ref, c.ref)
+		}
+		if entries[i].Action != c.action {
+			t.Errorf("entries[%d].Action = %q, want %q", i, entries[i].Action, c.action)
+		}
+		if entries[i].Subject != c.subject {
+			t.Errorf("entries[%d].Subject = %q, want %q", i, entries[i].Subject, c.subject)
+		}
+	}
+}
+
+func TestParseReflogOutputEmpty(t *testing.T) {
+	if entries := parseReflogOutput(""); len(entries) != 0 {
+		t.Errorf("expected empty, got %v", entries)
+	}
+}
+
+func TestParseReflogOutputSkipsMalformed(t *testing.T) {
+	output := "nocolons\nabc1234\x1eHEAD@{0}\x1ecommit: ok\n"
+	entries := parseReflogOutput(output)
+	if len(entries) != 1 {
+		t.Errorf("entry count = %d, want 1", len(entries))
+	}
+}
+
+func TestParseRemoteList(t *testing.T) {
+	output := "origin\tgit@github.com:org/repo.git (fetch)\norigin\tgit@github.com:org/repo.git (push)\nupstream\thttps://github.com/upstream/repo.git (fetch)\nupstream\thttps://github.com/upstream/repo.git (push)\n"
+	entries := parseRemoteList(output)
+
+	if len(entries) != 2 {
+		t.Fatalf("entry count = %d, want 2", len(entries))
+	}
+	cases := []struct {
+		name     string
+		fetchURL string
+		pushURL  string
+	}{
+		{"origin", "git@github.com:org/repo.git", "git@github.com:org/repo.git"},
+		{"upstream", "https://github.com/upstream/repo.git", "https://github.com/upstream/repo.git"},
+	}
+	for i, c := range cases {
+		if entries[i].Name != c.name {
+			t.Errorf("entries[%d].Name = %q, want %q", i, entries[i].Name, c.name)
+		}
+		if entries[i].FetchURL != c.fetchURL {
+			t.Errorf("entries[%d].FetchURL = %q, want %q", i, entries[i].FetchURL, c.fetchURL)
+		}
+		if entries[i].PushURL != c.pushURL {
+			t.Errorf("entries[%d].PushURL = %q, want %q", i, entries[i].PushURL, c.pushURL)
+		}
+	}
+}
+
+func TestParseRemoteListDifferentFetchPush(t *testing.T) {
+	output := "origin\tgit@github.com:org/repo.git (fetch)\norigin\thttps://github.com/org/repo.git (push)\n"
+	entries := parseRemoteList(output)
+	if len(entries) != 1 {
+		t.Fatalf("entry count = %d, want 1", len(entries))
+	}
+	if entries[0].FetchURL != "git@github.com:org/repo.git" {
+		t.Errorf("FetchURL = %q", entries[0].FetchURL)
+	}
+	if entries[0].PushURL != "https://github.com/org/repo.git" {
+		t.Errorf("PushURL = %q", entries[0].PushURL)
+	}
+}
+
+func TestParseRemoteListEmpty(t *testing.T) {
+	if entries := parseRemoteList(""); len(entries) != 0 {
+		t.Errorf("expected empty, got %v", entries)
+	}
+}
+
 func TestExtractCommitHash(t *testing.T) {
 	cases := []struct {
 		line string
