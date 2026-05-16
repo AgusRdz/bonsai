@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.43.0] - 2026-05-16
+
+### Features
+- Search filter in all list panels, sig verification badge, binary diff highlight
+([f230896](https://github.com/AgusRdz/bonsai/commit/f230896082f6a55eff0f907c1930f0454f2bf4c1))
 ## [0.42.2] - 2026-05-16
 
 ### Bug Fixes
