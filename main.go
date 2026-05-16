@@ -696,25 +696,22 @@ func runSSHStatus() {
 	}
 	fmt.Println()
 
-	// Connectivity
-	fmt.Print("  github.com     ")
-	cmd := exec.Command("ssh",
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "BatchMode=yes",
-		"-o", "ConnectTimeout=5",
-		"-T", "git@github.com",
-	)
-	out, _ := cmd.CombinedOutput()
-	combined := strings.ToLower(string(out))
-	if strings.Contains(combined, "successfully authenticated") || strings.Contains(combined, "hi ") {
-		msg := strings.TrimSpace(string(out))
-		if idx := strings.Index(msg, "\n"); idx != -1 {
-			msg = msg[:idx]
+	// Connectivity - test all SSH hosts found in the repo's remotes,
+	// falling back to github.com when not in a repo or no SSH remotes.
+	hosts := doctor.DetectSSHHosts()
+	if len(hosts) == 0 {
+		hosts = []string{"github.com"}
+	}
+	for _, host := range hosts {
+		label := fmt.Sprintf("  %-16s", host)
+		fmt.Print(label)
+		ok, msg := doctor.TestSSHHost(host)
+		if ok {
+			fmt.Println(green(msg))
+		} else {
+			fmt.Println(yellow(msg))
+			fmt.Println("  add your key at: " + doctor.SSHKeyURL(host))
 		}
-		fmt.Println(green(msg))
-	} else {
-		fmt.Println(yellow("authentication failed or connection timed out"))
-		fmt.Println("  add your public key at: https://github.com/settings/keys")
 	}
 }
 
@@ -765,17 +762,21 @@ func runSSHKeygen() {
 	fmt.Println()
 	fmt.Printf("key generated: %s\n", keyPath)
 	fmt.Println()
-	fmt.Println("your public key (add this to GitHub/GitLab):")
+	fmt.Println("your public key (copy and paste it into your forge's SSH key settings):")
 	fmt.Println()
 	pubKey, err := os.ReadFile(keyPath + ".pub")
 	if err == nil {
 		fmt.Println(strings.TrimSpace(string(pubKey)))
 	}
 	fmt.Println()
-	fmt.Println("  GitHub: https://github.com/settings/keys")
-	fmt.Println("  GitLab: https://gitlab.com/-/profile/keys")
+	fmt.Println("where to add it:")
+	fmt.Println("  GitHub    https://github.com/settings/keys")
+	fmt.Println("  GitLab    https://gitlab.com/-/profile/keys")
+	fmt.Println("  Bitbucket https://bitbucket.org/account/settings/ssh-keys/")
+	fmt.Println("  Azure     https://dev.azure.com/<org>/_usersSettings/keys")
+	fmt.Println("  Gitea/Forgejo/self-hosted: Settings -> SSH Keys in your profile")
 	fmt.Println()
-	fmt.Println("then add your key to the agent: ssh-add " + keyPath)
+	fmt.Println("then load it into the agent: ssh-add " + keyPath)
 }
 
 func runSSHShow() {

@@ -694,36 +694,124 @@ func checkSSHAgent() Check {
 	return Check{Level: OK, Label: "ssh-agent", Message: fmt.Sprintf("%d key(s) loaded", len(lines)), Explain: explainSSHAgent}
 }
 
-const explainSSHConnectivity = "Verifies that git@github.com is reachable via SSH. A failure here usually means a firewall blocks port 22, the key is not added to GitHub, or the agent has no loaded keys."
+// ParseSSHHost extracts the hostname from a git remote URL when it uses the
+// SSH protocol. Returns "" for HTTPS or local paths.
+//
+// Handles both common formats:
+//
+//	git@github.com:user/repo.git        -> github.com
+//	ssh://git@github.com/user/repo.git  -> github.com
+func ParseSSHHost(rawURL string) string {
+	if strings.HasPrefix(rawURL, "ssh://") {
+		rest := strings.TrimPrefix(rawURL, "ssh://")
+		if at := strings.Index(rest, "@"); at != -1 {
+			rest = rest[at+1:]
+		}
+		if slash := strings.Index(rest, "/"); slash != -1 {
+			rest = rest[:slash]
+		}
+		if colon := strings.Index(rest, ":"); colon != -1 {
+			rest = rest[:colon]
+		}
+		return rest
+	}
+	// SCP-like: user@host:path  (must not contain "/" before the colon)
+	if at := strings.Index(rawURL, "@"); at != -1 {
+		rest := rawURL[at+1:]
+		if colon := strings.Index(rest, ":"); colon != -1 {
+			host := rest[:colon]
+			if !strings.Contains(host, "/") {
+				return host
+			}
+		}
+	}
+	return ""
+}
 
-func checkSSHConnectivity() Check {
-	// ssh exits 1 on success (GitHub closes the session), but stdout/stderr
-	// contains "successfully authenticated" or "Hi <user>!".
+// DetectSSHHosts returns the unique SSH hostnames found in the current repo's
+// remotes. Returns nil when not in a git repo or when no remote uses SSH.
+func DetectSSHHosts() []string {
+	out, err := exec.Command("git", "remote", "-v").Output()
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var hosts []string
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if h := ParseSSHHost(fields[1]); h != "" && !seen[h] {
+			seen[h] = true
+			hosts = append(hosts, h)
+		}
+	}
+	return hosts
+}
+
+// TestSSHHost attempts SSH authentication against host and reports whether it
+// succeeded. msg is the first line of output from the server.
+func TestSSHHost(host string) (ok bool, msg string) {
 	cmd := exec.Command("ssh",
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=5",
-		"-T", "git@github.com",
+		"-T", "git@"+host,
 	)
 	out, _ := cmd.CombinedOutput()
-	combined := strings.ToLower(string(out))
-	if strings.Contains(combined, "successfully authenticated") || strings.Contains(combined, "hi ") {
-		// Extract the greeting if present.
-		msg := strings.TrimSpace(string(out))
-		if idx := strings.Index(msg, "\n"); idx != -1 {
-			msg = msg[:idx]
-		}
-		return Check{Level: OK, Label: "ssh github.com", Message: msg, Explain: explainSSHConnectivity}
+	raw := strings.TrimSpace(string(out))
+	first := raw
+	if idx := strings.Index(raw, "\n"); idx != -1 {
+		first = raw[:idx]
 	}
-	msg := strings.TrimSpace(string(out))
-	if msg == "" {
-		msg = "connection failed or timed out"
+	lower := strings.ToLower(raw)
+	ok = strings.Contains(lower, "successfully authenticated") || // GitHub, Gitea, Forgejo
+		strings.Contains(lower, "hi ") || // GitHub
+		strings.Contains(lower, "welcome to gitlab") || // GitLab
+		strings.Contains(lower, "logged in as") || // Bitbucket
+		strings.Contains(lower, "authenticated as") // Bitbucket
+	if first == "" {
+		first = "connection failed or timed out"
+	}
+	return ok, first
+}
+
+// SSHKeyURL returns the settings URL for adding SSH keys on known providers.
+// For unknown hosts it returns a generic hint.
+func SSHKeyURL(host string) string {
+	switch host {
+	case "github.com":
+		return "github.com/settings/keys"
+	case "gitlab.com":
+		return "gitlab.com/-/profile/keys"
+	case "bitbucket.org":
+		return "bitbucket.org/account/settings/ssh-keys/"
+	case "ssh.dev.azure.com":
+		return "dev.azure.com/<org>/_usersSettings/keys"
+	default:
+		return host + " (check your forge's SSH key settings)"
+	}
+}
+
+const explainSSHConnectivity = "Verifies the git remote host is reachable via SSH. A failure usually means a firewall blocks port 22, the key is not added to the server, or the agent has no loaded keys."
+
+func checkSSHConnectivity() Check {
+	hosts := DetectSSHHosts()
+	if len(hosts) == 0 {
+		hosts = []string{"github.com"}
+	}
+	host := hosts[0]
+	ok, msg := TestSSHHost(host)
+	label := "ssh " + host
+	if ok {
+		return Check{Level: OK, Label: label, Message: msg, Explain: explainSSHConnectivity}
 	}
 	return Check{
 		Level:   Warn,
-		Label:   "ssh github.com",
+		Label:   label,
 		Message: msg,
-		Fix:     "ensure your SSH public key is added to github.com/settings/keys",
+		Fix:     "ensure your SSH public key is added at " + SSHKeyURL(host),
 		Explain: explainSSHConnectivity,
 	}
 }
