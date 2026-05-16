@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.30.0] - 2026-05-16
+
+### Features
+- Hunk-level staging and push options menu
+([870e711](https://github.com/AgusRdz/bonsai/commit/870e711f7001008c64c81ecd6a21f91b40ebfb69))
 ## [0.29.2] - 2026-05-16
 
 ### Bug Fixes
