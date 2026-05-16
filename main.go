@@ -74,6 +74,8 @@ func main() {
 		runMetrics()
 	case "lfs":
 		runLFS(os.Args[2:])
+	case "standup":
+		runStandup(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai: unknown command %q\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "Run 'bonsai help' for available commands.")
@@ -174,6 +176,10 @@ Commands:
   ssh show          print your SSH public key
   metrics           show locally tracked git habit and error metrics
   lfs               git lfs commands (status, track, untrack, pull, install)
+  standup           show your recent commits (today by default)
+  standup --days N  show commits from the last N days (default: 1)
+  standup -w        shorthand for --days 7 (the whole week)
+  standup -a name   filter by author name (default: you)
 
 Options:
   -h, --help     show help
@@ -953,4 +959,129 @@ func runSSHShow() {
 		os.Exit(1)
 	}
 	fmt.Print(string(pub))
+}
+
+func runStandup(args []string) {
+	days := 1
+	author := ""
+
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "-w" || args[i] == "--week":
+			days = 7
+		case args[i] == "--days" && i+1 < len(args):
+			i++
+			if n, err := fmt.Sscanf(args[i], "%d", &days); n != 1 || err != nil {
+				days = 1
+			}
+		case strings.HasPrefix(args[i], "--days="):
+			if n, err := fmt.Sscanf(strings.TrimPrefix(args[i], "--days="), "%d", &days); n != 1 || err != nil {
+				days = 1
+			}
+		case args[i] == "-a" || args[i] == "--author":
+			if i+1 < len(args) {
+				i++
+				author = args[i]
+			}
+		case strings.HasPrefix(args[i], "--author="):
+			author = strings.TrimPrefix(args[i], "--author=")
+		}
+	}
+
+	g := git.New()
+	ctx := context.Background()
+
+	if author == "" {
+		if name, err := g.ConfigGet(ctx, "user.name"); err == nil && name != "" {
+			author = name
+		}
+	}
+
+	entries, err := g.StandupLog(ctx, author, days)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai standup:", err)
+		os.Exit(1)
+	}
+
+	color := isTTY()
+	bold := func(v string) string {
+		if color {
+			return "\033[1m" + v + "\033[0m"
+		}
+		return v
+	}
+	dim := func(v string) string {
+		if color {
+			return "\033[2m" + v + "\033[0m"
+		}
+		return v
+	}
+	green := func(v string) string {
+		if color {
+			return "\033[32m" + v + "\033[0m"
+		}
+		return v
+	}
+
+	label := "today"
+	if days == 7 {
+		label = "last 7 days"
+	} else if days > 1 {
+		label = fmt.Sprintf("last %d days", days)
+	}
+	who := author
+	if who == "" {
+		who = "all authors"
+	}
+	fmt.Println(bold("bonsai standup") + dim("  "+label+" / "+who))
+	fmt.Println()
+
+	if len(entries) == 0 {
+		fmt.Println(dim("  no commits found"))
+		if days == 1 {
+			fmt.Println(dim("  try: bonsai standup --days 7"))
+		}
+		fmt.Println()
+		return
+	}
+
+	// Group by date so multi-day output is easy to scan.
+	type group struct {
+		date    string
+		entries []git.StandupEntry
+	}
+	var groups []group
+	for _, e := range entries {
+		if len(groups) == 0 || groups[len(groups)-1].date != e.Date {
+			groups = append(groups, group{date: e.Date})
+		}
+		groups[len(groups)-1].entries = append(groups[len(groups)-1].entries, e)
+	}
+
+	for _, g := range groups {
+		if days > 1 {
+			fmt.Println("  " + bold(g.date))
+		}
+		for _, e := range g.entries {
+			fmt.Printf("  %s  %s\n", green(e.Hash), e.Subject)
+		}
+		if days > 1 {
+			fmt.Println()
+		}
+	}
+
+	if days == 1 {
+		fmt.Println()
+	}
+	total := len(entries)
+	suffix := "commit"
+	if total != 1 {
+		suffix = "commits"
+	}
+	repo, _ := os.Getwd()
+	fmt.Printf("  %s  %s\n", bold(fmt.Sprintf("%d %s", total, suffix)), dim(filepath.Base(repo)))
+	if days == 1 {
+		fmt.Println(dim("  run 'bonsai standup --days 7' to see the week"))
+	}
+	fmt.Println()
 }

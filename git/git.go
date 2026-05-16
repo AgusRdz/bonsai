@@ -1802,6 +1802,58 @@ func mostFrequentName(names map[string]int) string {
 	return best
 }
 
+// ConfigGet returns the value of a git config key for the current repo/user.
+func (r *Runner) ConfigGet(ctx context.Context, key string) (string, error) {
+	out, err := r.run(ctx, "config", "--get", key)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// StandupEntry is one commit returned by StandupLog.
+type StandupEntry struct {
+	Hash    string
+	Subject string
+	Date    string // YYYY-MM-DD
+	Author  string
+}
+
+// StandupLog returns commits by author since N days ago, excluding merges.
+// author may be a name substring (case-insensitive); pass "" to skip filter.
+func (r *Runner) StandupLog(ctx context.Context, author string, days int) ([]StandupEntry, error) {
+	since := fmt.Sprintf("%d.days.ago", days)
+	args := []string{
+		"log", "--no-merges",
+		"--pretty=format:%h\x00%s\x00%as\x00%an",
+		"--since=" + since,
+	}
+	if author != "" {
+		args = append(args, "--author="+author, "--regexp-ignore-case")
+	}
+	out, err := r.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	var entries []StandupEntry
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\x00", 4)
+		if len(parts) < 4 {
+			continue
+		}
+		entries = append(entries, StandupEntry{
+			Hash:    parts[0],
+			Subject: parts[1],
+			Date:    parts[2],
+			Author:  parts[3],
+		})
+	}
+	return entries, nil
+}
+
 // LFSStatus returns the output of git lfs status. Returns an error when git-lfs
 // is not installed.
 func (r *Runner) LFSStatus(ctx context.Context) (string, error) {

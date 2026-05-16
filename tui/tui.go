@@ -23,6 +23,7 @@ import (
 
 const gitTimeout = 5 * time.Second
 const pushTimeout = 60 * time.Second
+const autoRefreshInterval = 2 * time.Second
 
 type panel int
 
@@ -475,6 +476,14 @@ type prStatusMsg struct {
 type prListMsg struct {
 	items []pr.PRStatus
 	err   error
+}
+
+type tickMsg time.Time
+
+func autoRefreshCmd() tea.Cmd {
+	return tea.Tick(autoRefreshInterval, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }
 
 // --- commands ---
@@ -1817,7 +1826,7 @@ func (m model) Init() tea.Cmd {
 		repo, _ := os.Getwd()
 		_ = m.mdb.RecordHabit(repo)
 	}
-	return tea.Batch(m.fetchStatus(), textinput.Blink)
+	return tea.Batch(m.fetchStatus(), textinput.Blink, autoRefreshCmd())
 }
 
 // --- update ---
@@ -1828,6 +1837,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+
+	case tickMsg:
+		// Silently refresh status on the main panel so external file edits
+		// appear without the user needing to restart bonsai.
+		if m.panel == panelMain && !m.pushing && !m.pulling {
+			return m, tea.Batch(m.fetchStatus(), autoRefreshCmd())
+		}
+		return m, autoRefreshCmd()
 
 	case statusMsg:
 		prevBranch := ""
