@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.15.0] - 2026-05-16
+
+### Features
+- Polish, discoverability, and config commands
+([db6b024](https://github.com/AgusRdz/bonsai/commit/db6b024677c7ef00ac2fe5564d3eab7bc367f414))
 ## [0.14.0] - 2026-05-16
 
 ### Features
