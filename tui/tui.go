@@ -4282,42 +4282,53 @@ func (m model) helpView() string {
 
 	section("Files")
 	row("↑↓ / k/j", "navigate file list")
-	row("space / enter", "stage or unstage selected file")
+	row("space", "stage / unstage selected file")
+	row("h", "hunk staging - stage individual hunks within a file")
 	row("d", "diff selected file (staged or unstaged)")
-	row("e", "blame selected file (who last changed each line)")
+	row("H", "file history - every commit that touched this file")
+	row("e", "blame - who last changed each line")
 	row("x", "discard working tree changes (with confirmation)")
+	row("o", "restore file to HEAD or a specific ref")
 	b.WriteString("\n")
 
-	section("Git")
+	section("Commit & sync")
 	row(kb.Commit+" / c", "open commit panel")
-	row("A", "amend last commit (message, author, date, or add staged files)")
-	row(kb.Push+" / p", "push to remote")
+	row("A", "amend HEAD (message, author, date, or add staged files)")
+	row(kb.Push+" / p", "push menu (push / force-with-lease / set-upstream)")
 	row("P", "pull from remote")
-	row("s", "stash all changes")
-	row("S", "view stash list and pop")
-	row("R", "interactive rebase (reorder, squash, drop commits)")
+	row("f", "fetch menu (origin / all / prune)")
 	b.WriteString("\n")
 
-	section("Branches")
-	row("b", "create new branch")
-	row("B", "switch to another branch")
-	row("l", "commit log (recent 20)")
+	section("Branches & history")
+	row("b", "create new branch (flow picker in gitflow mode)")
+	row("B", "branch list - switch, merge, rebase, delete, rename, delete remote")
+	row("l", "commit log (search with ctrl+/ or ctrl+r)")
+	row("L", "reflog - full HEAD history with reset-to")
+	row(kb.Graph+" / g", "branch graph (git log --graph --all)")
+	row("R", "interactive rebase (reorder, squash, fixup, drop)")
 	b.WriteString("\n")
 
-	section("Bisect")
-	row("i", "open bisect panel (binary search for bug-introducing commit)")
+	section("Stash & tags")
+	row(kb.Stash+" / s", "stash all changes (opens message input)")
+	row("S", "stash list - pop, apply, drop")
+	row("t", "tag list - create, delete, push to remote")
+	b.WriteString("\n")
+
+	section("Advanced")
+	row("i", "bisect - binary search for a bug-introducing commit")
+	row("z", "reset menu (soft / mixed / hard)")
+	row("W", "worktree list - add, remove linked worktrees")
+	row("O", "remote management - add, remove, rename")
+	row("M", "submodule management - add, update, deinit")
+	row("n", "git notes for HEAD commit")
+	row("X", "clean untracked files (preview + confirm)")
+	row("a", "abort in-progress merge / rebase / cherry-pick")
 	b.WriteString("\n")
 
 	section("App")
+	row("C", "configuration manager (git config, gitignore, profiles, education)")
 	row("?", "this help panel")
 	row(kb.Quit+" / ctrl+c", "quit")
-	b.WriteString("\n")
-
-	section("Config")
-	row("C", "open configuration manager (git config, gitignore, profiles)")
-	b.WriteString("    " + styleDim.Render("bonsai config          open global config in editor") + "\n")
-	b.WriteString("    " + styleDim.Render("bonsai config local    open per-project .bonsai.toml") + "\n")
-	b.WriteString("    " + styleDim.Render("bonsai init            create .bonsai.toml template") + "\n")
 	b.WriteString("\n")
 
 	content := b.String()
@@ -4360,7 +4371,7 @@ func (m model) stashListView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [enter] pop  [esc] cancel") + "\n"
+	return content + styleDim.Render("  [enter] pop  [a] apply  [d] drop  [esc] back") + "\n"
 }
 
 func (m model) diffView() string {
@@ -5914,21 +5925,32 @@ func (m model) commandBar() string {
 	kb := m.cfg.Keybindings
 	parts := []string{
 		"[space] stage/unstage",
+		"[h] hunks",
+		"[d] diff",
+		"[e] blame",
+		"[H] file history",
 		fmt.Sprintf("[%s] commit", kb.Commit),
+		"[A] amend",
 		fmt.Sprintf("[%s] push", kb.Push),
 		"[P] pull",
 		"[f] fetch",
+		fmt.Sprintf("[%s/%s] stash", kb.Stash, strings.ToUpper(kb.Stash)),
 		"[b/B] branch",
 		"[l] log",
+		fmt.Sprintf("[%s] graph", kb.Graph),
 		"[z] reset",
 		"[o] restore",
 		"[L] reflog",
 		"[t] tags",
+		"[i] bisect",
+		"[R] rebase",
 		"[W] worktrees",
 		"[O] remotes",
 		"[M] submodules",
 		"[n] notes",
 		"[X] clean",
+		"[a] abort",
+		"[C] config",
 		"[?] help",
 		fmt.Sprintf("[%s] quit", kb.Quit),
 	}

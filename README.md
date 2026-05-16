@@ -64,6 +64,7 @@ On first run bonsai opens the setup wizard automatically.
 | `bonsai update` | Update to the latest release |
 | `bonsai uninstall` | Remove bonsai from this system |
 | `bonsai changelog` | Show the changelog |
+| `bonsai clone <url> [dir]` | Clone a repo and open bonsai in it |
 | `bonsai setup` | Interactive wizard - global config |
 | `bonsai setup --local` | Interactive wizard - per-project `.bonsai.toml` |
 | `bonsai init` | Create a commented `.bonsai.toml` template (no wizard) |
@@ -78,12 +79,24 @@ On first run bonsai opens the setup wizard automatically.
 | `bonsai archive` | Export the repo as `tar.gz` (default) or `zip` |
 | `bonsai bundle create <file>` | Pack refs into a portable bundle |
 | `bonsai bundle verify <file>` | Verify a bundle file |
+| `bonsai ssh status` | Show SSH key, agent status, and remote connectivity |
+| `bonsai ssh keygen` | Generate a new `ed25519` SSH key |
+| `bonsai ssh show` | Print your SSH public key |
 
 ### Examples
 
 ```sh
+# clone and open immediately
+bonsai clone https://github.com/example/repo.git
+
 # health check before a release
 bonsai doctor --verbose
+
+# check SSH setup
+bonsai ssh status
+
+# generate an SSH key if you do not have one
+bonsai ssh keygen
 
 # repo statistics
 bonsai stats
@@ -105,36 +118,42 @@ bonsai bundle create repo.bundle
 
 Open bonsai and press `?` to see the full in-app reference.
 
+Open bonsai and press `?` for the full in-app reference. Key highlights:
+
 ### Main panel
 
 | Key | Action |
 |-----|--------|
 | `space` | Stage / unstage the selected file |
-| `d` | View diff for the selected file |
-| `x` | Discard working tree changes for the selected file |
-| `o` | Restore a file to HEAD or any ref |
-| `c` | Open commit panel |
-| `p` | Push to remote |
-| `P` | Pull from remote |
-| `f` | Fetch menu (origin, --prune, --all) |
-| `l` | Commit log |
-| `b` | Create / switch branch (flow picker in gitflow mode) |
-| `B` | List all branches |
-| `s` | Stash all changes |
+| `h` | Hunk staging - choose which hunks to stage within a file |
+| `d` | Diff for the selected file |
+| `H` | File history - every commit that touched this file |
+| `e` | Blame - who last changed each line |
+| `x` | Discard working tree changes (confirm required) |
+| `o` | Restore file to HEAD or a specific ref |
+| `c` | Commit panel |
+| `p` | Push menu (push / force-with-lease / set-upstream) |
+| `P` | Pull |
+| `f` | Fetch menu |
+| `s` | Stash with message input |
 | `S` | Stash list - pop, apply, drop |
+| `g` | Branch graph (`git log --graph --all`) |
+| `l` | Commit log |
+| `L` | Reflog |
+| `b` | Create / switch branch (flow picker in gitflow mode) |
+| `B` | Branch list - switch, merge, rebase, delete, rename, delete remote |
 | `z` | Reset menu (soft / mixed / hard) |
-| `t` | Tag list - create, delete |
+| `t` | Tag list - create, delete, push to remote |
 | `e` | Blame for the selected file |
 | `i` | Bisect panel |
 | `R` | Interactive rebase |
-| `A` | Amend HEAD (message, author, date, --no-edit) |
-| `W` | Worktree list - add, remove |
-| `O` | Remote management - list, add, remove, rename |
-| `M` | Submodule management - list, add, update, deinit |
-| `n` | View / edit / delete git note for HEAD |
-| `L` | Reflog - scroll history, reset to entry |
-| `X` | Clean untracked files (preview + confirm) |
-| `C` | Configuration manager |
+| `A` | Amend HEAD |
+| `W` | Worktree list |
+| `O` | Remote management |
+| `M` | Submodule management |
+| `n` | Git notes for HEAD |
+| `X` | Clean untracked files |
+| `C` | Configuration manager (config, gitignore, profiles, education) |
 | `a` | Abort in-progress merge / rebase / cherry-pick |
 | `?` | Help panel |
 | `q` / `ctrl+c` | Quit |
@@ -143,24 +162,36 @@ Open bonsai and press `?` to see the full in-app reference.
 
 | Key | Action |
 |-----|--------|
-| `↑` / `k` | Scroll up |
-| `↓` / `j` | Scroll down |
-| `enter` | Show commit details |
+| `↑` / `↓` | Scroll |
+| `enter` | Open commit detail |
+| `d` | Full diff for the selected commit |
+| `p` | Cherry-pick onto current branch |
 | `m` | Merge selected commit |
-| `ctrl+/` or `ctrl+r` | Search / filter commits |
+| `ctrl+/` or `ctrl+r` | Search / filter |
+| `esc` | Back |
+
+### Branch list panel
+
+| Key | Action |
+|-----|--------|
+| `enter` | Switch to selected branch |
+| `m` | Merge into current |
+| `r` | Rebase current onto selected |
+| `d` | Delete local branch |
+| `n` | Rename branch |
+| `D` | Delete remote tracking branch |
 | `esc` | Back |
 
 ### Conflict panel
 
 | Key | Action |
 |-----|--------|
-| `↑` / `↓` | Scroll |
 | `o` | Accept ours |
 | `t` | Accept theirs |
-| `r` | Remove conflict markers (keep both) |
+| `r` | Remove markers (keep both) |
 | `esc` | Back |
 
-All keybindings for `commit`, `push`, `pull`, `stash`, `undo`, and `quit` are remappable via `[keybindings]` in your config.
+All keybindings for `commit`, `push`, `pull`, `stash`, `graph`, `undo`, and `quit` are remappable via `[keybindings]` in your config.
 
 ## Modes
 
@@ -226,10 +257,12 @@ Run `bonsai setup` to configure conventions interactively.
 
 ## Doctor
 
-`bonsai doctor` checks both your global `~/.gitconfig` and the local repo config and reports findings as `✓ / ⚠ / ✗`.
+`bonsai doctor` checks your global `~/.gitconfig`, local repo config, and SSH setup. Reports `✓ / ⚠ / ✗`.
+
+Global checks include: git version, user.name/email, credential.helper, init.defaultBranch, pull.rebase, fetch.prune, push.autoSetupRemote, rerere.enabled, core.editor, global gitignore, GPG signing, SSH key, ssh-agent, and SSH connectivity to the detected remote host.
 
 ```
-bonsai doctor
+bonsai doctor --verbose
 
 Global
   ✓  git version             2.50.1
@@ -237,8 +270,9 @@ Global
   ✓  user.email              jane@example.com
   ⚠  pull.rebase             not set
      fix: run: git config --global pull.rebase true
-  ✓  rerere.enabled          true
-  ...
+  ✓  ssh key                 /Users/jane/.ssh/id_ed25519
+  ✓  ssh-agent               running (1 key(s) loaded)
+  ✓  ssh github.com          Hi jane! You've successfully authenticated...
 
 Local  (my-project)
   ✓  remote origin           git@github.com:org/my-project.git
@@ -246,14 +280,18 @@ Local  (my-project)
   ✓  .gitignore              present
   ...
 
-Summary: 0 errors, 2 warnings, 13 passed
+Summary: 0 errors, 1 warning, 16 passed
 ```
 
-Pass `--verbose` to see a one-line explanation for every check:
+## SSH
 
 ```sh
-bonsai doctor --verbose
+bonsai ssh status    # SSH key, agent status, connectivity to the repo's remote
+bonsai ssh keygen    # generate ~/.ssh/id_ed25519 (uses your git user.email)
+bonsai ssh show      # print your public key (ready to paste into GitHub/GitLab)
 ```
+
+`bonsai ssh status` detects the remote host from the current repo's remotes and tests SSH auth against it. Works with GitHub, GitLab, Bitbucket, Gitea/Forgejo, Azure DevOps, and any other SSH-based forge.
 
 ## Stats
 
