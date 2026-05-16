@@ -25,6 +25,13 @@ type Config struct {
 	Keybindings KeybindingsConfig `toml:"keybindings"`
 	Metrics     MetricsConfig     `toml:"metrics"`
 	Editor      EditorConfig      `toml:"editor"`
+	CommandBar  CommandBarConfig  `toml:"command_bar"`
+}
+
+// CommandBarConfig controls which shortcuts appear in the main command bar.
+// When Items is empty the default set is used.
+type CommandBarConfig struct {
+	Items []string `toml:"items"`
 }
 
 type EditorConfig struct {
@@ -258,6 +265,12 @@ func WriteLocalTemplate(path string) error {
 
 # [editor]
 # command = ""         # e.g. "vim", "nano", "code --wait"
+
+# [command_bar]
+# items = ["space", "hunks", "diff", "commit", "push", "pull", "branch", "log"]
+# Available: space hunks diff commit push pull branch log amend fetch stash graph
+#            reset restore reflog tags bisect rebase worktrees remotes submodules
+#            notes clean abort config
 `
 	return os.WriteFile(path, []byte(tmpl), 0o644)
 }

@@ -67,6 +67,7 @@ const (
 	panelFileHistory
 	panelGraph
 	panelEduMgr
+	panelCommandBar
 )
 
 type branchMode int
@@ -269,6 +270,9 @@ type model struct {
 	// education manager
 	eduMgrKeys   []string // ordered list of command keys shown
 	eduMgrCursor int
+
+	cmdBarCursor  int
+	cmdBarEnabled []bool // parallel to cmdBarCatalog; initialized on panel open
 }
 
 // --- messages ---
@@ -1927,6 +1931,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelEduMgr {
 			return m.updateEduMgrPanel(msg)
 		}
+		if m.panel == panelCommandBar {
+			return m.updateCommandBarPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -2930,7 +2937,7 @@ func (m model) updateAmendPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateConfigMenuPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	const numItems = 7
+	const numItems = 8
 	switch msg.String() {
 	case "up", "k":
 		if m.configMenuCursor > 0 {
@@ -2958,6 +2965,10 @@ func (m model) updateConfigMenuPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.eduMgrKeys = buildEduMgrKeys(m.usage)
 			m.eduMgrCursor = 0
 			m.panel = panelEduMgr
+		case 7:
+			m.cmdBarEnabled = cmdBarEnabledFromConfig(m.cfg.CommandBar.Items)
+			m.cmdBarCursor = 0
+			m.panel = panelCommandBar
 		}
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
@@ -3951,6 +3962,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelEduMgr {
 		return m.eduMgrView()
+	}
+	if m.panel == panelCommandBar {
+		return m.commandBarConfigView()
 	}
 	return m.mainView()
 }
@@ -5142,6 +5156,7 @@ func (m model) configMenuView() string {
 		{"Recommendations", "(best practices)"},
 		{"Profiles", "(includeIf conditionals)"},
 		{"Education & Usage", "(command usage and tip settings)"},
+		{"Command bar", "(choose which shortcuts appear)"},
 	}
 
 	for i, item := range items {
@@ -5803,6 +5818,70 @@ func (m model) eduMgrView() string {
 	return b.String()
 }
 
+func (m model) doSaveCommandBar() tea.Cmd {
+	cfg := m.cfg
+	return func() tea.Msg {
+		p, err := config.GlobalConfigPath()
+		if err != nil {
+			return nil
+		}
+		_ = config.Write(p, cfg)
+		return nil
+	}
+}
+
+func (m model) updateCommandBarPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.cmdBarCursor > 0 {
+			m.cmdBarCursor--
+		}
+	case "down", "j":
+		if m.cmdBarCursor < len(cmdBarCatalog)-1 {
+			m.cmdBarCursor++
+		}
+	case " ", "enter":
+		if m.cmdBarCursor < len(m.cmdBarEnabled) {
+			m.cmdBarEnabled[m.cmdBarCursor] = !m.cmdBarEnabled[m.cmdBarCursor]
+			m.cfg.CommandBar.Items = buildCommandBarItems(m.cmdBarEnabled)
+			return m, m.doSaveCommandBar()
+		}
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelConfigMenu
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) commandBarConfigView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Command Bar") + "\n\n")
+
+	for i, entry := range cmdBarCatalog {
+		cursor := "  "
+		if m.cmdBarCursor == i {
+			cursor = styleSelected.Render("> ")
+		}
+		check := styleDim.Render("[ ]")
+		if i < len(m.cmdBarEnabled) && m.cmdBarEnabled[i] {
+			check = styleAdded.Render("[✓]")
+		}
+		key := styleCmd.Render(fmt.Sprintf("%-9s", entry.displayKey))
+		desc := styleDim.Render(entry.description)
+		b.WriteString(cursor + "  " + check + "  " + key + "  " + desc + "\n")
+	}
+
+	b.WriteString("\n")
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [✓] shown  [ ] hidden  [space/enter] toggle  [esc] back") + "\n"
+}
+
 func (m model) hunkStageView() string {
 	action := "Stage hunks"
 	if m.hunkStaged {
@@ -5915,6 +5994,68 @@ func contextTip(m model) string {
 	}
 }
 
+type cmdBarEntry struct {
+	key         string
+	displayKey  string
+	description string
+}
+
+var cmdBarCatalog = []cmdBarEntry{
+	{"space", "[space]", "stage/unstage"},
+	{"hunks", "[h]", "hunks"},
+	{"diff", "[d]", "diff"},
+	{"commit", "[c]", "commit"},
+	{"push", "[p]", "push"},
+	{"pull", "[P]", "pull"},
+	{"branch", "[b/B]", "branch"},
+	{"log", "[l]", "log"},
+	{"amend", "[A]", "amend"},
+	{"fetch", "[f]", "fetch"},
+	{"stash", "[s/S]", "stash"},
+	{"graph", "[g]", "graph"},
+	{"reset", "[z]", "reset"},
+	{"restore", "[o]", "restore"},
+	{"reflog", "[L]", "reflog"},
+	{"tags", "[t]", "tags"},
+	{"bisect", "[i]", "bisect"},
+	{"rebase", "[R]", "rebase"},
+	{"worktrees", "[W]", "worktrees"},
+	{"remotes", "[O]", "remotes"},
+	{"submodules", "[M]", "submodules"},
+	{"notes", "[n]", "notes"},
+	{"clean", "[X]", "clean"},
+	{"abort", "[a]", "abort"},
+	{"config", "[C]", "config"},
+}
+
+var defaultCmdBarItems = []string{"space", "hunks", "diff", "commit", "push", "pull", "branch", "log"}
+
+func cmdBarEnabledFromConfig(items []string) []bool {
+	active := items
+	if len(active) == 0 {
+		active = defaultCmdBarItems
+	}
+	set := map[string]bool{}
+	for _, k := range active {
+		set[k] = true
+	}
+	enabled := make([]bool, len(cmdBarCatalog))
+	for i, e := range cmdBarCatalog {
+		enabled[i] = set[e.key]
+	}
+	return enabled
+}
+
+func buildCommandBarItems(enabled []bool) []string {
+	var items []string
+	for i, on := range enabled {
+		if on && i < len(cmdBarCatalog) {
+			items = append(items, cmdBarCatalog[i].key)
+		}
+	}
+	return items
+}
+
 func (m model) commandBar() string {
 	if m.pushing {
 		return styleDim.Render("  pushing...") + "\n"
@@ -5923,18 +6064,45 @@ func (m model) commandBar() string {
 		return styleDim.Render("  pulling...") + "\n"
 	}
 	kb := m.cfg.Keybindings
-	parts := []string{
-		"[space] stage/unstage",
-		"[h] hunks",
-		"[d] diff",
-		fmt.Sprintf("[%s] commit", kb.Commit),
-		fmt.Sprintf("[%s] push", kb.Push),
-		"[P] pull",
-		"[b/B] branch",
-		"[l] log",
-		"[?] all shortcuts",
-		fmt.Sprintf("[%s] quit", kb.Quit),
+	labelFor := map[string]string{
+		"space":      "[space] stage/unstage",
+		"hunks":      "[h] hunks",
+		"diff":       "[d] diff",
+		"commit":     fmt.Sprintf("[%s] commit", kb.Commit),
+		"push":       fmt.Sprintf("[%s] push", kb.Push),
+		"pull":       "[P] pull",
+		"branch":     "[b/B] branch",
+		"log":        "[l] log",
+		"amend":      "[A] amend",
+		"fetch":      "[f] fetch",
+		"stash":      fmt.Sprintf("[%s/%s] stash", kb.Stash, strings.ToUpper(kb.Stash)),
+		"graph":      fmt.Sprintf("[%s] graph", kb.Graph),
+		"reset":      "[z] reset",
+		"restore":    "[o] restore",
+		"reflog":     "[L] reflog",
+		"tags":       "[t] tags",
+		"bisect":     "[i] bisect",
+		"rebase":     "[R] rebase",
+		"worktrees":  "[W] worktrees",
+		"remotes":    "[O] remotes",
+		"submodules": "[M] submodules",
+		"notes":      "[n] notes",
+		"clean":      "[X] clean",
+		"abort":      "[a] abort",
+		"config":     "[C] config",
 	}
+	keys := m.cfg.CommandBar.Items
+	if len(keys) == 0 {
+		keys = defaultCmdBarItems
+	}
+	var parts []string
+	for _, k := range keys {
+		if label, ok := labelFor[k]; ok {
+			parts = append(parts, label)
+		}
+	}
+	parts = append(parts, "[?] all shortcuts")
+	parts = append(parts, fmt.Sprintf("[%s] quit", kb.Quit))
 	return styleDim.Render("  "+strings.Join(parts, "  ")) + "\n"
 }
 
