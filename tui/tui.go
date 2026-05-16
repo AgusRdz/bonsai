@@ -786,8 +786,10 @@ func (m model) mainView() string {
 		b.WriteString("  " + styleDim.Render("$ "+m.lastCmd) + "\n")
 	} else if m.convViolation != nil && m.cfg.Conventions.Validation.Mode == "warn" {
 		b.WriteString("  " + styleChanged.Render("! "+m.convViolation.Branch+" does not follow conventions") + "\n")
+	} else if m.cfg.Modes.Default != "pro" {
+		b.WriteString("  " + styleDim.Render(contextTip(m)) + "\n")
 	} else {
-		b.WriteString("  " + styleDim.Render("mode: "+m.cfg.Modes.Default) + "\n")
+		b.WriteString("  " + styleDim.Render("mode: pro") + "\n")
 	}
 
 	content := b.String()
@@ -1152,6 +1154,29 @@ func (m model) logView() string {
 		content += strings.Repeat("\n", pad)
 	}
 	return content + styleDim.Render("  [↑↓] scroll  [esc] back") + "\n"
+}
+
+func contextTip(m model) string {
+	if m.status == nil {
+		return ""
+	}
+	s := m.status
+	nChanged := len(s.Changed) + len(s.Untracked)
+	nStaged := len(s.Staged)
+	switch {
+	case s.Behind > 0:
+		return fmt.Sprintf("tip: %d commit(s) available on remote - press [P] to pull", s.Behind)
+	case nChanged > 0 && nStaged == 0:
+		return fmt.Sprintf("tip: %d file(s) changed - navigate and press [space] to stage", nChanged)
+	case nChanged > 0 && nStaged > 0:
+		return fmt.Sprintf("tip: %d staged, %d unstaged - press [c] to commit or keep staging", nStaged, nChanged)
+	case nStaged > 0:
+		return fmt.Sprintf("tip: %d file(s) staged - press [c] to commit", nStaged)
+	case s.Ahead > 0:
+		return fmt.Sprintf("tip: %d commit(s) ready - press [p] to push to remote", s.Ahead)
+	default:
+		return "tip: working tree is clean - edit a file to get started"
+	}
 }
 
 func (m model) commandBar() string {
