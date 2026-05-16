@@ -68,6 +68,11 @@ type model struct {
 	convPanelShown     bool // panel already shown for current branch violation
 	logEntries         []git.LogEntry
 	logCursor          int
+	logOffset          int             // pagination: how many commits already loaded
+	logHasMore         bool            // more commits available to load
+	logFilter          string          // active filter query; empty = no filter
+	logFilterInput     textinput.Model // search input field
+	logFiltering       bool            // search input is focused
 	branches           []git.Branch
 	branchCursor       int
 	diffLines          []string
@@ -101,7 +106,6 @@ type actionDoneMsg struct {
 	cmd string
 	err error
 }
-type logMsg []git.LogEntry
 type branchListMsg []git.Branch
 
 type diffMsg struct {
@@ -110,6 +114,12 @@ type diffMsg struct {
 }
 type stashListMsg []git.StashEntry
 type commitDetailMsg *git.CommitDetail
+
+type logPageMsg struct {
+	entries []git.LogEntry
+	hasMore bool
+	append  bool // true = append to existing list; false = replace
+}
 
 // --- commands ---
 
@@ -188,15 +198,50 @@ func (m model) doPull() tea.Cmd {
 	}
 }
 
+const logPageSize = 100
+
 func (m model) doFetchLog() tea.Cmd {
+	return m.doFetchLogPage(0, false)
+}
+
+// doFetchLogPage fetches one page of commits. skip is the pagination offset;
+// appendResults=true merges results into the existing list instead of replacing.
+func (m model) doFetchLogPage(skip int, appendResults bool) tea.Cmd {
+	filter := m.logFilter
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
-		entries, err := m.git.Log(ctx, 100)
+		opts := parseLogFilter(filter)
+		opts.MaxCount = logPageSize + 1 // fetch one extra to detect hasMore
+		opts.Skip = skip
+		entries, err := m.git.LogOpts(ctx, opts)
 		if err != nil || entries == nil {
-			return logMsg([]git.LogEntry{})
+			return logPageMsg{entries: []git.LogEntry{}, hasMore: false, append: appendResults}
 		}
-		return logMsg(entries)
+		hasMore := len(entries) > logPageSize
+		if hasMore {
+			entries = entries[:logPageSize]
+		}
+		return logPageMsg{entries: entries, hasMore: hasMore, append: appendResults}
+	}
+}
+
+// parseLogFilter converts a user-typed filter string into LogOptions.
+// Supported prefixes: author:, since: / after:, until: / before:
+// Anything else is treated as a commit message grep.
+func parseLogFilter(q string) git.LogOptions {
+	q = strings.TrimSpace(q)
+	switch {
+	case strings.HasPrefix(q, "author:"):
+		return git.LogOptions{Author: strings.TrimSpace(q[7:])}
+	case strings.HasPrefix(q, "since:"), strings.HasPrefix(q, "after:"):
+		v := q[strings.Index(q, ":")+1:]
+		return git.LogOptions{Since: strings.TrimSpace(v)}
+	case strings.HasPrefix(q, "until:"), strings.HasPrefix(q, "before:"):
+		v := q[strings.Index(q, ":")+1:]
+		return git.LogOptions{Until: strings.TrimSpace(v)}
+	default:
+		return git.LogOptions{Grep: q}
 	}
 }
 
@@ -334,9 +379,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		m.ready = true
 
-	case logMsg:
-		m.logEntries = []git.LogEntry(msg)
-		m.logCursor = 0
+	case logPageMsg:
+		if msg.append {
+			m.logEntries = append(m.logEntries, msg.entries...)
+		} else {
+			m.logEntries = msg.entries
+			m.logCursor = 0
+			m.logOffset = 0
+		}
+		if !msg.append {
+			m.logOffset = len(msg.entries)
+		} else {
+			m.logOffset += len(msg.entries)
+		}
+		m.logHasMore = msg.hasMore
 		m.panel = panelLog
 
 	case branchListMsg:
@@ -679,6 +735,30 @@ func (m model) updateConventionPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateLogPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// When the filter input is focused, route most keys to it.
+	if m.logFiltering {
+		switch msg.String() {
+		case "enter":
+			// Commit the search.
+			q := strings.TrimSpace(m.logFilterInput.Value())
+			m.logFilter = q
+			m.logFiltering = false
+			m.logFilterInput.Blur()
+			m.logEntries = nil
+			return m, m.doFetchLogPage(0, false)
+		case "esc":
+			// Cancel search, restore previous filter state.
+			m.logFiltering = false
+			m.logFilterInput.SetValue(m.logFilter)
+			m.logFilterInput.Blur()
+		default:
+			var cmd tea.Cmd
+			m.logFilterInput, cmd = m.logFilterInput.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "up", "k":
 		if m.logCursor > 0 {
@@ -697,7 +777,31 @@ func (m model) updateLogPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.doFetchCommitDetail(entry.Hash)
 			}
 		}
-	case "esc", m.cfg.Keybindings.Quit:
+	case "m":
+		// Load more commits (pagination).
+		if m.logHasMore && m.logFilter == "" {
+			return m, m.doFetchLogPage(m.logOffset, true)
+		}
+	case "/":
+		// Open filter input.
+		m.logFiltering = true
+		m.logFilterInput.Focus()
+	case "ctrl+/", "ctrl+r":
+		// Clear active filter.
+		m.logFilter = ""
+		m.logFilterInput.SetValue("")
+		m.logEntries = nil
+		return m, m.doFetchLogPage(0, false)
+	case "esc":
+		if m.logFilter != "" {
+			// First esc clears the filter.
+			m.logFilter = ""
+			m.logFilterInput.SetValue("")
+			m.logEntries = nil
+			return m, m.doFetchLogPage(0, false)
+		}
+		m.panel = panelMain
+	case m.cfg.Keybindings.Quit:
 		m.panel = panelMain
 	case "ctrl+c":
 		return m, tea.Quit
@@ -1452,15 +1556,34 @@ func renderStatLine(line string) string {
 func (m model) logView() string {
 	var b strings.Builder
 	b.WriteString("\n")
-	b.WriteString("  " + styleSection.Render("Recent Commits") + "\n\n")
+
+	// Header with active filter badge.
+	title := "Recent Commits"
+	if m.logFilter != "" {
+		title += "  " + styleCmd.Render("["+m.logFilter+"]")
+	}
+	b.WriteString("  " + styleSection.Render(title) + "\n\n")
+
+	// Filter input (shown when [/] is pressed).
+	if m.logFiltering {
+		b.WriteString("  " + styleDim.Render("/") + " " + m.logFilterInput.View() + "\n\n")
+	}
 
 	if m.logEntries == nil {
 		b.WriteString("  " + styleDim.Render("loading...") + "\n")
 	} else if len(m.logEntries) == 0 {
-		b.WriteString("  " + styleDim.Render("no commits yet") + "\n")
+		if m.logFilter != "" {
+			b.WriteString("  " + styleDim.Render("no commits matched - press esc to clear filter") + "\n")
+		} else {
+			b.WriteString("  " + styleDim.Render("no commits yet") + "\n")
+		}
 	} else {
-		// header (2 lines: blank + section) + footer (1 blank + 1 bar) = 4 overhead
-		visibleLines := m.height - 6
+		// Overhead: blank + title + optional filter input + blank footer lines.
+		overhead := 6
+		if m.logFiltering {
+			overhead += 2
+		}
+		visibleLines := m.height - overhead
 		if visibleLines < 1 {
 			visibleLines = 1
 		}
@@ -1480,19 +1603,29 @@ func (m model) logView() string {
 				b.WriteString("    " + styleDim.Render(e.Line) + "\n")
 			}
 		}
+		if m.logHasMore && m.logFilter == "" {
+			b.WriteString("    " + styleDim.Render("--- press [m] to load more ---") + "\n")
+		}
 	}
 	b.WriteString("\n")
 
 	content := b.String()
-	lines := strings.Count(content, "\n")
-	if pad := m.height - lines - 1; pad > 0 {
+	lineCount := strings.Count(content, "\n")
+	if pad := m.height - lineCount - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
 	pos := ""
 	if len(m.logEntries) > 0 {
-		pos = fmt.Sprintf("  (%d/%d)", m.logCursor+1, len(m.logEntries))
+		pos = fmt.Sprintf("  (%d", m.logCursor+1)
+		if m.logHasMore {
+			pos += fmt.Sprintf("/%d+", len(m.logEntries))
+		} else {
+			pos += fmt.Sprintf("/%d", len(m.logEntries))
+		}
+		pos += ")"
 	}
-	return content + styleDim.Render("  [↑↓] scroll  [enter] detail  [esc] back"+pos) + "\n"
+	hint := "  [↑↓] scroll  [/] search  [enter] detail  [esc] back" + pos
+	return content + styleDim.Render(hint) + "\n"
 }
 
 func contextTip(m model) string {
@@ -1596,7 +1729,10 @@ func writeClipboard(s string) error {
 // Run starts the bonsai TUI.
 func Run(cfg *config.Config) error {
 	g := git.New()
-	m := model{cfg: cfg, git: g}
+	fi := textinput.New()
+	fi.Placeholder = "message text  |  author:name  |  since:2026-01-01  |  until:2026-03-01"
+	fi.CharLimit = 120
+	m := model{cfg: cfg, git: g, logFilterInput: fi}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err

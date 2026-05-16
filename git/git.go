@@ -187,10 +187,52 @@ func (r *Runner) Commit(ctx context.Context, message string) error {
 	return err
 }
 
+// LogOptions controls what git log returns.
+type LogOptions struct {
+	MaxCount int    // number of commits to fetch; 0 → 100
+	Skip     int    // pagination: skip this many commits
+	Grep     string // filter by commit message (case-insensitive)
+	Author   string // filter by author name/email
+	Since    string // show commits more recent than this date
+	Until    string // show commits older than this date
+}
+
 // Log returns the n most recent commits as graph/oneline entries.
 func (r *Runner) Log(ctx context.Context, n int) ([]LogEntry, error) {
-	out, err := r.run(ctx, "log", fmt.Sprintf("--max-count=%d", n),
-		"--oneline", "--graph", "--decorate")
+	return r.LogOpts(ctx, LogOptions{MaxCount: n})
+}
+
+// LogOpts returns commits matching opts. When any filter (Grep/Author/Since/Until)
+// is set the graph is omitted since it does not compose well with filtered output.
+func (r *Runner) LogOpts(ctx context.Context, opts LogOptions) ([]LogEntry, error) {
+	n := opts.MaxCount
+	if n <= 0 {
+		n = 100
+	}
+	args := []string{"log", fmt.Sprintf("--max-count=%d", n)}
+	if opts.Skip > 0 {
+		args = append(args, fmt.Sprintf("--skip=%d", opts.Skip))
+	}
+
+	filtered := opts.Grep != "" || opts.Author != "" || opts.Since != "" || opts.Until != ""
+	if opts.Grep != "" {
+		args = append(args, "--grep="+opts.Grep, "--regexp-ignore-case")
+	}
+	if opts.Author != "" {
+		args = append(args, "--author="+opts.Author, "--regexp-ignore-case")
+	}
+	if opts.Since != "" {
+		args = append(args, "--since="+opts.Since)
+	}
+	if opts.Until != "" {
+		args = append(args, "--until="+opts.Until)
+	}
+	if !filtered {
+		args = append(args, "--graph")
+	}
+	args = append(args, "--oneline", "--decorate")
+
+	out, err := r.run(ctx, args...)
 	if err != nil {
 		return nil, err
 	}
