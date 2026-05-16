@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.28.1] - 2026-05-16
+
+### Features
+- Add bonsai doctor health check command
+([9b69e33](https://github.com/AgusRdz/bonsai/commit/9b69e33fcf6fd1931c0066053f2243ff11cd8119))
 ## [0.28.0] - 2026-05-16
 
 ### Features
