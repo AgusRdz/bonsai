@@ -6265,13 +6265,13 @@ func fileActionHint(m model) string {
 	}
 	switch m.files[m.cursor].category {
 	case catConflict:
-		return "[d] view conflict  [O] take ours  [T] take theirs"
+		return "[O] take ours  [T] take theirs"
 	case catStaged:
-		return "[space] unstage  [u] untrack (keep on disk)  [h] stage by section  [d] diff  [c] commit"
+		return "[u] untrack (keep on disk)"
 	case catChanged:
-		return "[space] stage  [h] stage by section  [d] diff  [x] discard"
+		return "[x] discard changes"
 	case catUntracked:
-		return "[space] stage  [x] delete from disk  [d] diff"
+		return "[x] delete from disk"
 	}
 	return ""
 }
