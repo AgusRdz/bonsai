@@ -16,6 +16,8 @@ import (
 	"github.com/AgusRdz/bonsai/plugins"
 	"github.com/AgusRdz/bonsai/pr"
 	"github.com/AgusRdz/bonsai/usage"
+	chroma "github.com/alecthomas/chroma/v2"
+	chromaLexers "github.com/alecthomas/chroma/v2/lexers"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -2070,7 +2072,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.panel = panelLFS
 
 	case diffMsg:
-		m.diffLines = msg.lines
+		m.diffLines = syntaxHighlightDiff(msg.lines)
 		m.diffTitle = msg.title
 
 	case stashListMsg:
@@ -5631,6 +5633,88 @@ func renderDiffLine(line string) string {
 	default:
 		return "  " + styleDim.Render(line)
 	}
+}
+
+// chromaTokenStyles maps chroma token types (prefix match) to lipgloss colors.
+// Checked in order; first match wins.
+var chromaTokenStyles = []struct {
+	prefix string
+	style  lipgloss.Style
+}{
+	{"Keyword", lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Bold(true)},
+	{"Name.Builtin", lipgloss.NewStyle().Foreground(lipgloss.Color("81"))},
+	{"Name.Function", lipgloss.NewStyle().Foreground(lipgloss.Color("148")).Bold(true)},
+	{"Name.Class", lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)},
+	{"Name.Type", lipgloss.NewStyle().Foreground(lipgloss.Color("214"))},
+	{"Name.Decorator", lipgloss.NewStyle().Foreground(lipgloss.Color("208"))},
+	{"Literal.String", lipgloss.NewStyle().Foreground(lipgloss.Color("214"))},
+	{"Literal.Number", lipgloss.NewStyle().Foreground(lipgloss.Color("135"))},
+	{"Literal", lipgloss.NewStyle().Foreground(lipgloss.Color("214"))},
+	{"Comment", lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Italic(true)},
+	{"Operator", lipgloss.NewStyle().Foreground(lipgloss.Color("252"))},
+	{"Punctuation", lipgloss.NewStyle().Foreground(lipgloss.Color("244"))},
+}
+
+// syntaxHighlightDiff applies per-language syntax highlighting to diff lines.
+// It detects the filename from "diff --git" headers and uses chroma to
+// colorize added (+) and context ( ) lines. Removed (-) lines are left plain
+// so the red removal color stays dominant.
+func syntaxHighlightDiff(lines []string) []string {
+	out := make([]string, len(lines))
+	var lexer chroma.Lexer = chromaLexers.Fallback
+
+	for i, line := range lines {
+		if strings.HasPrefix(line, "diff --git ") {
+			parts := strings.Fields(line)
+			if len(parts) >= 4 {
+				path := strings.TrimPrefix(parts[3], "b/")
+				if l := chromaLexers.Match(path); l != nil {
+					lexer = l
+				} else {
+					lexer = chromaLexers.Fallback
+				}
+			}
+			out[i] = line
+			continue
+		}
+		// Only highlight added and context lines.
+		if !strings.HasPrefix(line, "+") && !strings.HasPrefix(line, " ") {
+			out[i] = line
+			continue
+		}
+		prefix := string(line[0])
+		content := line[1:]
+		if isLFSPointerLine(content) {
+			out[i] = line
+			continue
+		}
+		out[i] = prefix + chromaHighlightLine(content, lexer)
+	}
+	return out
+}
+
+// chromaHighlightLine tokenizes a single line and returns it with lipgloss colors.
+func chromaHighlightLine(line string, lexer chroma.Lexer) string {
+	iter, err := lexer.Tokenise(nil, line)
+	if err != nil {
+		return line
+	}
+	var b strings.Builder
+	for tok := iter(); tok != chroma.EOF; tok = iter() {
+		tokenType := tok.Type.String()
+		styled := false
+		for _, ts := range chromaTokenStyles {
+			if strings.HasPrefix(tokenType, ts.prefix) {
+				b.WriteString(ts.style.Render(tok.Value))
+				styled = true
+				break
+			}
+		}
+		if !styled {
+			b.WriteString(tok.Value)
+		}
+	}
+	return b.String()
 }
 
 // isLFSPointerLine reports whether a diff content line is part of an LFS pointer.
