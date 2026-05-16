@@ -133,6 +133,14 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("config: .bonsai.toml: %w", err)
 	}
 
+	// Migrate mode names from older releases.
+	switch cfg.Modes.Default {
+	case "novice":
+		cfg.Modes.Default = "guided"
+	case "learning":
+		cfg.Modes.Default = "standard"
+	}
+
 	// Keybindings written by older setup runs may be empty strings; fill in
 	// defaults for any that are missing so the TUI always has valid bindings.
 	applyKeybindingDefaults(&cfg)
@@ -179,9 +187,9 @@ func applyKeybindingDefaults(cfg *Config) {
 }
 
 func validate(cfg *Config) error {
-	validModes := map[string]bool{"novice": true, "pro": true, "learning": true}
+	validModes := map[string]bool{"guided": true, "standard": true, "pro": true}
 	if !validModes[cfg.Modes.Default] {
-		return fmt.Errorf("config: modes.default must be novice, pro, or learning (got %q)", cfg.Modes.Default)
+		return fmt.Errorf("config: modes.default must be guided, standard, or pro (got %q)", cfg.Modes.Default)
 	}
 	validFlow := map[string]bool{"auto": true, "gitflow": true, "trunk": true, "githubflow": true, "forking": true}
 	if !validFlow[cfg.Flow.Type] {
@@ -220,7 +228,7 @@ func WriteLocalTemplate(path string) error {
 # Global config: ~/.config/bonsai/config.toml
 
 # [modes]
-# default = "novice"   # novice | pro | learning
+# default = "standard"  # standard | guided | pro
 
 # [flow]
 # type = "auto"        # auto | gitflow | trunk | githubflow | forking
@@ -288,7 +296,7 @@ func defaults() Config {
 			},
 			Validation: ValidationConfig{Mode: "strict"},
 		},
-		Modes:     ModesConfig{Default: "pro"},
+		Modes:     ModesConfig{Default: "standard"},
 		Education: EducationConfig{PanelDuration: 4},
 		Keybindings: KeybindingsConfig{
 			Graph:  "g",

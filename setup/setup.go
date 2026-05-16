@@ -136,9 +136,9 @@ func wizard(local bool) (*config.Config, error) {
 	// --- mode ---
 	fmt.Println()
 	fmt.Println("mode:")
-	fmt.Println("  1) novice    full explanations after every action")
-	fmt.Println("  2) learning  shows what will happen before executing")
-	fmt.Println("  3) pro       clean interface, no explanations")
+	fmt.Println("  1) standard  shows the command that ran after each action")
+	fmt.Println("  2) guided    full explanations after every action (new to git)")
+	fmt.Println("  3) pro       no feedback panel")
 	if local {
 		fmt.Println("  4) inherit   use global setting")
 	}
@@ -148,8 +148,8 @@ func wizard(local bool) (*config.Config, error) {
 	}
 	modeChoice := ask(sc, "choice", modeDefault)
 	modeMap := map[string]string{
-		"1": "novice",
-		"2": "learning",
+		"1": "standard",
+		"2": "guided",
 		"3": "pro",
 		"4": "",
 	}
@@ -196,7 +196,7 @@ func wizard(local bool) (*config.Config, error) {
 	// Fill required fields that weren't set so config.Write produces valid TOML.
 	if !local {
 		if cfg.Modes.Default == "" {
-			cfg.Modes.Default = "novice"
+			cfg.Modes.Default = "standard"
 		}
 		if cfg.Conventions.Validation.Mode == "" {
 			cfg.Conventions.Validation.Mode = "warn"

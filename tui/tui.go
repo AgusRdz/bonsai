@@ -480,7 +480,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		dur := m.cfg.Education.PanelDuration
 		if m.cfg.Modes.Default != "pro" && dur > 0 {
 			m.edu = newEduPanel(msg.cmd, msg.err)
-			if hint := flowHint(msg.cmd, detectFlow(m.cfg)); hint != "" {
+			if m.cfg.Modes.Default == "standard" {
+				// standard mode: command confirmation only, no explanation text.
+				m.edu.explain = ""
+			} else if hint := flowHint(msg.cmd, detectFlow(m.cfg)); hint != "" {
 				if m.edu.explain != "" {
 					m.edu.explain += "\n\n" + hint
 				} else {

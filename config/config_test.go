@@ -13,8 +13,8 @@ func TestDefaults(t *testing.T) {
 	if cfg.Flow.Type != "auto" {
 		t.Errorf("flow.type = %q, want auto", cfg.Flow.Type)
 	}
-	if cfg.Modes.Default != "pro" {
-		t.Errorf("modes.default = %q, want pro", cfg.Modes.Default)
+	if cfg.Modes.Default != "standard" {
+		t.Errorf("modes.default = %q, want standard", cfg.Modes.Default)
 	}
 	if cfg.Education.PanelDuration != 4 {
 		t.Errorf("education.panel_duration = %d, want 4", cfg.Education.PanelDuration)
@@ -68,8 +68,8 @@ func TestLoadCreatesDefaultConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Modes.Default != "pro" {
-		t.Errorf("modes.default = %q, want pro", cfg.Modes.Default)
+	if cfg.Modes.Default != "standard" {
+		t.Errorf("modes.default = %q, want standard", cfg.Modes.Default)
 	}
 
 	configPath := filepath.Join(dir, "bonsai", "config.toml")
@@ -86,6 +86,7 @@ func TestLoadMergesProjectConfig(t *testing.T) {
 	}
 
 	projectDir := t.TempDir()
+	// Write a project config using the old mode name to verify migration.
 	if err := os.WriteFile(filepath.Join(projectDir, ".bonsai.toml"), []byte(`
 [modes]
 default = "novice"
@@ -106,8 +107,9 @@ default = "novice"
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Modes.Default != "novice" {
-		t.Errorf("modes.default = %q, want novice (from project config)", cfg.Modes.Default)
+	// "novice" is migrated to "guided" automatically.
+	if cfg.Modes.Default != "guided" {
+		t.Errorf("modes.default = %q, want guided (migrated from novice)", cfg.Modes.Default)
 	}
 }
 
@@ -153,6 +155,7 @@ func TestLoadReadsExistingGlobalConfig(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Write a config using the old mode name to verify migration.
 	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(`
 [modes]
 default = "learning"
@@ -164,7 +167,8 @@ default = "learning"
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Modes.Default != "learning" {
-		t.Errorf("modes.default = %q, want learning", cfg.Modes.Default)
+	// "learning" is migrated to "standard" automatically.
+	if cfg.Modes.Default != "standard" {
+		t.Errorf("modes.default = %q, want standard (migrated from learning)", cfg.Modes.Default)
 	}
 }
