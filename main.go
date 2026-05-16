@@ -13,6 +13,7 @@ import (
 	"github.com/AgusRdz/bonsai/doctor"
 	"github.com/AgusRdz/bonsai/git"
 	"github.com/AgusRdz/bonsai/gitcheck"
+	"github.com/AgusRdz/bonsai/pr"
 	"github.com/AgusRdz/bonsai/setup"
 	"github.com/AgusRdz/bonsai/tui"
 	"github.com/AgusRdz/bonsai/updater"
@@ -25,6 +26,7 @@ var changelog string
 var version = "dev"
 
 func main() {
+	pr.RegisterBuiltins()
 	updater.CleanupStaleUpdate()
 	gitcheck.EnsureInstalled()
 

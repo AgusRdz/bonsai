@@ -11,6 +11,7 @@ import (
 	"github.com/AgusRdz/bonsai/config"
 	"github.com/AgusRdz/bonsai/conventions"
 	"github.com/AgusRdz/bonsai/git"
+	"github.com/AgusRdz/bonsai/pr"
 	"github.com/AgusRdz/bonsai/usage"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -69,6 +70,7 @@ const (
 	panelEduMgr
 	panelCommandBar
 	panelDiverged
+	panelPR
 )
 
 type branchMode int
@@ -275,6 +277,12 @@ type model struct {
 
 	cmdBarCursor  int
 	cmdBarEnabled []bool // parallel to cmdBarCatalog; initialized on panel open
+
+	// pr integration
+	prProvider   pr.Provider
+	prStatus     *pr.PRStatus
+	prListItems  []pr.PRStatus
+	prListCursor int
 }
 
 // --- messages ---
@@ -356,6 +364,15 @@ type hunkLoadMsg struct {
 
 type fileHistoryMsg []git.LogEntry
 type graphMsg string
+
+type prStatusMsg struct {
+	status *pr.PRStatus
+	err    error
+}
+type prListMsg struct {
+	items []pr.PRStatus
+	err   error
+}
 
 // --- commands ---
 
@@ -1707,6 +1724,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.convViolation = nil
 			}
 		}
+		// Kick off a background PR fetch whenever status refreshes.
+		if prCmd := m.fetchPRStatus(); prCmd != nil {
+			return m, prCmd
+		}
+
+	case prStatusMsg:
+		if msg.err == nil {
+			m.prStatus = msg.status
+		}
+
+	case prListMsg:
+		if msg.err == nil {
+			m.prListItems = msg.items
+		}
 
 	case errMsg:
 		m.err = msg.err
@@ -2193,6 +2224,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelDiverged {
 			return m.updateDivergedPanel(msg)
 		}
+		if m.panel == panelPR {
+			return m.updatePRPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -2319,6 +2353,14 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.pulling = true
 		return m, m.doPull()
+
+	case "K":
+		if m.prProvider != nil {
+			m.prListItems = nil
+			m.prListCursor = 0
+			m.panel = panelPR
+			return m, m.fetchPRList()
+		}
 
 	case kb.Branch, "b":
 		if detectFlow(m.cfg) == "gitflow" {
@@ -4258,6 +4300,9 @@ func (m model) View() string {
 	if m.panel == panelDiverged {
 		return m.divergedView()
 	}
+	if m.panel == panelPR {
+		return m.prView()
+	}
 	return m.mainView()
 }
 
@@ -4280,6 +4325,21 @@ func (m model) mainView() string {
 			header += "  " + styleDim.Render("["+flow+"]")
 		}
 		header += "  " + styleDim.Render("[mode:"+m.cfg.Modes.Default+"]")
+		if m.prStatus != nil {
+			prBadge := fmt.Sprintf("#%d %s", m.prStatus.Number, m.prStatus.State)
+			switch m.prStatus.CI {
+			case "success":
+				header += "  " + styleStaged.Render(prBadge+" ✓")
+			case "failure":
+				header += "  " + styleConflict.Render(prBadge+" ✗")
+			case "pending":
+				header += "  " + styleChanged.Render(prBadge+" ●")
+			default:
+				header += "  " + styleDim.Render(prBadge)
+			}
+		} else if m.prProvider != nil {
+			header += "  " + styleDim.Render("["+m.prProvider.Name()+"]")
+		}
 		b.WriteString("  " + header + "\n\n")
 
 		// Merge/cherry-pick/rebase banner.
@@ -6515,6 +6575,112 @@ func (m model) divergedView() string {
 	return b.String()
 }
 
+func (m model) updatePRPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.prListCursor > 0 {
+			m.prListCursor--
+		}
+	case "down", "j":
+		if m.prListCursor < len(m.prListItems)-1 {
+			m.prListCursor++
+		}
+	case "enter", "o":
+		if len(m.prListItems) > 0 {
+			item := m.prListItems[m.prListCursor]
+			if item.URL != "" {
+				ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+				defer cancel()
+				_ = m.prProvider.Open(ctx, item.URL)
+			}
+		}
+	case "n":
+		if m.prProvider != nil && m.status != nil {
+			branch := m.status.Branch
+			prov := m.prProvider
+			m.panel = panelMain
+			return m, func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				err := prov.CreatePR(ctx, branch)
+				return actionDoneMsg{cmd: "pr create", err: err, info: "opened PR creation flow"}
+			}
+		}
+	case "r":
+		return m, m.fetchPRList()
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) prView() string {
+	title := styleTitle.Render("Pull Requests - " + func() string {
+		if m.prProvider != nil {
+			return m.prProvider.Name()
+		}
+		return "no provider"
+	}())
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+
+	if len(m.prListItems) == 0 {
+		b.WriteString(styleDim.Render("  loading...") + "\n\n")
+	} else {
+		for i, item := range m.prListItems {
+			cursor := "  "
+			if i == m.prListCursor {
+				cursor = styleSelected.Render(">>")
+			}
+			ci := ""
+			switch item.CI {
+			case "success":
+				ci = styleStaged.Render(" ✓")
+			case "failure":
+				ci = styleConflict.Render(" ✗")
+			case "pending":
+				ci = styleChanged.Render(" ●")
+			}
+			state := styleDim.Render("[" + item.State + "]")
+			b.WriteString(fmt.Sprintf("  %s #%-4d %s %s%s\n", cursor, item.Number, state, item.Title, ci))
+		}
+	}
+	b.WriteString("\n")
+	b.WriteString(styleDim.Render("  [enter/o] open in browser  [n] new PR  [r] refresh  [esc] back") + "\n")
+	return b.String()
+}
+
+// fetchPRStatus fetches the current PR status in the background.
+func (m model) fetchPRStatus() tea.Cmd {
+	if m.prProvider == nil || m.status == nil {
+		return nil
+	}
+	branch := m.status.Branch
+	prov := m.prProvider
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		s, err := prov.CurrentPR(ctx, branch)
+		return prStatusMsg{status: s, err: err}
+	}
+}
+
+// fetchPRList fetches all open PRs in the background.
+func (m model) fetchPRList() tea.Cmd {
+	if m.prProvider == nil {
+		return nil
+	}
+	prov := m.prProvider
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		items, err := prov.ListPRs(ctx)
+		return prListMsg{items: items, err: err}
+	}
+}
+
 // Run starts the bonsai TUI.
 func Run(cfg *config.Config) error {
 	g := git.New()
@@ -6532,12 +6698,19 @@ func Run(cfg *config.Config) error {
 		}
 	}
 
+	// Detect PR provider from origin remote URL (best-effort; nil if not found).
+	ctx0, cancel0 := context.WithTimeout(context.Background(), gitTimeout)
+	remoteURL := g.OriginURL(ctx0)
+	cancel0()
+	prov := pr.Detect(remoteURL)
+
 	m := model{
 		cfg:            cfg,
 		git:            g,
 		logFilterInput: fi,
 		usage:          usageData,
 		usagePath:      usagePath,
+		prProvider:     prov,
 	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()

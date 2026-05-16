@@ -1445,6 +1445,16 @@ func (r *Runner) RemoteAdd(ctx context.Context, name, url string) error {
 	return err
 }
 
+// OriginURL returns the fetch URL for the "origin" remote, or empty string if
+// there is no origin or the command fails (e.g. not in a repo).
+func (r *Runner) OriginURL(ctx context.Context) string {
+	out, err := r.run(ctx, "remote", "get-url", "origin")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // RemoteRemove removes a remote.
 func (r *Runner) RemoteRemove(ctx context.Context, name string) error {
 	_, err := r.run(ctx, "remote", "remove", name)
