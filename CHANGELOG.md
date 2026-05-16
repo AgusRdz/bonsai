@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.7.0] - 2026-05-16
+
+### Features
+- Pull command, commit log panel, and ahead/behind indicator
+([91afb1e](https://github.com/AgusRdz/bonsai/commit/91afb1e65ae7851fb620a6bb32fefea53828057d))
 ## [0.6.0] - 2026-05-16
 
 ### Features
