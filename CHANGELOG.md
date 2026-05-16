@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.28.2] - 2026-05-16
+
+### Features
+- Add --verbose flag to bonsai doctor
+([0e1ab91](https://github.com/AgusRdz/bonsai/commit/0e1ab91ebf702ca8dff99642e7bd206e0de5acb5))
 ## [0.28.1] - 2026-05-16
 
 ### Features
