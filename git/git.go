@@ -58,10 +58,13 @@ func ConflictDesc(code string) string {
 	return "conflict"
 }
 
-// LogEntry is one line of `git log --oneline --graph` output.
+// LogEntry is one line of `git log` output.
 type LogEntry struct {
 	Line string
 	Hash string // abbreviated commit hash; empty for pure graph lines (|, \, /)
+	// Sig is the GPG/SSH signature status from %G?: G=good, B=bad, U=untrusted,
+	// N=no sig, X=expired, E=missing key. Empty for pure graph connector lines.
+	Sig string
 }
 
 // CommitDetail holds the parsed output of `git show --stat` for one commit.
@@ -305,7 +308,9 @@ func (r *Runner) LogOpts(ctx context.Context, opts LogOptions) ([]LogEntry, erro
 	if !filtered {
 		args = append(args, "--graph")
 	}
-	args = append(args, "--oneline", "--decorate")
+	// %G?%x1f prefixes each commit line with the signature status and a unit
+	// separator so we can strip it without affecting graph connector lines.
+	args = append(args, "--format=%G?%x1f%h%d %s")
 
 	out, err := r.run(ctx, args...)
 	if err != nil {
@@ -313,8 +318,18 @@ func (r *Runner) LogOpts(ctx context.Context, opts LogOptions) ([]LogEntry, erro
 	}
 	entries := make([]LogEntry, 0, n)
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line != "" {
-			entries = append(entries, LogEntry{Line: line, Hash: extractCommitHash(line)})
+		if line == "" {
+			continue
+		}
+		if idx := strings.IndexByte(line, '\x1f'); idx >= 0 {
+			sig := ""
+			if idx >= 1 {
+				sig = string(line[idx-1])
+			}
+			display := line[idx+1:]
+			entries = append(entries, LogEntry{Line: display, Hash: extractCommitHash(display), Sig: sig})
+		} else {
+			entries = append(entries, LogEntry{Line: line})
 		}
 	}
 	return entries, nil
@@ -598,7 +613,7 @@ func (r *Runner) StashWithMessage(ctx context.Context, msg string) error {
 
 // FileLog returns the commit log entries that touched the given file.
 func (r *Runner) FileLog(ctx context.Context, path string, limit int) ([]LogEntry, error) {
-	args := []string{"log", fmt.Sprintf("--max-count=%d", limit), "--oneline", "--decorate", "--", path}
+	args := []string{"log", fmt.Sprintf("--max-count=%d", limit), "--format=%G?%x1f%h%d %s", "--", path}
 	out, err := r.run(ctx, args...)
 	if err != nil {
 		return nil, err
@@ -608,7 +623,16 @@ func (r *Runner) FileLog(ctx context.Context, path string, limit int) ([]LogEntr
 		if line == "" {
 			continue
 		}
-		entries = append(entries, LogEntry{Line: line, Hash: extractCommitHash(line)})
+		if idx := strings.IndexByte(line, '\x1f'); idx >= 0 {
+			sig := ""
+			if idx >= 1 {
+				sig = string(line[idx-1])
+			}
+			display := line[idx+1:]
+			entries = append(entries, LogEntry{Line: display, Hash: extractCommitHash(display), Sig: sig})
+		} else {
+			entries = append(entries, LogEntry{Line: line})
+		}
 	}
 	return entries, nil
 }

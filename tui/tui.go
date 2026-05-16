@@ -232,11 +232,17 @@ type model struct {
 	logFiltering       bool            // search input is focused
 	branches           []git.Branch
 	branchCursor       int
+	branchFilter       string
+	branchFilterInput  textinput.Model
+	branchFiltering    bool
 	diffLines          []string
 	diffScroll         int
 	diffTitle          string
 	stashes            []git.StashEntry
 	stashCursor        int
+	stashFilter        string
+	stashFilterInput   textinput.Model
+	stashFiltering     bool
 	confirmPrompt      string
 	confirmCmd         tea.Cmd
 	flowOptions        []flowOption
@@ -251,6 +257,9 @@ type model struct {
 	conflictHunkRes    []int // parallel to conflict-only parts; hunkUnresolved/Ours/Theirs/Both
 	tags               []git.TagEntry
 	tagCursor          int
+	tagFilter          string
+	tagFilterInput     textinput.Model
+	tagFiltering       bool
 	worktrees          []git.WorktreeEntry
 	worktreeCursor     int
 	edu                *educationPanel
@@ -305,8 +314,11 @@ type model struct {
 	cleanFiles []string
 
 	// reflog
-	reflogEntries []git.ReflogEntry
-	reflogCursor  int
+	reflogEntries     []git.ReflogEntry
+	reflogCursor      int
+	reflogFilter      string
+	reflogFilterInput textinput.Model
+	reflogFiltering   bool
 
 	// remotes
 	remotes            []git.RemoteEntry
@@ -3105,21 +3117,115 @@ func commitDetailLineCount(d *git.CommitDetail) int {
 	return n
 }
 
+// filterBranches returns the subset of branches whose name contains q (case-insensitive).
+func filterBranches(branches []git.Branch, q string) []git.Branch {
+	if q == "" {
+		return branches
+	}
+	q = strings.ToLower(q)
+	var out []git.Branch
+	for _, b := range branches {
+		if strings.Contains(strings.ToLower(b.Name), q) {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+func filterStashes(stashes []git.StashEntry, q string) []git.StashEntry {
+	if q == "" {
+		return stashes
+	}
+	q = strings.ToLower(q)
+	var out []git.StashEntry
+	for _, s := range stashes {
+		if strings.Contains(strings.ToLower(s.Ref), q) || strings.Contains(strings.ToLower(s.Description), q) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func filterTags(tags []git.TagEntry, q string) []git.TagEntry {
+	if q == "" {
+		return tags
+	}
+	q = strings.ToLower(q)
+	var out []git.TagEntry
+	for _, t := range tags {
+		if strings.Contains(strings.ToLower(t.Name), q) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func filterReflog(entries []git.ReflogEntry, q string) []git.ReflogEntry {
+	if q == "" {
+		return entries
+	}
+	q = strings.ToLower(q)
+	var out []git.ReflogEntry
+	for _, e := range entries {
+		if strings.Contains(strings.ToLower(e.Hash), q) ||
+			strings.Contains(strings.ToLower(e.Ref), q) ||
+			strings.Contains(strings.ToLower(e.Action), q) ||
+			strings.Contains(strings.ToLower(e.Subject), q) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// sigBadge returns a short styled badge for a GPG/SSH signature status char.
+// Returns "" for N (no sig) and "" for pure graph connector lines.
+func sigBadge(sig string) string {
+	switch sig {
+	case "G":
+		return styleStaged.Render("✓ ")
+	case "B":
+		return styleChanged.Render("✗ ")
+	case "U":
+		return styleChanged.Render("? ")
+	case "X", "E":
+		return styleChanged.Render("! ")
+	default:
+		return ""
+	}
+}
+
 func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	visible := filterBranches(m.branches, m.branchFilter)
+
+	if m.branchFiltering {
+		switch msg.String() {
+		case "enter", "esc":
+			m.branchFiltering = false
+			m.branchFilterInput.Blur()
+		default:
+			var cmd tea.Cmd
+			m.branchFilterInput, cmd = m.branchFilterInput.Update(msg)
+			m.branchFilter = m.branchFilterInput.Value()
+			m.branchCursor = 0
+			return m, cmd
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "up", "k":
 		if m.branchCursor > 0 {
 			m.branchCursor--
 		}
 	case "down", "j":
-		if m.branchCursor < len(m.branches)-1 {
+		if m.branchCursor < len(visible)-1 {
 			m.branchCursor++
 		}
 	case "enter":
-		if len(m.branches) == 0 {
+		if len(visible) == 0 {
 			break
 		}
-		b := m.branches[m.branchCursor]
+		b := visible[m.branchCursor]
 		if b.Current {
 			m.panel = panelMain
 			return m, nil
@@ -3127,10 +3233,10 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.panel = panelMain
 		return m, m.doSwitch(b.Name)
 	case "m":
-		if len(m.branches) == 0 {
+		if len(visible) == 0 {
 			break
 		}
-		b := m.branches[m.branchCursor]
+		b := visible[m.branchCursor]
 		if b.Current {
 			break
 		}
@@ -3142,10 +3248,10 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirmCmd = m.doMerge(b.Name)
 		m.panel = panelConfirm
 	case "r":
-		if len(m.branches) == 0 {
+		if len(visible) == 0 {
 			break
 		}
-		b := m.branches[m.branchCursor]
+		b := visible[m.branchCursor]
 		if b.Current {
 			break
 		}
@@ -3158,10 +3264,10 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.panel = panelConfirm
 		m.actionErr = nil
 	case "d":
-		if len(m.branches) == 0 {
+		if len(visible) == 0 {
 			break
 		}
-		b := m.branches[m.branchCursor]
+		b := visible[m.branchCursor]
 		if b.Current {
 			m.actionErr = fmt.Errorf("cannot delete the current branch - switch to another branch first")
 			break
@@ -3170,10 +3276,10 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirmCmd = m.doDeleteBranch(b.Name)
 		m.panel = panelConfirm
 	case "n":
-		if len(m.branches) == 0 {
+		if len(visible) == 0 {
 			break
 		}
-		b := m.branches[m.branchCursor]
+		b := visible[m.branchCursor]
 		ti := textinput.New()
 		ti.Placeholder = "new branch name"
 		ti.SetValue(b.Name)
@@ -3186,10 +3292,10 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.panel = panelBranch
 		m.actionErr = nil
 	case "D":
-		if len(m.branches) == 0 {
+		if len(visible) == 0 {
 			break
 		}
-		b := m.branches[m.branchCursor]
+		b := visible[m.branchCursor]
 		if b.Upstream == "" {
 			m.actionErr = fmt.Errorf("branch %s has no remote tracking ref", b.Name)
 			break
@@ -3204,7 +3310,16 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirmPrompt = fmt.Sprintf("delete %s from remote %s?", remoteBranch, remote)
 		m.confirmCmd = m.doDeleteRemoteBranch(remote, remoteBranch)
 		m.panel = panelConfirm
+	case "/":
+		m.branchFiltering = true
+		m.branchFilterInput.Focus()
 	case "esc", m.cfg.Keybindings.Quit:
+		if m.branchFilter != "" {
+			m.branchFilter = ""
+			m.branchFilterInput.SetValue("")
+			m.branchCursor = 0
+			return m, nil
+		}
 		m.panel = panelMain
 	case "ctrl+c":
 		return m, tea.Quit
@@ -3723,20 +3838,37 @@ func (m model) updateRestorePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ---------------------------------------------------------------------------
 
 func (m model) updateReflogPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	visible := filterReflog(m.reflogEntries, m.reflogFilter)
+
+	if m.reflogFiltering {
+		switch msg.String() {
+		case "enter", "esc":
+			m.reflogFiltering = false
+			m.reflogFilterInput.Blur()
+		default:
+			var cmd tea.Cmd
+			m.reflogFilterInput, cmd = m.reflogFilterInput.Update(msg)
+			m.reflogFilter = m.reflogFilterInput.Value()
+			m.reflogCursor = 0
+			return m, cmd
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "up", "k":
 		if m.reflogCursor > 0 {
 			m.reflogCursor--
 		}
 	case "down", "j":
-		if m.reflogCursor < len(m.reflogEntries)-1 {
+		if m.reflogCursor < len(visible)-1 {
 			m.reflogCursor++
 		}
 	case "r":
-		if len(m.reflogEntries) == 0 {
+		if len(visible) == 0 {
 			break
 		}
-		e := m.reflogEntries[m.reflogCursor]
+		e := visible[m.reflogCursor]
 		hash := e.Hash
 		m.confirmPrompt = fmt.Sprintf("reset HEAD to %s (%s)?", hash, e.Ref)
 		m.confirmCmd = func() tea.Msg {
@@ -3751,10 +3883,19 @@ func (m model) updateReflogPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.panel = panelConfirm
 	case "y":
-		if len(m.reflogEntries) > 0 {
-			_ = writeClipboard(m.reflogEntries[m.reflogCursor].Hash)
+		if len(visible) > 0 {
+			_ = writeClipboard(visible[m.reflogCursor].Hash)
 		}
+	case "/":
+		m.reflogFiltering = true
+		m.reflogFilterInput.Focus()
 	case "esc", m.cfg.Keybindings.Quit:
+		if m.reflogFilter != "" {
+			m.reflogFilter = ""
+			m.reflogFilterInput.SetValue("")
+			m.reflogCursor = 0
+			return m, nil
+		}
 		m.panel = panelMain
 	case "ctrl+c":
 		return m, tea.Quit
@@ -4091,38 +4232,64 @@ func (m model) updatePushOptsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateStashListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	visible := filterStashes(m.stashes, m.stashFilter)
+
+	if m.stashFiltering {
+		switch msg.String() {
+		case "enter", "esc":
+			m.stashFiltering = false
+			m.stashFilterInput.Blur()
+		default:
+			var cmd tea.Cmd
+			m.stashFilterInput, cmd = m.stashFilterInput.Update(msg)
+			m.stashFilter = m.stashFilterInput.Value()
+			m.stashCursor = 0
+			return m, cmd
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "up", "k":
 		if m.stashCursor > 0 {
 			m.stashCursor--
 		}
 	case "down", "j":
-		if m.stashCursor < len(m.stashes)-1 {
+		if m.stashCursor < len(visible)-1 {
 			m.stashCursor++
 		}
 	case "enter":
-		if len(m.stashes) == 0 {
+		if len(visible) == 0 {
 			break
 		}
-		ref := m.stashes[m.stashCursor].Ref
+		ref := visible[m.stashCursor].Ref
 		m.panel = panelMain
 		return m, m.doStashPop(ref)
 	case "a":
-		if len(m.stashes) == 0 {
+		if len(visible) == 0 {
 			break
 		}
-		ref := m.stashes[m.stashCursor].Ref
+		ref := visible[m.stashCursor].Ref
 		m.panel = panelMain
 		return m, m.doStashApply(ref)
 	case "d":
-		if len(m.stashes) == 0 {
+		if len(visible) == 0 {
 			break
 		}
-		ref := m.stashes[m.stashCursor].Ref
+		ref := visible[m.stashCursor].Ref
 		m.confirmPrompt = fmt.Sprintf("drop %s? this cannot be undone", ref)
 		m.confirmCmd = m.doStashDrop(ref)
 		m.panel = panelConfirm
+	case "/":
+		m.stashFiltering = true
+		m.stashFilterInput.Focus()
 	case "esc", m.cfg.Keybindings.Quit:
+		if m.stashFilter != "" {
+			m.stashFilter = ""
+			m.stashFilterInput.SetValue("")
+			m.stashCursor = 0
+			return m, nil
+		}
 		m.panel = panelMain
 	case "ctrl+c":
 		return m, tea.Quit
@@ -4373,13 +4540,30 @@ func (m model) updateResetPickPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateTagListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	visible := filterTags(m.tags, m.tagFilter)
+
+	if m.tagFiltering {
+		switch msg.String() {
+		case "enter", "esc":
+			m.tagFiltering = false
+			m.tagFilterInput.Blur()
+		default:
+			var cmd tea.Cmd
+			m.tagFilterInput, cmd = m.tagFilterInput.Update(msg)
+			m.tagFilter = m.tagFilterInput.Value()
+			m.tagCursor = 0
+			return m, cmd
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "up", "k":
 		if m.tagCursor > 0 {
 			m.tagCursor--
 		}
 	case "down", "j":
-		if m.tagCursor < len(m.tags)-1 {
+		if m.tagCursor < len(visible)-1 {
 			m.tagCursor++
 		}
 	case "n":
@@ -4392,22 +4576,31 @@ func (m model) updateTagListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.panel = panelTagCreate
 		m.actionErr = nil
 	case "d":
-		if len(m.tags) == 0 {
+		if len(visible) == 0 {
 			break
 		}
-		tag := m.tags[m.tagCursor]
+		tag := visible[m.tagCursor]
 		m.confirmPrompt = fmt.Sprintf("delete tag %s?", tag.Name)
 		m.confirmCmd = m.doDeleteTag(tag.Name)
 		m.panel = panelConfirm
 	case "p":
-		if len(m.tags) == 0 {
+		if len(visible) == 0 {
 			break
 		}
-		tag := m.tags[m.tagCursor]
+		tag := visible[m.tagCursor]
 		m.confirmPrompt = fmt.Sprintf("push tag %s to origin?", tag.Name)
 		m.confirmCmd = m.doPushTag("origin", tag.Name)
 		m.panel = panelConfirm
+	case "/":
+		m.tagFiltering = true
+		m.tagFilterInput.Focus()
 	case "esc", m.cfg.Keybindings.Quit:
+		if m.tagFilter != "" {
+			m.tagFilter = ""
+			m.tagFilterInput.SetValue("")
+			m.tagCursor = 0
+			return m, nil
+		}
 		m.panel = panelMain
 	case "ctrl+c":
 		return m, tea.Quit
@@ -4942,21 +5135,54 @@ func (m model) conventionView() string {
 }
 
 func (m model) branchListView() string {
+	visible := filterBranches(m.branches, m.branchFilter)
 	var b strings.Builder
 	b.WriteString("\n")
 
 	title := "Branches"
 	if len(m.branches) > 0 {
-		title = fmt.Sprintf("Branches (%d)", len(m.branches))
+		if m.branchFilter != "" {
+			title = fmt.Sprintf("Branches (%d/%d)", len(visible), len(m.branches))
+		} else {
+			title = fmt.Sprintf("Branches (%d)", len(m.branches))
+		}
+	}
+	if m.branchFilter != "" {
+		title += "  " + styleCmd.Render("["+m.branchFilter+"]")
 	}
 	b.WriteString("  " + styleSection.Render(title) + "\n\n")
 
+	if m.branchFiltering {
+		b.WriteString("  " + styleDim.Render("/") + " " + m.branchFilterInput.View() + "\n\n")
+	}
+
 	if m.branches == nil {
 		b.WriteString("  " + styleDim.Render("loading...") + "\n")
-	} else if len(m.branches) == 0 {
-		b.WriteString("  " + styleDim.Render("no branches found") + "\n")
+	} else if len(visible) == 0 {
+		if m.branchFilter != "" {
+			b.WriteString("  " + styleDim.Render("no branches matched - press esc to clear") + "\n")
+		} else {
+			b.WriteString("  " + styleDim.Render("no branches found") + "\n")
+		}
 	} else {
-		for i, br := range m.branches {
+		overhead := 6
+		if m.branchFiltering {
+			overhead += 2
+		}
+		visibleLines := m.height - overhead
+		if visibleLines < 1 {
+			visibleLines = 1
+		}
+		start := 0
+		if m.branchCursor >= visibleLines {
+			start = m.branchCursor - visibleLines + 1
+		}
+		end := start + visibleLines
+		if end > len(visible) {
+			end = len(visible)
+		}
+		for i := start; i < end; i++ {
+			br := visible[i]
 			cursor := "  "
 			if m.branchCursor == i {
 				cursor = styleSelected.Render("> ")
@@ -4980,7 +5206,7 @@ func (m model) branchListView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [enter] switch  [m] merge  [r] rebase  [d] delete  [n] rename  [D] delete remote  [esc] back") + "\n"
+	return content + styleDim.Render("  [enter] switch  [m] merge  [r] rebase  [d] delete  [n] rename  [D] delete remote  [/] search  [esc] back") + "\n"
 }
 
 func (m model) confirmView() string {
@@ -5072,21 +5298,37 @@ func (m model) helpView() string {
 }
 
 func (m model) stashListView() string {
+	visible := filterStashes(m.stashes, m.stashFilter)
 	var b strings.Builder
 	b.WriteString("\n")
 
 	title := "Stashes"
 	if len(m.stashes) > 0 {
-		title = fmt.Sprintf("Stashes (%d)", len(m.stashes))
+		if m.stashFilter != "" {
+			title = fmt.Sprintf("Stashes (%d/%d)", len(visible), len(m.stashes))
+		} else {
+			title = fmt.Sprintf("Stashes (%d)", len(m.stashes))
+		}
+	}
+	if m.stashFilter != "" {
+		title += "  " + styleCmd.Render("["+m.stashFilter+"]")
 	}
 	b.WriteString("  " + styleSection.Render(title) + "\n\n")
 
+	if m.stashFiltering {
+		b.WriteString("  " + styleDim.Render("/") + " " + m.stashFilterInput.View() + "\n\n")
+	}
+
 	if m.stashes == nil {
 		b.WriteString("  " + styleDim.Render("loading...") + "\n")
-	} else if len(m.stashes) == 0 {
-		b.WriteString("  " + styleDim.Render("no stashes") + "\n")
+	} else if len(visible) == 0 {
+		if m.stashFilter != "" {
+			b.WriteString("  " + styleDim.Render("no stashes matched - press esc to clear") + "\n")
+		} else {
+			b.WriteString("  " + styleDim.Render("no stashes") + "\n")
+		}
 	} else {
-		for i, st := range m.stashes {
+		for i, st := range visible {
 			cursor := "  "
 			if m.stashCursor == i {
 				cursor = styleSelected.Render("> ")
@@ -5103,7 +5345,7 @@ func (m model) stashListView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [enter] pop  [a] apply  [d] drop  [esc] back") + "\n"
+	return content + styleDim.Render("  [enter] pop  [a] apply  [d] drop  [/] search  [esc] back") + "\n"
 }
 
 func (m model) diffView() string {
@@ -5145,6 +5387,8 @@ func renderDiffLine(line string) string {
 	case strings.HasPrefix(line, "+"):
 		return "  " + styleStaged.Render(line)
 	case strings.HasPrefix(line, "-"):
+		return "  " + styleChanged.Render(line)
+	case strings.HasPrefix(line, "Binary files"), strings.HasPrefix(line, "GIT binary patch"):
 		return "  " + styleChanged.Render(line)
 	default:
 		return "  " + styleDim.Render(line)
@@ -5305,10 +5549,11 @@ func (m model) logView() string {
 		}
 		for i := start; i < end; i++ {
 			e := m.logEntries[i]
+			badge := sigBadge(e.Sig)
 			if m.logCursor == i {
-				b.WriteString("  " + styleSelected.Render(">") + " " + styleDim.Render(e.Line) + "\n")
+				b.WriteString("  " + styleSelected.Render(">") + " " + badge + styleDim.Render(e.Line) + "\n")
 			} else {
-				b.WriteString("    " + styleDim.Render(e.Line) + "\n")
+				b.WriteString("    " + badge + styleDim.Render(e.Line) + "\n")
 			}
 		}
 		if m.logHasMore && m.logFilter == "" {
@@ -5518,21 +5763,37 @@ func (m model) resetPickView() string {
 }
 
 func (m model) tagListView() string {
+	visible := filterTags(m.tags, m.tagFilter)
 	var b strings.Builder
 	b.WriteString("\n")
 
 	title := "Tags"
 	if len(m.tags) > 0 {
-		title = fmt.Sprintf("Tags (%d)", len(m.tags))
+		if m.tagFilter != "" {
+			title = fmt.Sprintf("Tags (%d/%d)", len(visible), len(m.tags))
+		} else {
+			title = fmt.Sprintf("Tags (%d)", len(m.tags))
+		}
+	}
+	if m.tagFilter != "" {
+		title += "  " + styleCmd.Render("["+m.tagFilter+"]")
 	}
 	b.WriteString("  " + styleSection.Render(title) + "\n\n")
 
+	if m.tagFiltering {
+		b.WriteString("  " + styleDim.Render("/") + " " + m.tagFilterInput.View() + "\n\n")
+	}
+
 	if m.tags == nil {
 		b.WriteString("  " + styleDim.Render("loading...") + "\n")
-	} else if len(m.tags) == 0 {
-		b.WriteString("  " + styleDim.Render("no tags found") + "\n")
+	} else if len(visible) == 0 {
+		if m.tagFilter != "" {
+			b.WriteString("  " + styleDim.Render("no tags matched - press esc to clear") + "\n")
+		} else {
+			b.WriteString("  " + styleDim.Render("no tags found") + "\n")
+		}
 	} else {
-		for i, tag := range m.tags {
+		for i, tag := range visible {
 			cursor := "  "
 			if m.tagCursor == i {
 				cursor = styleSelected.Render("> ")
@@ -5547,7 +5808,7 @@ func (m model) tagListView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [n] new tag  [d] delete  [esc] back") + "\n"
+	return content + styleDim.Render("  [n] new tag  [d] delete  [p] push  [/] search  [esc] back") + "\n"
 }
 
 func (m model) tagCreateView() string {
@@ -6171,33 +6432,54 @@ func (m model) restoreView() string {
 }
 
 func (m model) reflogView() string {
-	title := styleTitle.Render("Reflog")
+	visible := filterReflog(m.reflogEntries, m.reflogFilter)
+	titleStr := "Reflog"
+	if m.reflogFilter != "" {
+		titleStr = fmt.Sprintf("Reflog (%d/%d)  %s", len(visible), len(m.reflogEntries), styleCmd.Render("["+m.reflogFilter+"]"))
+	}
 	var b strings.Builder
-	b.WriteString("\n  " + title + "\n\n")
-	if len(m.reflogEntries) == 0 {
-		b.WriteString(styleDim.Render("  no reflog entries") + "\n")
+	b.WriteString("\n  " + styleTitle.Render(titleStr) + "\n\n")
+
+	if m.reflogFiltering {
+		b.WriteString("  " + styleDim.Render("/") + " " + m.reflogFilterInput.View() + "\n\n")
 	}
-	visibleLines := m.height - 6
-	start := 0
-	if m.reflogCursor >= visibleLines {
-		start = m.reflogCursor - visibleLines + 1
-	}
-	end := start + visibleLines
-	if end > len(m.reflogEntries) {
-		end = len(m.reflogEntries)
-	}
-	for i := start; i < end; i++ {
-		e := m.reflogEntries[i]
-		cursor := "  "
-		if i == m.reflogCursor {
-			cursor = styleSelected.Render("▶ ")
+
+	if len(visible) == 0 {
+		if m.reflogFilter != "" {
+			b.WriteString(styleDim.Render("  no entries matched - press esc to clear") + "\n")
+		} else {
+			b.WriteString(styleDim.Render("  no reflog entries") + "\n")
 		}
-		ref := styleDim.Render(e.Ref)
-		action := styleChanged.Render(e.Action)
-		b.WriteString(fmt.Sprintf("%s%s  %s  %s  %s\n", cursor, styleHash.Render(e.Hash), ref, action, e.Subject))
+	} else {
+		overhead := 6
+		if m.reflogFiltering {
+			overhead += 2
+		}
+		visibleLines := m.height - overhead
+		if visibleLines < 1 {
+			visibleLines = 1
+		}
+		start := 0
+		if m.reflogCursor >= visibleLines {
+			start = m.reflogCursor - visibleLines + 1
+		}
+		end := start + visibleLines
+		if end > len(visible) {
+			end = len(visible)
+		}
+		for i := start; i < end; i++ {
+			e := visible[i]
+			cursor := "  "
+			if i == m.reflogCursor {
+				cursor = styleSelected.Render("▶ ")
+			}
+			ref := styleDim.Render(e.Ref)
+			action := styleChanged.Render(e.Action)
+			b.WriteString(fmt.Sprintf("%s%s  %s  %s  %s\n", cursor, styleHash.Render(e.Hash), ref, action, e.Subject))
+		}
 	}
 	b.WriteString("\n")
-	b.WriteString(styleDim.Render("  [↑↓] scroll  [r] reset to  [y] copy hash  [esc] back") + "\n")
+	b.WriteString(styleDim.Render("  [↑↓] scroll  [r] reset to  [y] copy hash  [/] search  [esc] back") + "\n")
 	return b.String()
 }
 
@@ -7160,6 +7442,17 @@ func Run(cfg *config.Config, mdb *metrics.DB) error {
 	fi.Placeholder = "message text  |  author:name  |  since:2026-01-01  |  until:2026-03-01"
 	fi.CharLimit = 120
 
+	newFilter := func(placeholder string) textinput.Model {
+		ti := textinput.New()
+		ti.Placeholder = placeholder
+		ti.CharLimit = 80
+		return ti
+	}
+	branchFI := newFilter("branch name")
+	stashFI := newFilter("ref or description")
+	tagFI := newFilter("tag name")
+	reflogFI := newFilter("hash, ref, action or message")
+
 	usagePath, _ := config.UsageFilePath()
 	usageData, _ := usage.Load(usagePath)
 	if usageData == nil {
@@ -7177,13 +7470,17 @@ func Run(cfg *config.Config, mdb *metrics.DB) error {
 	prov := pr.Detect(remoteURL)
 
 	m := model{
-		cfg:            cfg,
-		git:            g,
-		logFilterInput: fi,
-		usage:          usageData,
-		usagePath:      usagePath,
-		prProvider:     prov,
-		mdb:            mdb,
+		cfg:               cfg,
+		git:               g,
+		logFilterInput:    fi,
+		branchFilterInput: branchFI,
+		stashFilterInput:  stashFI,
+		tagFilterInput:    tagFI,
+		reflogFilterInput: reflogFI,
+		usage:             usageData,
+		usagePath:         usagePath,
+		prProvider:        prov,
+		mdb:               mdb,
 	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
