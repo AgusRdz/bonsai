@@ -27,6 +27,7 @@ const (
 	panelBranch
 	panelConvention
 	panelLog
+	panelBranchList
 )
 
 type branchMode int
@@ -61,6 +62,8 @@ type model struct {
 	convPanelShown bool // panel already shown for current branch violation
 	logEntries     []git.LogEntry
 	logCursor      int
+	branches       []git.Branch
+	branchCursor   int
 	edu            *educationPanel
 	eduTimer       int
 	width          int
@@ -82,6 +85,7 @@ type actionDoneMsg struct {
 	err error
 }
 type logMsg []git.LogEntry
+type branchListMsg []git.Branch
 
 // --- commands ---
 
@@ -172,6 +176,27 @@ func (m model) doFetchLog() tea.Cmd {
 	}
 }
 
+func (m model) doSwitch(name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.Switch(ctx, name)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doFetchBranches() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		branches, err := m.git.Branches(ctx)
+		if err != nil || branches == nil {
+			return branchListMsg([]git.Branch{})
+		}
+		return branchListMsg(branches)
+	}
+}
+
 // --- init ---
 
 func (m model) Init() tea.Cmd {
@@ -222,6 +247,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logCursor = 0
 		m.panel = panelLog
 
+	case branchListMsg:
+		m.branches = []git.Branch(msg)
+		m.branchCursor = 0
+		for i, b := range m.branches {
+			if b.Current {
+				m.branchCursor = i
+				break
+			}
+		}
+		m.panel = panelBranchList
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -262,6 +298,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelLog {
 			return m.updateLogPanel(msg)
+		}
+		if m.panel == panelBranchList {
+			return m.updateBranchListPanel(msg)
 		}
 		return m.updateMainPanel(msg)
 	}
@@ -352,6 +391,12 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.logCursor = 0
 		m.panel = panelLog
 		return m, m.doFetchLog()
+
+	case "B":
+		m.branches = nil
+		m.branchCursor = 0
+		m.panel = panelBranchList
+		return m, m.doFetchBranches()
 	}
 
 	return m, nil
@@ -468,6 +513,35 @@ func (m model) updateLogPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.branchCursor > 0 {
+			m.branchCursor--
+		}
+	case "down", "j":
+		if m.branchCursor < len(m.branches)-1 {
+			m.branchCursor++
+		}
+	case "enter":
+		if len(m.branches) == 0 {
+			break
+		}
+		b := m.branches[m.branchCursor]
+		if b.Current {
+			m.panel = panelMain
+			return m, nil
+		}
+		m.panel = panelMain
+		return m, m.doSwitch(b.Name)
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 // --- view ---
 
 func (m model) View() string {
@@ -492,6 +566,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelLog {
 		return m.logView()
+	}
+	if m.panel == panelBranchList {
+		return m.branchListView()
 	}
 	return m.mainView()
 }
@@ -701,6 +778,45 @@ func (m model) conventionView() string {
 	return content + styleDim.Render("  [r] rename branch  [enter] dismiss") + "\n"
 }
 
+func (m model) branchListView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+
+	title := "Branches"
+	if len(m.branches) > 0 {
+		title = fmt.Sprintf("Branches (%d)", len(m.branches))
+	}
+	b.WriteString("  " + styleSection.Render(title) + "\n\n")
+
+	if m.branches == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+	} else if len(m.branches) == 0 {
+		b.WriteString("  " + styleDim.Render("no branches found") + "\n")
+	} else {
+		for i, br := range m.branches {
+			cursor := "  "
+			if m.branchCursor == i {
+				cursor = styleSelected.Render("> ")
+			}
+			var name string
+			if br.Current {
+				name = styleBranch.Render(" "+br.Name+" ") + "  " + styleDim.Render("current")
+			} else {
+				name = styleDim.Render(br.Name)
+			}
+			b.WriteString(cursor + "  " + name + "\n")
+		}
+	}
+	b.WriteString("\n")
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [enter] switch  [esc] cancel") + "\n"
+}
+
 func (m model) logView() string {
 	var b strings.Builder
 	b.WriteString("\n")
@@ -742,6 +858,7 @@ func (m model) commandBar() string {
 		fmt.Sprintf("[%s] push", kb.Push),
 		"[P] pull",
 		"[b] branch",
+		"[B] switch",
 		"[l] log",
 		"[space] stage/unstage",
 		"[↑↓] navigate",
