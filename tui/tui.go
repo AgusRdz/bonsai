@@ -165,6 +165,7 @@ type model struct {
 	err                error  // startup/refresh error
 	actionErr          error  // error from last action
 	lastCmd            string // last git command run
+	lastInfo           string // human-readable result of last action
 	pushing            bool
 	pulling            bool
 	blameLines         []git.BlameLine
@@ -281,8 +282,9 @@ type model struct {
 type statusMsg *git.Status
 type errMsg struct{ err error }
 type actionDoneMsg struct {
-	cmd string
-	err error
+	cmd  string
+	err  error
+	info string // optional human-readable summary shown in the footer
 }
 type branchListMsg []git.Branch
 
@@ -580,29 +582,59 @@ func (m model) doRename(name string) tea.Cmd {
 }
 
 func (m model) doPull() tea.Cmd {
+	behind := 0
+	if m.status != nil {
+		behind = m.status.Behind
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 		defer cancel()
 		err := m.git.Pull(ctx)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			if behind > 0 {
+				info = fmt.Sprintf("pulled %d new commit(s) from remote", behind)
+			} else {
+				info = "already up to date"
+			}
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
 func (m model) doPullRebase() tea.Cmd {
+	ahead, behind := 0, 0
+	if m.status != nil {
+		ahead = m.status.Ahead
+		behind = m.status.Behind
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 		defer cancel()
 		err := m.git.PullRebase(ctx)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = fmt.Sprintf("rebased %d local commit(s) on top of %d remote commit(s)", ahead, behind)
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
 func (m model) doPullMerge() tea.Cmd {
+	ahead, behind := 0, 0
+	if m.status != nil {
+		ahead = m.status.Ahead
+		behind = m.status.Behind
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 		defer cancel()
 		err := m.git.PullMerge(ctx)
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		var info string
+		if err == nil {
+			info = fmt.Sprintf("merged %d remote commit(s) into %d local commit(s)", behind, ahead)
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
 	}
 }
 
@@ -1673,6 +1705,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pulling = false
 		m.lastCmd = msg.cmd
 		m.actionErr = msg.err
+		m.lastInfo = msg.info
 
 		var baseCmds []tea.Cmd
 		baseCmds = append(baseCmds, m.fetchStatus())
@@ -2075,6 +2108,7 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.actionErr = nil
+		m.lastInfo = ""
 		if m.status != nil && m.status.Ahead > 0 && m.status.Behind > 0 {
 			m.panel = panelDiverged
 			break
@@ -4058,6 +4092,8 @@ func (m model) mainView() string {
 
 	if m.actionErr != nil {
 		b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n")
+	} else if m.lastInfo != "" {
+		b.WriteString("  " + styleStaged.Render("✓ "+m.lastInfo) + "\n")
 	} else if m.lastCmd != "" {
 		b.WriteString("  " + styleDim.Render("$ "+m.lastCmd) + "\n")
 	} else if m.convViolation != nil && m.cfg.Conventions.Validation.Mode == "warn" {
@@ -6192,11 +6228,13 @@ func (m model) updateDivergedPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.panel = panelMain
 		m.pulling = true
 		m.actionErr = nil
+		m.lastInfo = ""
 		return m, m.doPullRebase()
 	case "m", "M":
 		m.panel = panelMain
 		m.pulling = true
 		m.actionErr = nil
+		m.lastInfo = ""
 		return m, m.doPullMerge()
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
