@@ -746,6 +746,55 @@ func (r *Runner) BisectLog(ctx context.Context) (string, error) {
 	return string(out), nil
 }
 
+// RebaseInteractiveCommits returns the commits that would appear in the
+// interactive rebase todo for the given base ref (e.g. "HEAD~3").
+// Returns commits in rebase order: oldest first (bottom to top in log).
+func (r *Runner) RebaseInteractiveCommits(ctx context.Context, base string) ([]string, error) {
+	out, err := r.run(ctx, "log", "--oneline", "--no-decorate", base+"..HEAD")
+	if err != nil {
+		return nil, err
+	}
+	raw := strings.TrimSpace(string(out))
+	if raw == "" {
+		return nil, nil
+	}
+	lines := strings.Split(raw, "\n")
+	// git log gives newest-first; rebase todo is oldest-first, so reverse.
+	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
+		lines[i], lines[j] = lines[j], lines[i]
+	}
+	return lines, nil
+}
+
+// RebaseInteractive executes an interactive rebase using the provided todo lines.
+// Each todo line is like "pick abc1234 commit message" or "drop abc1234 commit message".
+// base is the ref passed to git rebase -i (e.g. "HEAD~3").
+func (r *Runner) RebaseInteractive(ctx context.Context, base string, todoLines []string) error {
+	tmpFile, err := os.CreateTemp("", "bonsai-rebase-*.txt")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(strings.Join(todoLines, "\n") + "\n"); err != nil {
+		tmpFile.Close()
+		return err
+	}
+	tmpFile.Close()
+
+	cmd := exec.CommandContext(ctx, "git", "rebase", "-i", base)
+	cmd.Env = append(os.Environ(), "GIT_SEQUENCE_EDITOR=cp "+tmpFile.Name())
+	out, err := cmd.CombinedOutput()
+	r.lastCmd = "git rebase -i " + base
+	if err != nil {
+		if len(out) > 0 {
+			return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+		}
+		return err
+	}
+	return nil
+}
+
 // Merge merges branch into the current branch.
 func (r *Runner) Merge(ctx context.Context, branch string) error {
 	_, err := r.run(ctx, "merge", branch)

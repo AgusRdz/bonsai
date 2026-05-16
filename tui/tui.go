@@ -42,6 +42,7 @@ const (
 	panelWorktreeAdd
 	panelBlame
 	panelBisect
+	panelRebaseInteractive
 )
 
 type branchMode int
@@ -54,6 +55,12 @@ const (
 type fileItem struct {
 	entry    git.FileEntry
 	category int // catStaged | catChanged | catUntracked
+}
+
+type rebaseTodo struct {
+	action string // "pick", "reword", "edit", "squash", "fixup", "drop"
+	hash   string // abbreviated commit hash
+	msg    string // commit subject
 }
 
 const (
@@ -119,6 +126,11 @@ type model struct {
 	bisectLog          string
 	bisectInput        textinput.Model
 	bisectInputActive  bool
+	rebaseTodos        []rebaseTodo
+	rebaseCursor       int
+	rebaseBase         string          // e.g. "HEAD~3"
+	rebaseBaseInput    textinput.Model // input for entering the base ref
+	rebaseStep         int             // 0 = enter base ref, 1 = edit todo list
 }
 
 // --- messages ---
@@ -163,6 +175,11 @@ type bisectLogMsg string
 type bisectActionMsg struct {
 	cmd string
 	err error
+}
+
+type rebaseTodosMsg struct {
+	base  string
+	lines []string // raw "hash message" lines from git log, oldest-first
 }
 
 // --- commands ---
@@ -623,6 +640,33 @@ func (m model) doBisectReset() tea.Cmd {
 	}
 }
 
+func (m model) doFetchRebaseTodos(base string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		lines, err := m.git.RebaseInteractiveCommits(ctx, base)
+		if err != nil {
+			return rebaseTodosMsg{base: base, lines: nil}
+		}
+		return rebaseTodosMsg{base: base, lines: lines}
+	}
+}
+
+func (m model) doRebaseInteractive() tea.Cmd {
+	todos := m.rebaseTodos
+	base := m.rebaseBase
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		todoLines := make([]string, len(todos))
+		for i, todo := range todos {
+			todoLines[i] = fmt.Sprintf("%s %s %s", todo.action, todo.hash, todo.msg)
+		}
+		err := m.git.RebaseInteractive(ctx, base, todoLines)
+		return actionDoneMsg{cmd: "git rebase -i " + base, err: err}
+	}
+}
+
 // --- init ---
 
 func (m model) Init() tea.Cmd {
@@ -742,6 +786,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.actionErr = msg.err
 		return m, tea.Batch(m.fetchStatus(), m.doFetchBisectState(), m.doFetchBisectLog())
 
+	case rebaseTodosMsg:
+		m.rebaseBase = msg.base
+		m.rebaseTodos = nil
+		for _, line := range msg.lines {
+			// each line: "abc1234 commit message here"
+			parts := strings.SplitN(line, " ", 2)
+			if len(parts) == 2 {
+				m.rebaseTodos = append(m.rebaseTodos, rebaseTodo{
+					action: "pick",
+					hash:   parts[0],
+					msg:    parts[1],
+				})
+			}
+		}
+		if len(m.rebaseTodos) > 0 {
+			m.rebaseCursor = 0
+			m.rebaseStep = 1
+		} else {
+			m.actionErr = fmt.Errorf("no commits found for base %q", msg.base)
+		}
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -782,6 +847,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.bisectInput, cmd = m.bisectInput.Update(msg)
 			return m, cmd
+		}
+		if m.panel == panelRebaseInteractive && m.rebaseStep == 0 {
+			switch msg.String() {
+			case "enter", "esc", "ctrl+c":
+				// fall through to updateRebaseInteractivePanel
+			default:
+				var cmd tea.Cmd
+				m.rebaseBaseInput, cmd = m.rebaseBaseInput.Update(msg)
+				return m, cmd
+			}
 		}
 		if m.panel == panelEducation {
 			return m.updateEduPanel(msg)
@@ -842,6 +917,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelBisect {
 			return m.updateBisectPanel(msg)
+		}
+		if m.panel == panelRebaseInteractive {
+			return m.updateRebaseInteractivePanel(msg)
 		}
 		return m.updateMainPanel(msg)
 	}
@@ -1082,6 +1160,19 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.bisectInputActive = false
 		m.actionErr = nil
 		return m, tea.Batch(m.doFetchBisectState(), m.doFetchBisectLog())
+
+	case "R":
+		ti := textinput.New()
+		ti.Placeholder = "HEAD~3  or  abc1234  (commits to include)"
+		ti.Focus()
+		ti.CharLimit = 64
+		ti.Width = m.width - 6
+		m.rebaseBaseInput = ti
+		m.rebaseStep = 0
+		m.rebaseTodos = nil
+		m.rebaseCursor = 0
+		m.panel = panelRebaseInteractive
+		m.actionErr = nil
 	}
 
 	return m, nil
@@ -1510,6 +1601,78 @@ func (m model) updateBisectPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateRebaseInteractivePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.rebaseStep == 0 {
+		switch msg.String() {
+		case "enter":
+			base := strings.TrimSpace(m.rebaseBaseInput.Value())
+			if base == "" {
+				break
+			}
+			return m, m.doFetchRebaseTodos(base)
+		case "esc":
+			m.panel = panelMain
+		case "ctrl+c":
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
+	// rebaseStep == 1: editing todo list
+	switch msg.String() {
+	case "up", "k":
+		if m.rebaseCursor > 0 {
+			m.rebaseCursor--
+		}
+	case "down", "j":
+		if m.rebaseCursor < len(m.rebaseTodos)-1 {
+			m.rebaseCursor++
+		}
+	case "K":
+		if m.rebaseCursor > 0 {
+			m.rebaseTodos[m.rebaseCursor], m.rebaseTodos[m.rebaseCursor-1] = m.rebaseTodos[m.rebaseCursor-1], m.rebaseTodos[m.rebaseCursor]
+			m.rebaseCursor--
+		}
+	case "J":
+		if m.rebaseCursor < len(m.rebaseTodos)-1 {
+			m.rebaseTodos[m.rebaseCursor], m.rebaseTodos[m.rebaseCursor+1] = m.rebaseTodos[m.rebaseCursor+1], m.rebaseTodos[m.rebaseCursor]
+			m.rebaseCursor++
+		}
+	case "p":
+		if len(m.rebaseTodos) > 0 {
+			m.rebaseTodos[m.rebaseCursor].action = "pick"
+		}
+	case "r":
+		if len(m.rebaseTodos) > 0 {
+			m.rebaseTodos[m.rebaseCursor].action = "reword"
+		}
+	case "e":
+		if len(m.rebaseTodos) > 0 {
+			m.rebaseTodos[m.rebaseCursor].action = "edit"
+		}
+	case "s":
+		if len(m.rebaseTodos) > 0 {
+			m.rebaseTodos[m.rebaseCursor].action = "squash"
+		}
+	case "f":
+		if len(m.rebaseTodos) > 0 {
+			m.rebaseTodos[m.rebaseCursor].action = "fixup"
+		}
+	case "d":
+		if len(m.rebaseTodos) > 0 {
+			m.rebaseTodos[m.rebaseCursor].action = "drop"
+		}
+	case "enter":
+		m.panel = panelMain
+		return m, m.doRebaseInteractive()
+	case "esc":
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 func (m model) updateStashListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up", "k":
@@ -1869,6 +2032,9 @@ func (m model) View() string {
 	if m.panel == panelBisect {
 		return m.bisectView()
 	}
+	if m.panel == panelRebaseInteractive {
+		return m.rebaseInteractiveView()
+	}
 	return m.mainView()
 }
 
@@ -2208,6 +2374,7 @@ func (m model) helpView() string {
 	row("P", "pull from remote")
 	row("s", "stash all changes")
 	row("S", "view stash list and pop")
+	row("R", "interactive rebase (reorder, squash, drop commits)")
 	b.WriteString("\n")
 
 	section("Branches")
@@ -2864,6 +3031,67 @@ func (m model) bisectView() string {
 		bar = "  [s] start  [esc] back"
 	}
 	return content + styleDim.Render(bar) + "\n"
+}
+
+func (m model) rebaseInteractiveView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+
+	if m.rebaseStep == 0 {
+		b.WriteString("  " + styleSection.Render("Interactive Rebase") + "\n\n")
+		b.WriteString("  " + styleDim.Render("Enter the base ref - commits from BASE to HEAD will be included.") + "\n")
+		b.WriteString("  " + styleDim.Render("Examples: HEAD~3  |  HEAD~10  |  abc1234") + "\n\n")
+		b.WriteString("  " + m.rebaseBaseInput.View() + "\n\n")
+
+		if m.actionErr != nil {
+			b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n\n")
+		}
+
+		content := b.String()
+		lines := strings.Count(content, "\n")
+		if pad := m.height - lines - 1; pad > 0 {
+			content += strings.Repeat("\n", pad)
+		}
+		return content + styleDim.Render("  [enter] load commits  [esc] cancel") + "\n"
+	}
+
+	// rebaseStep == 1: editing todo list
+	title := fmt.Sprintf("Interactive Rebase  (%d commits, base: %s)", len(m.rebaseTodos), m.rebaseBase)
+	b.WriteString("  " + styleSection.Render(title) + "\n\n")
+
+	for i, todo := range m.rebaseTodos {
+		cursor := "  "
+		if m.rebaseCursor == i {
+			cursor = styleSelected.Render("> ")
+		}
+		var actionStyled string
+		switch todo.action {
+		case "pick":
+			actionStyled = styleStaged.Render(fmt.Sprintf("%-6s", todo.action))
+		case "drop":
+			actionStyled = styleChanged.Render(fmt.Sprintf("%-6s", todo.action))
+		case "squash", "fixup":
+			actionStyled = styleUntracked.Render(fmt.Sprintf("%-6s", todo.action))
+		default: // reword, edit
+			actionStyled = styleCmd.Render(fmt.Sprintf("%-6s", todo.action))
+		}
+		b.WriteString(cursor + "  " + actionStyled + "  " + styleCmd.Render(todo.hash) + "  " + styleDim.Render(todo.msg) + "\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString("  " + styleDim.Render("actions: [p]ick  [r]eword  [e]dit  [s]quash  [f]ixup  [d]rop") + "\n")
+	b.WriteString("           " + styleDim.Render("[K] move up  [J] move down") + "\n\n")
+
+	if m.actionErr != nil {
+		b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n\n")
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [enter] execute rebase  [esc] cancel") + "\n"
 }
 
 func contextTip(m model) string {
