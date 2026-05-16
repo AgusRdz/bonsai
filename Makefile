@@ -1,4 +1,4 @@
-.PHONY: build test clean cross install keygen changelog release release-patch release-minor release-major
+.PHONY: build test lint clean cross install keygen install-hooks changelog release release-patch release-minor release-major
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
@@ -12,6 +12,14 @@ test:
 coverage:
 	docker compose run --rm dev go test -coverprofile=coverage.out ./...
 	docker compose run --rm dev go tool cover -func=coverage.out
+
+lint:
+	docker compose run --rm dev sh -c "go vet ./... && golangci-lint run ./..."
+
+install-hooks:
+	cp scripts/pre-commit.sh .git/hooks/pre-commit
+	chmod +x .git/hooks/pre-commit
+	@echo "pre-commit hook installed — runs 'make lint' before every commit"
 
 clean:
 	rm -rf bin/
