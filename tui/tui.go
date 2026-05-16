@@ -11,6 +11,7 @@ import (
 	"github.com/AgusRdz/bonsai/config"
 	"github.com/AgusRdz/bonsai/conventions"
 	"github.com/AgusRdz/bonsai/git"
+	"github.com/AgusRdz/bonsai/metrics"
 	"github.com/AgusRdz/bonsai/pr"
 	"github.com/AgusRdz/bonsai/usage"
 	"github.com/atotto/clipboard"
@@ -91,6 +92,94 @@ type rebaseTodo struct {
 	msg    string // commit subject
 }
 
+// conflictPart is one segment of a conflict file: either a block of context
+// lines or a conflict hunk (ours vs theirs).
+type conflictPart struct {
+	context []string // non-nil for context segments
+	ours    []string // non-nil for conflict segments
+	theirs  []string
+}
+
+func (p conflictPart) isConflict() bool { return p.ours != nil }
+
+const (
+	hunkUnresolved = 0
+	hunkOurs       = 1
+	hunkTheirs     = 2
+	hunkBoth       = 3
+)
+
+// parseConflictFile splits lines into context and conflict segments.
+func parseConflictFile(lines []string) []conflictPart {
+	var parts []conflictPart
+	var ctx []string
+	state := 0 // 0=context, 1=in-ours, 2=in-theirs
+	var ours, theirs []string
+	for _, line := range lines {
+		switch {
+		case state == 0 && strings.HasPrefix(line, "<<<<<<<"):
+			if len(ctx) > 0 {
+				parts = append(parts, conflictPart{context: ctx})
+				ctx = nil
+			}
+			ours = nil
+			theirs = nil
+			state = 1
+		case state == 1 && strings.HasPrefix(line, "======="):
+			state = 2
+		case state == 2 && strings.HasPrefix(line, ">>>>>>>"):
+			parts = append(parts, conflictPart{ours: ours, theirs: theirs})
+			ours = nil
+			theirs = nil
+			state = 0
+		case state == 1:
+			ours = append(ours, line)
+		case state == 2:
+			theirs = append(theirs, line)
+		default:
+			ctx = append(ctx, line)
+		}
+	}
+	if len(ctx) > 0 {
+		parts = append(parts, conflictPart{context: ctx})
+	}
+	return parts
+}
+
+// resolveConflictFile rebuilds file content from parts and per-hunk resolutions.
+func resolveConflictFile(parts []conflictPart, res []int) []string {
+	var out []string
+	hi := 0
+	for _, p := range parts {
+		if !p.isConflict() {
+			out = append(out, p.context...)
+			continue
+		}
+		r := hunkUnresolved
+		if hi < len(res) {
+			r = res[hi]
+		}
+		hi++
+		switch r {
+		case hunkOurs:
+			out = append(out, p.ours...)
+		case hunkTheirs:
+			out = append(out, p.theirs...)
+		case hunkBoth:
+			out = append(out, p.ours...)
+			out = append(out, p.theirs...)
+		default:
+			// Keep raw markers for unresolved hunks.
+			out = append(out, "<<<<<<< (yours)")
+			out = append(out, p.ours...)
+			out = append(out, "=======")
+			out = append(out, p.theirs...)
+			out = append(out, ">>>>>>> (incoming)")
+		}
+	}
+	return out
+}
+
 type configSection int
 
 const (
@@ -155,6 +244,9 @@ type model struct {
 	conflictPath       string
 	conflictLines      []string
 	conflictScroll     int
+	conflictParts      []conflictPart
+	conflictHunkCursor int
+	conflictHunkRes    []int // parallel to conflict-only parts; hunkUnresolved/Ours/Theirs/Both
 	tags               []git.TagEntry
 	tagCursor          int
 	worktrees          []git.WorktreeEntry
@@ -277,6 +369,9 @@ type model struct {
 
 	cmdBarCursor  int
 	cmdBarEnabled []bool // parallel to cmdBarCatalog; initialized on panel open
+
+	// metrics (nil when disabled)
+	mdb *metrics.DB
 
 	// pr integration
 	prProvider   pr.Provider
@@ -1687,6 +1782,10 @@ func (m model) doNoteRemove(commit string) tea.Cmd {
 // --- init ---
 
 func (m model) Init() tea.Cmd {
+	if m.mdb != nil && m.cfg.Metrics.Track.Habits {
+		repo, _ := os.Getwd()
+		_ = m.mdb.RecordHabit(repo)
+	}
 	return tea.Batch(m.fetchStatus(), textinput.Blink)
 }
 
@@ -1720,6 +1819,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.convViolation = &result
 				m.convPanelShown = true
 				m.panel = panelConvention
+				if m.mdb != nil && m.cfg.Metrics.Track.Conventions {
+					repo, _ := os.Getwd()
+					rule := ""
+					if len(result.Rules) > 0 {
+						rule = result.Rules[0].Name
+					}
+					_ = m.mdb.RecordViolation(repo, msg.Branch, rule)
+				}
 			} else {
 				m.convViolation = nil
 			}
@@ -1788,6 +1895,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.conflictPath = msg.path
 		m.conflictLines = msg.lines
 		m.conflictScroll = 0
+		parts := parseConflictFile(msg.lines)
+		m.conflictParts = parts
+		m.conflictHunkCursor = 0
+		// Count conflict-only parts for the resolution slice.
+		nHunks := 0
+		for _, p := range parts {
+			if p.isConflict() {
+				nHunks++
+			}
+		}
+		m.conflictHunkRes = make([]int, nHunks)
 		m.panel = panelConflict
 
 	case tagListMsg:
@@ -1941,6 +2059,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastCmd = msg.cmd
 		m.actionErr = msg.err
 		m.lastInfo = msg.info
+
+		// Metrics tracking (best-effort, never block the TUI).
+		if m.mdb != nil {
+			repo, _ := os.Getwd()
+			if msg.err != nil && m.cfg.Metrics.Track.Errors {
+				_ = m.mdb.RecordError(msg.cmd, msg.err.Error(), "")
+			}
+			if msg.err == nil && m.cfg.Metrics.Track.Commits {
+				if commandKey(msg.cmd) == "commit" || commandKey(msg.cmd) == "amend" {
+					branch := ""
+					if m.status != nil {
+						branch = m.status.Branch
+					}
+					_ = m.mdb.RecordCommit(repo, branch, m.cfg.Modes.Default)
+				}
+			}
+		}
 
 		var baseCmds []tea.Cmd
 		baseCmds = append(baseCmds, m.fetchStatus())
@@ -3946,16 +4081,25 @@ func (m model) updateHelpPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) updateConflictPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	visibleLines := m.height - 7
-	if visibleLines < 1 {
-		visibleLines = 1
+func (m model) doWriteResolved(path string, parts []conflictPart, res []int) tea.Cmd {
+	return func() tea.Msg {
+		lines := resolveConflictFile(parts, res)
+		content := strings.Join(lines, "\n")
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			return actionDoneMsg{cmd: "write " + path, err: err}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.Add(ctx, path)
+		info := ""
+		if err == nil {
+			info = path + " resolved and staged"
+		}
+		return actionDoneMsg{cmd: "git add " + path, err: err, info: info}
 	}
-	maxScroll := len(m.conflictLines) - visibleLines
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+}
 
+func (m model) updateConflictPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Find the conflict code for the current file.
 	code := ""
 	if m.status != nil {
@@ -3967,29 +4111,105 @@ func (m model) updateConflictPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Count conflict hunks for bounds checking.
+	nHunks := len(m.conflictHunkRes)
+
+	// hunkIndex returns the index in conflictHunkRes for the N-th conflict part.
+	hunkAt := func(n int) int { return n } // direct mapping
+
 	switch msg.String() {
 	case "up", "k":
 		if m.conflictScroll > 0 {
 			m.conflictScroll--
 		}
 	case "down", "j":
-		if m.conflictScroll < maxScroll {
+		if m.conflictScroll < nHunks-1 {
 			m.conflictScroll++
 		}
+	case "n":
+		if m.conflictHunkCursor < nHunks-1 {
+			m.conflictHunkCursor++
+			m.conflictScroll = m.conflictHunkCursor
+		}
+	case "N":
+		if m.conflictHunkCursor > 0 {
+			m.conflictHunkCursor--
+			m.conflictScroll = m.conflictHunkCursor
+		}
 	case "o":
-		if code != "DD" {
+		if code == "DD" {
+			break
+		}
+		if nHunks == 0 {
+			// No parsed hunks - fall back to whole-file accept ours.
 			m.panel = panelMain
 			return m, m.doAcceptOurs(m.conflictPath)
 		}
+		m.conflictHunkRes[hunkAt(m.conflictHunkCursor)] = hunkOurs
+		// Advance to next unresolved hunk.
+		m.conflictHunkCursor = nextUnresolved(m.conflictHunkRes, m.conflictHunkCursor)
+		if allResolved(m.conflictHunkRes) {
+			m.panel = panelMain
+			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes)
+		}
 	case "t":
-		if code != "DD" {
+		if code == "DD" {
+			break
+		}
+		if nHunks == 0 {
 			m.panel = panelMain
 			return m, m.doAcceptTheirs(m.conflictPath)
+		}
+		m.conflictHunkRes[hunkAt(m.conflictHunkCursor)] = hunkTheirs
+		m.conflictHunkCursor = nextUnresolved(m.conflictHunkRes, m.conflictHunkCursor)
+		if allResolved(m.conflictHunkRes) {
+			m.panel = panelMain
+			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes)
+		}
+	case "b":
+		if code != "DD" && nHunks > 0 {
+			m.conflictHunkRes[hunkAt(m.conflictHunkCursor)] = hunkBoth
+			m.conflictHunkCursor = nextUnresolved(m.conflictHunkRes, m.conflictHunkCursor)
+			if allResolved(m.conflictHunkRes) {
+				m.panel = panelMain
+				return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes)
+			}
+		}
+	case "enter":
+		if allResolved(m.conflictHunkRes) && nHunks > 0 {
+			m.panel = panelMain
+			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes)
 		}
 	case "r":
 		if code == "DD" {
 			m.panel = panelMain
 			return m, m.doRemoveConflict(m.conflictPath)
+		}
+	case "O":
+		// Accept ours for ALL hunks at once.
+		if code != "DD" && nHunks > 0 {
+			for i := range m.conflictHunkRes {
+				m.conflictHunkRes[i] = hunkOurs
+			}
+			m.panel = panelMain
+			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes)
+		}
+		if nHunks == 0 {
+			m.panel = panelMain
+			return m, m.doAcceptOurs(m.conflictPath)
+		}
+	case "T":
+		// Accept theirs for ALL hunks at once.
+		if code != "DD" && nHunks > 0 {
+			for i := range m.conflictHunkRes {
+				m.conflictHunkRes[i] = hunkTheirs
+			}
+			m.panel = panelMain
+			return m, m.doWriteResolved(m.conflictPath, m.conflictParts, m.conflictHunkRes)
+		}
+		if nHunks == 0 {
+			m.panel = panelMain
+			return m, m.doAcceptTheirs(m.conflictPath)
 		}
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
@@ -3997,6 +4217,30 @@ func (m model) updateConflictPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+func nextUnresolved(res []int, current int) int {
+	// Search forward from current+1, then wrap.
+	for i := current + 1; i < len(res); i++ {
+		if res[i] == hunkUnresolved {
+			return i
+		}
+	}
+	for i := 0; i < current; i++ {
+		if res[i] == hunkUnresolved {
+			return i
+		}
+	}
+	return current
+}
+
+func allResolved(res []int) bool {
+	for _, r := range res {
+		if r == hunkUnresolved {
+			return false
+		}
+	}
+	return len(res) > 0
 }
 
 func (m model) updateResetPickPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -4394,6 +4638,9 @@ func (m model) mainView() string {
 	}
 	if hint := fileActionHint(m); hint != "" {
 		b.WriteString("  " + styleDim.Render(hint) + "\n")
+	}
+	if hint := prHint(m); hint != "" {
+		b.WriteString("  " + styleStaged.Render(hint) + "\n")
 	}
 
 	content := b.String()
@@ -4997,84 +5244,145 @@ func (m model) conflictView() string {
 	if code == "DD" {
 		b.WriteString("  " + styleDim.Render("both sides deleted this file") + "\n")
 		b.WriteString("  " + styleDim.Render("press [r] to accept the deletion and remove it from the index") + "\n")
-	} else if m.conflictLines == nil {
-		b.WriteString("  " + styleDim.Render("loading...") + "\n")
-	} else if len(m.conflictLines) == 0 {
-		b.WriteString("  " + styleDim.Render("(empty file)") + "\n")
-	} else {
-		// Precompute the kind for each line:
-		// 0=context, 1=ours marker, 2=ours content, 3=separator, 4=theirs content, 5=theirs marker
-		kind := make([]int, len(m.conflictLines))
-		state := 0 // 0=context, 2=in-ours, 4=in-theirs
-		for i, line := range m.conflictLines {
-			switch {
-			case strings.HasPrefix(line, "<<<<<<<"):
-				kind[i] = 1
-				state = 2
-			case line == "=======" && state == 2:
-				kind[i] = 3
-				state = 4
-			case strings.HasPrefix(line, ">>>>>>>") && state == 4:
-				kind[i] = 5
-				state = 0
-			case state == 2:
-				kind[i] = 2
-			case state == 4:
-				kind[i] = 4
-			default:
-				kind[i] = 0
-			}
+		b.WriteString("\n")
+		content := b.String()
+		if pad := m.height - strings.Count(content, "\n") - 1; pad > 0 {
+			content += strings.Repeat("\n", pad)
 		}
+		return content + styleDim.Render("  [r] remove file  [esc] back") + "\n"
+	}
 
-		visibleLines := m.height - 7
-		if visibleLines < 1 {
-			visibleLines = 1
+	if m.conflictLines == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+		content := b.String()
+		if pad := m.height - strings.Count(content, "\n") - 1; pad > 0 {
+			content += strings.Repeat("\n", pad)
 		}
-		start := m.conflictScroll
-		end := start + visibleLines
-		if end > len(m.conflictLines) {
-			end = len(m.conflictLines)
+		return content + styleDim.Render("  [esc] back") + "\n"
+	}
+
+	nHunks := len(m.conflictHunkRes)
+	if nHunks == 0 {
+		b.WriteString("  " + styleDim.Render("(no conflict markers found - file may already be resolved)") + "\n")
+		content := b.String()
+		if pad := m.height - strings.Count(content, "\n") - 1; pad > 0 {
+			content += strings.Repeat("\n", pad)
 		}
-		for i := start; i < end; i++ {
-			line := m.conflictLines[i]
-			var rendered string
-			switch kind[i] {
-			case 1:
-				rendered = "  " + styleStaged.Render("<<<<<<< YOUR CHANGES")
-			case 2:
-				rendered = "  " + styleStaged.Render(line)
-			case 3:
-				rendered = "  " + styleDim.Render("======= (above: yours / below: incoming)")
-			case 4:
-				rendered = "  " + styleChanged.Render(line)
-			case 5:
-				rendered = "  " + styleChanged.Render(">>>>>>> INCOMING CHANGES")
-			default:
-				rendered = "  " + styleDim.Render(line)
+		return content + styleDim.Render("  [esc] back") + "\n"
+	}
+
+	// Hunk progress dots: ● resolved (ours=green, theirs=red, both=yellow), ○ unresolved
+	dots := "  "
+	for i, r := range m.conflictHunkRes {
+		cursor := i == m.conflictHunkCursor
+		switch r {
+		case hunkOurs:
+			if cursor {
+				dots += styleStaged.Render("[✓]")
+			} else {
+				dots += styleStaged.Render("✓")
 			}
-			b.WriteString(rendered + "\n")
+		case hunkTheirs:
+			if cursor {
+				dots += styleChanged.Render("[✓]")
+			} else {
+				dots += styleChanged.Render("✓")
+			}
+		case hunkBoth:
+			if cursor {
+				dots += styleUntracked.Render("[✓]")
+			} else {
+				dots += styleUntracked.Render("✓")
+			}
+		default:
+			if cursor {
+				dots += styleSelected.Render("[○]")
+			} else {
+				dots += styleDim.Render("○")
+			}
 		}
+		dots += " "
+	}
+	b.WriteString(dots + styleDim.Render(fmt.Sprintf("  hunk %d of %d", m.conflictHunkCursor+1, nHunks)) + "\n\n")
+
+	// Find the current conflict hunk in parts.
+	hi := -1
+	var curPart conflictPart
+	for _, p := range m.conflictParts {
+		if !p.isConflict() {
+			continue
+		}
+		hi++
+		if hi == m.conflictHunkCursor {
+			curPart = p
+			break
+		}
+	}
+
+	// Show context lines before (last 2 lines of preceding context block).
+	// Find the preceding context block.
+	ctxLines := []string{}
+	ci := 0
+	for _, p := range m.conflictParts {
+		if !p.isConflict() {
+			ctxLines = p.context
+			continue
+		}
+		if ci == m.conflictHunkCursor {
+			break
+		}
+		ci++
+		ctxLines = nil
+	}
+	if len(ctxLines) > 2 {
+		ctxLines = ctxLines[len(ctxLines)-2:]
+	}
+	for _, l := range ctxLines {
+		b.WriteString("  " + styleDim.Render(l) + "\n")
+	}
+
+	// OURS section.
+	b.WriteString("  " + styleStaged.Render("--- yours") + "\n")
+	visLines := (m.height - 12) / 2
+	if visLines < 2 {
+		visLines = 2
+	}
+	oursLines := curPart.ours
+	if len(oursLines) > visLines {
+		oursLines = oursLines[:visLines]
+	}
+	if len(oursLines) == 0 {
+		b.WriteString("  " + styleDim.Render("(empty)") + "\n")
+	}
+	for _, l := range oursLines {
+		b.WriteString("  " + styleStaged.Render(l) + "\n")
+	}
+
+	b.WriteString("  " + styleDim.Render("--- incoming") + "\n")
+
+	// THEIRS section.
+	theirLines := curPart.theirs
+	if len(theirLines) > visLines {
+		theirLines = theirLines[:visLines]
+	}
+	if len(theirLines) == 0 {
+		b.WriteString("  " + styleDim.Render("(empty)") + "\n")
+	}
+	for _, l := range theirLines {
+		b.WriteString("  " + styleChanged.Render(l) + "\n")
 	}
 
 	b.WriteString("\n")
 	content := b.String()
-	lineCount := strings.Count(content, "\n")
-	if pad := m.height - lineCount - 1; pad > 0 {
+	if pad := m.height - strings.Count(content, "\n") - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
 
 	var bar string
-	if code == "DD" {
-		bar = "  [r] remove file  [esc] back"
+	if allResolved(m.conflictHunkRes) {
+		bar = "  [enter] write and stage  [n/N] prev/next hunk  [esc] back"
 	} else {
-		bar = "  [o] keep ours (green)  [t] keep theirs (red)  [↑↓] scroll  [esc] back"
-		visibleLines := m.height - 7
-		if visibleLines < 1 {
-			visibleLines = 1
-		}
-		if len(m.conflictLines) > visibleLines {
-			bar += fmt.Sprintf("  (%d/%d)", m.conflictScroll+1, len(m.conflictLines))
-		}
+		bar = "  [o] keep yours  [t] keep incoming  [b] keep both  [n/N] next/prev  [O/T] all  [esc] back"
 	}
 	return content + styleDim.Render(bar) + "\n"
 }
@@ -6336,6 +6644,26 @@ func fileActionHint(m model) string {
 	return ""
 }
 
+// prHint returns a one-line hint to create a PR when the branch is pushed
+// but has no open PR yet. Empty string when not applicable.
+func prHint(m model) string {
+	if m.prProvider == nil || m.status == nil {
+		return ""
+	}
+	// Don't hint on default integration branches.
+	branch := m.status.Branch
+	switch branch {
+	case "main", "master", "develop", "trunk", "HEAD", "":
+		return ""
+	}
+	// Only hint when the branch is in sync with its remote (was pushed) and
+	// no PR is known for it yet.
+	if m.status.Ahead > 0 || m.prStatus != nil {
+		return ""
+	}
+	return fmt.Sprintf("[K] create PR on %s", m.prProvider.Name())
+}
+
 func contextTip(m model) string {
 	if m.status == nil {
 		return ""
@@ -6356,6 +6684,9 @@ func contextTip(m model) string {
 	case nStaged > 0:
 		return fmt.Sprintf("tip: %d file(s) staged - press [c] to commit", nStaged)
 	case s.Ahead > 0:
+		if m.prProvider != nil {
+			return fmt.Sprintf("tip: %d commit(s) ready - push [p] then [K] to create a PR on %s", s.Ahead, m.prProvider.Name())
+		}
 		switch flow {
 		case "gitflow":
 			return fmt.Sprintf("tip: %d commit(s) ready - push [p] and open a PR targeting develop", s.Ahead)
@@ -6681,8 +7012,8 @@ func (m model) fetchPRList() tea.Cmd {
 	}
 }
 
-// Run starts the bonsai TUI.
-func Run(cfg *config.Config) error {
+// Run starts the bonsai TUI. mdb may be nil when metrics are disabled.
+func Run(cfg *config.Config, mdb *metrics.DB) error {
 	g := git.New()
 	fi := textinput.New()
 	fi.Placeholder = "message text  |  author:name  |  since:2026-01-01  |  until:2026-03-01"
@@ -6711,6 +7042,7 @@ func Run(cfg *config.Config) error {
 		usage:          usageData,
 		usagePath:      usagePath,
 		prProvider:     prov,
+		mdb:            mdb,
 	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()

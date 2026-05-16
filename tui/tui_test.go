@@ -1,11 +1,14 @@
 package tui
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/AgusRdz/bonsai/config"
 	"github.com/AgusRdz/bonsai/git"
+	"github.com/AgusRdz/bonsai/pr"
 	"github.com/AgusRdz/bonsai/usage"
 )
 
@@ -379,5 +382,211 @@ func TestContextTipClean(t *testing.T) {
 	got := contextTip(m)
 	if !strings.Contains(got, "clean") {
 		t.Errorf("contextTip(clean) = %q, want clean tip", got)
+	}
+}
+
+// stubProvider is a minimal pr.Provider for testing.
+type stubProvider struct{ name string }
+
+func (s *stubProvider) Name() string                 { return s.name }
+func (s *stubProvider) CLIAvailable() bool           { return true }
+func (s *stubProvider) DetectRemote(url string) bool { return true }
+func (s *stubProvider) CurrentPR(ctx context.Context, branch string) (*pr.PRStatus, error) {
+	return nil, fmt.Errorf("stub")
+}
+func (s *stubProvider) CreatePR(ctx context.Context, branch string) error  { return nil }
+func (s *stubProvider) ListPRs(ctx context.Context) ([]pr.PRStatus, error) { return nil, nil }
+func (s *stubProvider) Open(ctx context.Context, branch string) error      { return nil }
+
+func TestPRHintNoProvider(t *testing.T) {
+	m := model{cfg: &config.Config{}, status: &git.Status{Branch: "feat/login"}}
+	if got := prHint(m); got != "" {
+		t.Errorf("prHint(no provider) = %q, want empty", got)
+	}
+}
+
+func TestPRHintDefaultBranches(t *testing.T) {
+	prov := &stubProvider{name: "gh"}
+	for _, branch := range []string{"main", "master", "develop", "trunk", "HEAD", ""} {
+		m := model{
+			cfg:        &config.Config{},
+			status:     &git.Status{Branch: branch},
+			prProvider: prov,
+		}
+		if got := prHint(m); got != "" {
+			t.Errorf("prHint(branch=%q) = %q, want empty", branch, got)
+		}
+	}
+}
+
+func TestPRHintAheadSuppressed(t *testing.T) {
+	prov := &stubProvider{name: "gh"}
+	m := model{
+		cfg:        &config.Config{},
+		status:     &git.Status{Branch: "feat/login", Ahead: 2},
+		prProvider: prov,
+	}
+	if got := prHint(m); got != "" {
+		t.Errorf("prHint(ahead=2) = %q, want empty (branch not pushed yet)", got)
+	}
+}
+
+func TestPRHintExistingPRSuppressed(t *testing.T) {
+	prov := &stubProvider{name: "gh"}
+	m := model{
+		cfg:        &config.Config{},
+		status:     &git.Status{Branch: "feat/login"},
+		prProvider: prov,
+		prStatus:   &pr.PRStatus{Number: 42, State: "open"},
+	}
+	if got := prHint(m); got != "" {
+		t.Errorf("prHint(existing PR) = %q, want empty", got)
+	}
+}
+
+func TestPRHintShown(t *testing.T) {
+	prov := &stubProvider{name: "gh"}
+	m := model{
+		cfg:        &config.Config{},
+		status:     &git.Status{Branch: "feat/login", Ahead: 0},
+		prProvider: prov,
+		prStatus:   nil,
+	}
+	got := prHint(m)
+	if !strings.Contains(got, "gh") || !strings.Contains(got, "PR") {
+		t.Errorf("prHint(feature, pushed, no PR) = %q, want hint mentioning gh and PR", got)
+	}
+}
+
+func TestParseConflictFileNoConflict(t *testing.T) {
+	lines := []string{"line1", "line2", "line3"}
+	parts := parseConflictFile(lines)
+	if len(parts) != 1 || parts[0].isConflict() {
+		t.Errorf("parseConflictFile(no conflict) = %v, want single context part", parts)
+	}
+	if len(parts[0].context) != 3 {
+		t.Errorf("context lines = %d, want 3", len(parts[0].context))
+	}
+}
+
+func TestParseConflictFileSingleHunk(t *testing.T) {
+	lines := []string{
+		"context before",
+		"<<<<<<< HEAD",
+		"ours line",
+		"=======",
+		"theirs line",
+		">>>>>>> branch",
+		"context after",
+	}
+	parts := parseConflictFile(lines)
+	// expect: context, conflict, context
+	if len(parts) != 3 {
+		t.Fatalf("part count = %d, want 3", len(parts))
+	}
+	if parts[0].isConflict() || len(parts[0].context) != 1 {
+		t.Errorf("parts[0] should be context with 1 line")
+	}
+	if !parts[1].isConflict() {
+		t.Errorf("parts[1] should be conflict")
+	}
+	if parts[1].ours[0] != "ours line" {
+		t.Errorf("ours = %q, want 'ours line'", parts[1].ours[0])
+	}
+	if parts[1].theirs[0] != "theirs line" {
+		t.Errorf("theirs = %q, want 'theirs line'", parts[1].theirs[0])
+	}
+	if parts[2].isConflict() || len(parts[2].context) != 1 {
+		t.Errorf("parts[2] should be context with 1 line")
+	}
+}
+
+func TestParseConflictFileMultipleHunks(t *testing.T) {
+	lines := []string{
+		"<<<<<<< HEAD",
+		"a",
+		"=======",
+		"b",
+		">>>>>>> branch",
+		"middle",
+		"<<<<<<< HEAD",
+		"c",
+		"=======",
+		"d",
+		">>>>>>> branch",
+	}
+	parts := parseConflictFile(lines)
+	conflicts := 0
+	for _, p := range parts {
+		if p.isConflict() {
+			conflicts++
+		}
+	}
+	if conflicts != 2 {
+		t.Errorf("conflict count = %d, want 2", conflicts)
+	}
+}
+
+func TestResolveConflictFileOurs(t *testing.T) {
+	parts := []conflictPart{
+		{context: []string{"before"}},
+		{ours: []string{"ours"}, theirs: []string{"theirs"}},
+		{context: []string{"after"}},
+	}
+	res := []int{hunkOurs}
+	got := resolveConflictFile(parts, res)
+	want := []string{"before", "ours", "after"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("resolveConflict(ours) = %v, want %v", got, want)
+	}
+}
+
+func TestResolveConflictFileTheirs(t *testing.T) {
+	parts := []conflictPart{
+		{ours: []string{"ours"}, theirs: []string{"theirs"}},
+	}
+	res := []int{hunkTheirs}
+	got := resolveConflictFile(parts, res)
+	if len(got) != 1 || got[0] != "theirs" {
+		t.Errorf("resolveConflict(theirs) = %v, want [theirs]", got)
+	}
+}
+
+func TestResolveConflictFileBoth(t *testing.T) {
+	parts := []conflictPart{
+		{ours: []string{"ours"}, theirs: []string{"theirs"}},
+	}
+	res := []int{hunkBoth}
+	got := resolveConflictFile(parts, res)
+	if len(got) != 2 || got[0] != "ours" || got[1] != "theirs" {
+		t.Errorf("resolveConflict(both) = %v, want [ours theirs]", got)
+	}
+}
+
+func TestAllResolved(t *testing.T) {
+	if allResolved(nil) {
+		t.Error("allResolved(nil) should be false")
+	}
+	if allResolved([]int{hunkOurs, hunkUnresolved}) {
+		t.Error("allResolved with unresolved should be false")
+	}
+	if !allResolved([]int{hunkOurs, hunkTheirs, hunkBoth}) {
+		t.Error("allResolved with all resolved should be true")
+	}
+}
+
+func TestNextUnresolved(t *testing.T) {
+	res := []int{hunkOurs, hunkUnresolved, hunkUnresolved}
+	// from index 0, next unresolved is 1
+	if got := nextUnresolved(res, 0); got != 1 {
+		t.Errorf("nextUnresolved(0) = %d, want 1", got)
+	}
+	// from index 1, next unresolved is 2
+	if got := nextUnresolved(res, 1); got != 2 {
+		t.Errorf("nextUnresolved(1) = %d, want 2", got)
+	}
+	// from index 2 (last), wraps to 1
+	if got := nextUnresolved(res, 2); got != 1 {
+		t.Errorf("nextUnresolved(2) = %d, want 1 (wrap)", got)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/AgusRdz/bonsai/doctor"
 	"github.com/AgusRdz/bonsai/git"
 	"github.com/AgusRdz/bonsai/gitcheck"
+	"github.com/AgusRdz/bonsai/metrics"
 	"github.com/AgusRdz/bonsai/pr"
 	"github.com/AgusRdz/bonsai/setup"
 	"github.com/AgusRdz/bonsai/tui"
@@ -97,7 +98,19 @@ func runTUI() {
 		fmt.Fprintf(os.Stderr, "bonsai: config: %v\n", err)
 		os.Exit(1)
 	}
-	if err := tui.Run(cfg); err != nil {
+
+	// Open metrics DB if enabled (best-effort - never block the TUI on failure).
+	var mdb *metrics.DB
+	if cfg.Metrics.Enabled {
+		if p, err := metrics.DefaultPath(); err == nil {
+			if db, err := metrics.Open(p); err == nil {
+				mdb = db
+				defer mdb.Close()
+			}
+		}
+	}
+
+	if err := tui.Run(cfg, mdb); err != nil {
 		fmt.Fprintf(os.Stderr, "bonsai: %v\n", err)
 		os.Exit(1)
 	}
