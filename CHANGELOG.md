@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.36.1] - 2026-05-16
+
+### Performance
+- Replace O(n²) sorts with sort.Slice, cap unbounded git log in Stats
+([cbb07bf](https://github.com/AgusRdz/bonsai/commit/cbb07bf4646a111079584b69eec0e6aa0f94c48a))
 ## [0.36.0] - 2026-05-16
 
 ### Features
