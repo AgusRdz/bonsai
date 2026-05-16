@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.35.5] - 2026-05-16
+
+### Refactoring
+- Extract inline parsers, add reflog/remote/flow tests
+([8cc8263](https://github.com/AgusRdz/bonsai/commit/8cc8263944707d32ca111ba0416166d787ef5d30))
 ## [0.35.4] - 2026-05-16
 
 ### Bug Fixes
