@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.50.0] - 2026-05-16
+
+### Features
+- Multi-repo dashboard with config-driven repo list
+([fb5d0b0](https://github.com/AgusRdz/bonsai/commit/fb5d0b0623dc0b489d5d8ef4d5138fab456c7742))
 ## [0.49.0] - 2026-05-16
 
 ### Features
