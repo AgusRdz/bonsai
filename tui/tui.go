@@ -97,11 +97,12 @@ type rebaseTodo struct {
 }
 
 // conflictPart is one segment of a conflict file: either a block of context
-// lines or a conflict hunk (ours vs theirs).
+// lines or a conflict hunk (ours vs theirs, plus base when available).
 type conflictPart struct {
 	context []string // non-nil for context segments
 	ours    []string // non-nil for conflict segments
 	theirs  []string
+	base    []string // common ancestor lines for this hunk; nil when unavailable
 }
 
 func (p conflictPart) isConflict() bool { return p.ours != nil }
@@ -182,6 +183,42 @@ func resolveConflictFile(parts []conflictPart, res []int) []string {
 		}
 	}
 	return out
+}
+
+// populateBaseParts fills the base field of each conflict part by scanning the
+// common-ancestor (stage 1) content. It finds the base lines that correspond to
+// each conflict hunk by using the surrounding context lines as anchors.
+func populateBaseParts(parts []conflictPart, baseLines []string) {
+	bi := 0
+	for i := range parts {
+		if !parts[i].isConflict() {
+			// Advance bi past each context line.
+			for _, cl := range parts[i].context {
+				for bi < len(baseLines) && baseLines[bi] != cl {
+					bi++
+				}
+				if bi < len(baseLines) {
+					bi++
+				}
+			}
+			continue
+		}
+		start := bi
+		// Find end: first line of the next context block.
+		end := len(baseLines)
+		if i+1 < len(parts) && !parts[i+1].isConflict() && len(parts[i+1].context) > 0 {
+			target := parts[i+1].context[0]
+			for end = start; end < len(baseLines); end++ {
+				if baseLines[end] == target {
+					break
+				}
+			}
+		}
+		if start <= end && end <= len(baseLines) {
+			parts[i].base = baseLines[start:end]
+		}
+		bi = end
+	}
 }
 
 type configSection int
@@ -445,6 +482,12 @@ type logPageMsg struct {
 type conflictLinesMsg struct {
 	path  string
 	lines []string
+}
+
+type conflictVersionsMsg struct {
+	base   []string
+	ours   []string
+	theirs []string
 }
 
 type tagListMsg []git.TagEntry
@@ -1032,6 +1075,15 @@ func (m model) doReadConflict(path string) tea.Cmd {
 			return conflictLinesMsg{path: path, lines: []string{"error reading file: " + err.Error()}}
 		}
 		return conflictLinesMsg{path: path, lines: lines}
+	}
+}
+
+func (m model) doLoadConflictVersions(path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		base, ours, theirs := m.git.ConflictVersions(ctx, path)
+		return conflictVersionsMsg{base: base, ours: ours, theirs: theirs}
 	}
 }
 
@@ -1998,6 +2050,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.conflictHunkRes = make([]int, nHunks)
 		m.panel = panelConflict
+		return m, m.doLoadConflictVersions(msg.path)
+
+	case conflictVersionsMsg:
+		if len(msg.base) > 0 && len(m.conflictParts) > 0 {
+			populateBaseParts(m.conflictParts, msg.base)
+		}
 
 	case tagListMsg:
 		m.tags = []git.TagEntry(msg)
@@ -5796,12 +5854,20 @@ func (m model) conflictView() string {
 		b.WriteString("  " + styleDim.Render(l) + "\n")
 	}
 
-	// OURS section.
-	b.WriteString("  " + styleStaged.Render("--- yours") + "\n")
-	visLines := (m.height - 12) / 2
+	// Calculate available lines per section; with base that's 3 sections.
+	hasBase := len(curPart.base) > 0
+	sections := 2
+	if hasBase {
+		sections = 3
+	}
+	overhead := 10 + sections*2 // header + section labels
+	visLines := (m.height - overhead) / sections
 	if visLines < 2 {
 		visLines = 2
 	}
+
+	// OURS section.
+	b.WriteString("  " + styleStaged.Render("--- yours (HEAD)") + "\n")
 	oursLines := curPart.ours
 	if len(oursLines) > visLines {
 		oursLines = oursLines[:visLines]
@@ -5813,7 +5879,22 @@ func (m model) conflictView() string {
 		b.WriteString("  " + styleStaged.Render(l) + "\n")
 	}
 
-	b.WriteString("  " + styleDim.Render("--- incoming") + "\n")
+	// BASE section - only shown when common ancestor is available.
+	if hasBase {
+		b.WriteString("  " + lipgloss.NewStyle().Foreground(lipgloss.Color("99")).Render("--- base (common ancestor)") + "\n")
+		baseLines := curPart.base
+		if len(baseLines) > visLines {
+			baseLines = baseLines[:visLines]
+		}
+		if len(baseLines) == 0 {
+			b.WriteString("  " + styleDim.Render("(empty)") + "\n")
+		}
+		for _, l := range baseLines {
+			b.WriteString("  " + lipgloss.NewStyle().Foreground(lipgloss.Color("99")).Render(l) + "\n")
+		}
+	}
+
+	b.WriteString("  " + styleChanged.Render("--- incoming") + "\n")
 
 	// THEIRS section.
 	theirLines := curPart.theirs

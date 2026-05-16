@@ -753,6 +753,20 @@ func (r *Runner) ConflictLines(path string) ([]string, error) {
 	return lines, nil
 }
 
+// ConflictVersions returns the base (stage 1), ours (stage 2), and theirs
+// (stage 3) versions of a conflicted file from git's index. Any stage that
+// does not exist (e.g. file-add conflicts) returns nil.
+func (r *Runner) ConflictVersions(ctx context.Context, path string) (base, ours, theirs []string) {
+	getStage := func(n int) []string {
+		out, err := r.run(ctx, "show", fmt.Sprintf(":%d:%s", n, path))
+		if err != nil || len(out) == 0 {
+			return nil
+		}
+		return strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	}
+	return getStage(1), getStage(2), getStage(3)
+}
+
 // WorktreeEntry is one entry from `git worktree list`.
 type WorktreeEntry struct {
 	Path    string // absolute path to the worktree
