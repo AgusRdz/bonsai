@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.32.0] - 2026-05-16
+
+### Features
+- File history, branch graph, stash message, commit diff, clone, education manager
+([12cd31b](https://github.com/AgusRdz/bonsai/commit/12cd31b79cff41bb351a93f82cb502184ed7038e))
 ## [0.31.1] - 2026-05-16
 
 ### Bug Fixes
