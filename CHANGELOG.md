@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.40.0] - 2026-05-16
+
+### Features
+- General plugin system for git event hooks
+([acc76c0](https://github.com/AgusRdz/bonsai/commit/acc76c052f3eed116bbe323f8e584167c54eabe6))
 ## [0.39.0] - 2026-05-16
 
 ### Features
