@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.3.1] - 2026-05-16
+
+### Bug Fixes
+- Code review - context timeout, config validation, error messages
+([5887b1b](https://github.com/AgusRdz/bonsai/commit/5887b1b0f9a498ce73424e24c73123ea9610ef8f))
 ## [0.3.0] - 2026-05-16
 
 ### Features
