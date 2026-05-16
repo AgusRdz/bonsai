@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.20.1] - 2026-05-16
+
+### Bug Fixes
+- Use ASCII record separator in git show format instead of null byte
+([61d1867](https://github.com/AgusRdz/bonsai/commit/61d186702704434f26b123ce205a0023c8823895))
 ## [0.20.0] - 2026-05-16
 
 ### Features
