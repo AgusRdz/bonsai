@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1721,13 +1722,9 @@ func collectContributors(ctx context.Context, r *Runner) []ContributorStat {
 	for email, count := range emailCounts {
 		entries = append(entries, entry{email, count})
 	}
-	for i := 0; i < len(entries); i++ {
-		for j := i + 1; j < len(entries); j++ {
-			if entries[j].count > entries[i].count {
-				entries[i], entries[j] = entries[j], entries[i]
-			}
-		}
-	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].count > entries[j].count
+	})
 
 	var result []ContributorStat
 	for _, e := range entries {
@@ -1817,13 +1814,9 @@ func (r *Runner) Stats(ctx context.Context) (*RepoStats, error) {
 		for k, v := range extCount {
 			sorted = append(sorted, kv{k, v})
 		}
-		for i := 0; i < len(sorted); i++ {
-			for j := i + 1; j < len(sorted); j++ {
-				if sorted[j].v > sorted[i].v {
-					sorted[i], sorted[j] = sorted[j], sorted[i]
-				}
-			}
-		}
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].v > sorted[j].v
+		})
 		for _, kv := range sorted {
 			s.ExtBreakdown = append(s.ExtBreakdown, ExtStat{Ext: kv.k, Count: kv.v})
 			if len(s.ExtBreakdown) >= 10 {
@@ -1832,8 +1825,8 @@ func (r *Runner) Stats(ctx context.Context) (*RepoStats, error) {
 		}
 	}
 
-	// Most-changed files (top 10).
-	if out, err := r.run(ctx, "log", "--format=", "--name-only", "--no-merges"); err == nil {
+	// Most-changed files (top 10). Capped at 2000 commits to stay within timeouts.
+	if out, err := r.run(ctx, "log", "--format=", "--name-only", "--no-merges", "--max-count=2000"); err == nil {
 		fileCount := map[string]int{}
 		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 			if line = strings.TrimSpace(line); line != "" {
@@ -1848,13 +1841,9 @@ func (r *Runner) Stats(ctx context.Context) (*RepoStats, error) {
 		for k, v := range fileCount {
 			sorted = append(sorted, kv{k, v})
 		}
-		for i := 0; i < len(sorted); i++ {
-			for j := i + 1; j < len(sorted); j++ {
-				if sorted[j].v > sorted[i].v {
-					sorted[i], sorted[j] = sorted[j], sorted[i]
-				}
-			}
-		}
+		sort.Slice(sorted, func(i, j int) bool {
+			return sorted[i].v > sorted[j].v
+		})
 		for _, kv := range sorted {
 			s.TopFiles = append(s.TopFiles, FileStat{Path: kv.k, Count: kv.v})
 			if len(s.TopFiles) >= 10 {
