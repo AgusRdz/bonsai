@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.20.2] - 2026-05-16
+
+### Bug Fixes
+- Restore [l] log shortcut in command bar
+([11bbe49](https://github.com/AgusRdz/bonsai/commit/11bbe491b6ed15c906951f9215aea0730d27a3d1))
 ## [0.20.1] - 2026-05-16
 
 ### Bug Fixes
