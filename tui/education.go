@@ -58,6 +58,20 @@ func actionTitle(cmd string, err error) string {
 		return "Stash applied"
 	case strings.HasPrefix(cmd, "git stash"):
 		return "Changes stashed"
+	case strings.HasPrefix(cmd, "git merge"):
+		return "Branch merged"
+	case strings.HasPrefix(cmd, "git cherry-pick"):
+		return "Commit cherry-picked"
+	case strings.HasPrefix(cmd, "git reset --soft"):
+		return "Soft reset done"
+	case strings.HasPrefix(cmd, "git reset --mixed"):
+		return "Mixed reset done"
+	case strings.HasPrefix(cmd, "git reset --hard"):
+		return "Hard reset done"
+	case strings.HasPrefix(cmd, "git tag -d"):
+		return "Tag deleted"
+	case strings.HasPrefix(cmd, "git tag"):
+		return "Tag created"
 	default:
 		return "Done"
 	}
@@ -102,6 +116,29 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git stash"):
 		return "Your uncommitted changes were saved to the stash and the working tree was cleaned. " +
 			"The stash is a temporary shelf - use [S] to view stashes and pop them when you are ready to continue."
+	case strings.HasPrefix(cmd, "git merge"):
+		return "The specified branch was merged into your current branch. " +
+			"A merge commit is created unless the merge can be fast-forwarded. " +
+			"If there are conflicts, resolve them and stage the files, then commit to complete the merge."
+	case strings.HasPrefix(cmd, "git cherry-pick"):
+		return "The selected commit was applied on top of your current branch as a new commit. " +
+			"Cherry-pick copies the diff from that commit - the original commit remains unchanged in its branch."
+	case strings.HasPrefix(cmd, "git reset --soft"):
+		return "The last commit was removed from history but all its changes are still staged. " +
+			"You can amend the commit message or add more files before committing again."
+	case strings.HasPrefix(cmd, "git reset --mixed"):
+		return "The last commit was removed from history and its changes moved back to the working tree (unstaged). " +
+			"You can review and selectively re-stage files before creating a new commit."
+	case strings.HasPrefix(cmd, "git reset --hard"):
+		return "The last commit was permanently removed along with all its changes. " +
+			"Hard reset cannot be undone through normal git commands - the changes are gone."
+	case strings.HasPrefix(cmd, "git tag -d"):
+		return "The tag was deleted from your local repository. " +
+			"If the tag was already pushed to a remote, delete it there too with: git push origin --delete <tag>."
+	case strings.HasPrefix(cmd, "git tag"):
+		return "A lightweight tag was created at the current HEAD commit. " +
+			"Tags mark specific points in history, commonly used for releases. " +
+			"Push the tag to remote with: git push origin <tag>."
 	default:
 		return ""
 	}

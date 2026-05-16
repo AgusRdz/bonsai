@@ -510,6 +510,57 @@ func (r *Runner) ConflictLines(path string) ([]string, error) {
 	return lines, nil
 }
 
+// TagEntry is one tag returned by git tag.
+type TagEntry struct {
+	Name string
+}
+
+// Tags returns all local tags sorted newest first.
+func (r *Runner) Tags(ctx context.Context) ([]TagEntry, error) {
+	out, err := r.run(ctx, "tag", "--sort=-creatordate")
+	if err != nil {
+		return nil, err
+	}
+	var tags []TagEntry
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			tags = append(tags, TagEntry{Name: line})
+		}
+	}
+	return tags, nil
+}
+
+// CreateTag creates a lightweight tag at HEAD.
+func (r *Runner) CreateTag(ctx context.Context, name string) error {
+	_, err := r.run(ctx, "tag", name)
+	return err
+}
+
+// DeleteTag deletes a local tag by name.
+func (r *Runner) DeleteTag(ctx context.Context, name string) error {
+	_, err := r.run(ctx, "tag", "-d", name)
+	return err
+}
+
+// Merge merges branch into the current branch.
+func (r *Runner) Merge(ctx context.Context, branch string) error {
+	_, err := r.run(ctx, "merge", branch)
+	return err
+}
+
+// CherryPick applies the commit hash onto the current branch.
+func (r *Runner) CherryPick(ctx context.Context, hash string) error {
+	_, err := r.run(ctx, "cherry-pick", hash)
+	return err
+}
+
+// Reset undoes the last commit. mode must be "soft", "mixed", or "hard".
+func (r *Runner) Reset(ctx context.Context, mode string) error {
+	_, err := r.run(ctx, "reset", "--"+mode, "HEAD~1")
+	return err
+}
+
 // parseStatus converts `git status --porcelain` output into a Status.
 // Files with both staged and unstaged changes appear in both slices.
 // conflictCodes are the two-character porcelain codes that indicate an

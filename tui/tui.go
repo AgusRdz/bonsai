@@ -35,6 +35,9 @@ const (
 	panelFlowPick
 	panelCommitDetail
 	panelConflict
+	panelTagList
+	panelTagCreate
+	panelResetPick
 )
 
 type branchMode int
@@ -91,6 +94,8 @@ type model struct {
 	conflictPath       string
 	conflictLines      []string
 	conflictScroll     int
+	tags               []git.TagEntry
+	tagCursor          int
 	edu                *educationPanel
 	eduTimer           int
 	width              int
@@ -129,6 +134,8 @@ type conflictLinesMsg struct {
 	path  string
 	lines []string
 }
+
+type tagListMsg []git.TagEntry
 
 // --- commands ---
 
@@ -380,6 +387,63 @@ func (m model) doRemoveConflict(path string) tea.Cmd {
 	}
 }
 
+func (m model) doFetchTags() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		tags, err := m.git.Tags(ctx)
+		if err != nil || tags == nil {
+			return tagListMsg([]git.TagEntry{})
+		}
+		return tagListMsg(tags)
+	}
+}
+
+func (m model) doCreateTag(name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.CreateTag(ctx, name)
+		return actionDoneMsg{cmd: "git tag " + name, err: err}
+	}
+}
+
+func (m model) doDeleteTag(name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.DeleteTag(ctx, name)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doMerge(branch string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.Merge(ctx, branch)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doCherryPick(hash string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.CherryPick(ctx, hash)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doReset(mode string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.Reset(ctx, mode)
+		return actionDoneMsg{cmd: "git reset --" + mode + " HEAD~1", err: err}
+	}
+}
+
 // --- init ---
 
 func (m model) Init() tea.Cmd {
@@ -472,6 +536,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.conflictScroll = 0
 		m.panel = panelConflict
 
+	case tagListMsg:
+		m.tags = []git.TagEntry(msg)
+		m.tagCursor = 0
+		m.panel = panelTagList
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -547,6 +616,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelConflict {
 			return m.updateConflictPanel(msg)
 		}
+		if m.panel == panelResetPick {
+			return m.updateResetPickPanel(msg)
+		}
+		if m.panel == panelTagList {
+			return m.updateTagListPanel(msg)
+		}
+		if m.panel == panelTagCreate {
+			return m.updateTagCreatePanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -556,6 +634,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	if m.panel == panelBranch {
+		var cmd tea.Cmd
+		m.branchInput, cmd = m.branchInput.Update(msg)
+		return m, cmd
+	}
+	if m.panel == panelTagCreate {
 		var cmd tea.Cmd
 		m.branchInput, cmd = m.branchInput.Update(msg)
 		return m, cmd
@@ -704,6 +787,16 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirmCmd = m.doDiscard(f.entry.Path)
 		m.panel = panelConfirm
 		m.actionErr = nil
+
+	case kb.Undo, "z":
+		m.panel = panelResetPick
+		m.actionErr = nil
+
+	case "t":
+		m.tags = nil
+		m.tagCursor = 0
+		m.panel = panelTagList
+		return m, m.doFetchTags()
 	}
 
 	return m, nil
@@ -903,6 +996,21 @@ func (m model) updateCommitDetailPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.commitDetail != nil {
 			_ = clipboard.WriteAll(m.commitDetail.Hash)
 		}
+	case "p":
+		if m.commitDetail != nil && m.commitDetail.Hash != "" {
+			hash := m.commitDetail.Hash
+			short := hash
+			if len(short) > 7 {
+				short = short[:7]
+			}
+			current := ""
+			if m.status != nil {
+				current = m.status.Branch
+			}
+			m.confirmPrompt = fmt.Sprintf("cherry-pick %s onto %s?", short, current)
+			m.confirmCmd = m.doCherryPick(hash)
+			m.panel = panelConfirm
+		}
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelLog
 	case "ctrl+c":
@@ -944,6 +1052,21 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.panel = panelMain
 		return m, m.doSwitch(b.Name)
+	case "m":
+		if len(m.branches) == 0 {
+			break
+		}
+		b := m.branches[m.branchCursor]
+		if b.Current {
+			break
+		}
+		current := ""
+		if m.status != nil {
+			current = m.status.Branch
+		}
+		m.confirmPrompt = fmt.Sprintf("merge %s into %s?", b.Name, current)
+		m.confirmCmd = m.doMerge(b.Name)
+		m.panel = panelConfirm
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
 	case "ctrl+c":
@@ -1124,6 +1247,85 @@ func (m model) updateConflictPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateResetPickPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "s":
+		m.panel = panelMain
+		return m, m.doReset("soft")
+	case "m":
+		m.panel = panelMain
+		return m, m.doReset("mixed")
+	case "h":
+		m.confirmPrompt = "hard reset HEAD~1? uncommitted changes will be permanently discarded"
+		m.confirmCmd = m.doReset("hard")
+		m.panel = panelConfirm
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) updateTagListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.tagCursor > 0 {
+			m.tagCursor--
+		}
+	case "down", "j":
+		if m.tagCursor < len(m.tags)-1 {
+			m.tagCursor++
+		}
+	case "n":
+		ti := textinput.New()
+		ti.Placeholder = "tag name"
+		ti.Focus()
+		ti.CharLimit = 128
+		ti.Width = m.width - 6
+		m.branchInput = ti
+		m.panel = panelTagCreate
+		m.actionErr = nil
+	case "d":
+		if len(m.tags) == 0 {
+			break
+		}
+		tag := m.tags[m.tagCursor]
+		m.confirmPrompt = fmt.Sprintf("delete tag %s?", tag.Name)
+		m.confirmCmd = m.doDeleteTag(tag.Name)
+		m.panel = panelConfirm
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) updateTagCreatePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		name := strings.TrimSpace(m.branchInput.Value())
+		if name == "" {
+			m.actionErr = fmt.Errorf("tag name cannot be empty")
+			return m, nil
+		}
+		m.panel = panelMain
+		m.actionErr = nil
+		return m, m.doCreateTag(name)
+	case "esc":
+		m.panel = panelTagList
+		m.actionErr = nil
+		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+
+	var cmd tea.Cmd
+	m.branchInput, cmd = m.branchInput.Update(msg)
+	return m, cmd
+}
+
 // --- view ---
 
 func (m model) View() string {
@@ -1172,6 +1374,15 @@ func (m model) View() string {
 	}
 	if m.panel == panelConflict {
 		return m.conflictView()
+	}
+	if m.panel == panelResetPick {
+		return m.resetPickView()
+	}
+	if m.panel == panelTagList {
+		return m.tagListView()
+	}
+	if m.panel == panelTagCreate {
+		return m.tagCreateView()
 	}
 	return m.mainView()
 }
@@ -1453,7 +1664,7 @@ func (m model) branchListView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [enter] switch  [esc] cancel") + "\n"
+	return content + styleDim.Render("  [enter] switch  [m] merge  [esc] cancel") + "\n"
 }
 
 func (m model) confirmView() string {
@@ -1676,7 +1887,7 @@ func (m model) commitDetailView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	bar := "  [↑↓] scroll  [esc] back  [y] copy hash"
+	bar := "  [↑↓] scroll  [esc] back  [y] copy hash  [p] cherry-pick"
 	if m.commitDetail != nil && len(m.commitDetail.Stat) > 0 {
 		total := commitDetailLineCount(m.commitDetail)
 		bar += fmt.Sprintf("  (%d/%d)", m.commitDetailScroll+1, total)
@@ -1882,6 +2093,74 @@ func (m model) conflictView() string {
 	return content + styleDim.Render(bar) + "\n"
 }
 
+func (m model) resetPickView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Reset (undo last commit)") + "\n\n")
+	b.WriteString("  " + styleCmd.Render("[s]") + "  " + styleDim.Render("soft  - commit removed, changes stay staged") + "\n")
+	b.WriteString("  " + styleCmd.Render("[m]") + "  " + styleDim.Render("mixed - commit removed, changes stay unstaged") + "\n")
+	b.WriteString("  " + styleCmd.Render("[h]") + "  " + styleChanged.Render("hard  - commit removed, changes permanently discarded") + "\n")
+	b.WriteString("\n")
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [s] soft  [m] mixed  [h] hard  [esc] cancel") + "\n"
+}
+
+func (m model) tagListView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+
+	title := "Tags"
+	if len(m.tags) > 0 {
+		title = fmt.Sprintf("Tags (%d)", len(m.tags))
+	}
+	b.WriteString("  " + styleSection.Render(title) + "\n\n")
+
+	if m.tags == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+	} else if len(m.tags) == 0 {
+		b.WriteString("  " + styleDim.Render("no tags found") + "\n")
+	} else {
+		for i, tag := range m.tags {
+			cursor := "  "
+			if m.tagCursor == i {
+				cursor = styleSelected.Render("> ")
+			}
+			b.WriteString(cursor + "  " + styleCmd.Render(tag.Name) + "\n")
+		}
+	}
+	b.WriteString("\n")
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [n] new tag  [d] delete  [esc] back") + "\n"
+}
+
+func (m model) tagCreateView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Create Tag") + "\n\n")
+	b.WriteString("  " + m.branchInput.View() + "\n\n")
+
+	if m.actionErr != nil {
+		b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n\n")
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [enter] create  [esc] cancel") + "\n"
+}
+
 func contextTip(m model) string {
 	if m.status == nil {
 		return ""
@@ -1930,6 +2209,8 @@ func (m model) commandBar() string {
 		"[P] pull",
 		"[b/B] branch",
 		"[l] log",
+		"[z] reset",
+		"[t] tags",
 		"[?] help",
 		fmt.Sprintf("[%s] quit", kb.Quit),
 	}
