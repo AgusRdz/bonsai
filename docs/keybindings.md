@@ -14,6 +14,7 @@
 | Key | Action |
 |-----|--------|
 | `space` | Stage an unstaged file / unstage a staged file |
+| `h` | Stage / unstage individual hunks within a file |
 | `d` | View diff for the selected file |
 | `x` | Discard working tree changes (confirm required) |
 | `o` | Restore file to HEAD or a specific ref |
@@ -23,7 +24,7 @@
 | Key | Action |
 |-----|--------|
 | `c` | Open commit panel |
-| `p` | Push to remote |
+| `p` | Open push menu (push / force-with-lease / set-upstream) |
 | `P` | Pull from remote |
 | `f` | Fetch menu |
 
@@ -258,6 +259,24 @@
 |-----|--------|
 | `↑` / `↓` | Scroll |
 | `enter` | Apply the selected recommendation |
+| `esc` | Back |
+
+## Hunk stage panel
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Move selection |
+| `space` | Toggle hunk selected / deselected |
+| `a` | Select all / deselect all |
+| `enter` | Apply selected hunks |
+| `esc` | Back |
+
+## Push menu
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Move selection |
+| `enter` | Execute selected push option |
 | `esc` | Back |
 
 ## Remappable keys

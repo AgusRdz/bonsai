@@ -60,6 +60,8 @@ const (
 	panelSubmoduleList
 	panelSubmoduleAdd
 	panelNoteView
+	panelHunkStage
+	panelPushOpts
 )
 
 type branchMode int
@@ -221,6 +223,17 @@ type model struct {
 	noteContent string // current note text
 	noteInput   textinput.Model
 	noteEditing bool
+
+	// hunk staging
+	hunkFile    string
+	hunkStaged  bool
+	hunkFileHdr string
+	hunkList    []git.Hunk
+	hunkSel     []bool
+	hunkCursor  int
+
+	// push options
+	pushOptCursor int
 }
 
 // --- messages ---
@@ -293,6 +306,12 @@ type noteMsg struct {
 	content string
 }
 
+type hunkLoadMsg struct {
+	fileHdr string
+	hunks   []git.Hunk
+	err     error
+}
+
 // --- commands ---
 
 func (m model) fetchStatus() tea.Cmd {
@@ -334,11 +353,53 @@ func (m model) doCommit(msg string) tea.Cmd {
 	}
 }
 
-func (m model) doPush() tea.Cmd {
+var pushMenuOptions = []struct {
+	label       string
+	force       bool
+	setUpstream bool
+}{
+	{"Push", false, false},
+	{"Push --force-with-lease", true, false},
+	{"Push --set-upstream origin <branch>", false, true},
+}
+
+func (m model) doPushWithOpts() tea.Cmd {
+	opt := pushMenuOptions[m.pushOptCursor]
+	remote := "origin"
+	branch := ""
+	if m.status != nil {
+		branch = m.status.Branch
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 		defer cancel()
-		err := m.git.Push(ctx)
+		err := m.git.PushWithOptions(ctx, opt.force, opt.setUpstream, remote, branch)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doLoadHunks(path string, staged bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		hdr, hunks, err := m.git.DiffHunks(ctx, path, staged)
+		return hunkLoadMsg{fileHdr: hdr, hunks: hunks, err: err}
+	}
+}
+
+func (m model) doApplyHunks() tea.Cmd {
+	hdr := m.hunkFileHdr
+	reverse := m.hunkStaged
+	var selected []git.Hunk
+	for i, h := range m.hunkList {
+		if i < len(m.hunkSel) && m.hunkSel[i] {
+			selected = append(selected, h)
+		}
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.ApplyHunks(ctx, hdr, selected, reverse)
 		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
 	}
 }
@@ -1406,6 +1467,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.noteEditing = false
 		m.panel = panelNoteView
 
+	case hunkLoadMsg:
+		if msg.err != nil {
+			m.actionErr = msg.err
+			m.panel = panelMain
+			break
+		}
+		if len(msg.hunks) == 0 {
+			m.actionErr = fmt.Errorf("no diff hunks found for %s", m.hunkFile)
+			m.panel = panelMain
+			break
+		}
+		m.hunkFileHdr = msg.fileHdr
+		m.hunkList = msg.hunks
+		m.hunkSel = make([]bool, len(msg.hunks))
+		for i := range m.hunkSel {
+			m.hunkSel[i] = true
+		}
+		m.hunkCursor = 0
+		m.panel = panelHunkStage
+
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
@@ -1624,6 +1705,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m.updateNoteViewPanel(msg)
 		}
+		if m.panel == panelHunkStage {
+			return m.updateHunkStagePanel(msg)
+		}
+		if m.panel == panelPushOpts {
+			return m.updatePushOptsPanel(msg)
+		}
 		return m.updateMainPanel(msg)
 	}
 
@@ -1713,12 +1800,30 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.actionErr = nil
 
 	case kb.Push, "p":
-		if m.pushing {
+		m.pushOptCursor = 0
+		m.panel = panelPushOpts
+		m.actionErr = nil
+
+	case "h":
+		if len(m.files) == 0 {
 			break
 		}
-		m.pushing = true
-		m.actionErr = nil
-		return m, m.doPush()
+		f := m.files[m.cursor]
+		if f.category == catConflict {
+			m.actionErr = fmt.Errorf("resolve conflict first - press [d] to view")
+			break
+		}
+		if f.category == catUntracked {
+			m.actionErr = fmt.Errorf("untracked file - press [space] to stage the whole file")
+			break
+		}
+		staged := f.category == catStaged
+		m.hunkFile = f.entry.Path
+		m.hunkStaged = staged
+		m.hunkList = nil
+		m.hunkSel = nil
+		m.panel = panelHunkStage
+		return m, m.doLoadHunks(f.entry.Path, staged)
 
 	case "P":
 		if m.pulling || m.pushing {
@@ -3027,6 +3132,76 @@ func (m model) updateNoteViewPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) updateHunkStagePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.hunkList == nil {
+		if msg.String() == "esc" || msg.String() == m.cfg.Keybindings.Quit || msg.String() == "ctrl+c" {
+			m.panel = panelMain
+			if msg.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
+		}
+		return m, nil
+	}
+	switch msg.String() {
+	case "up", "k":
+		if m.hunkCursor > 0 {
+			m.hunkCursor--
+		}
+	case "down", "j":
+		if m.hunkCursor < len(m.hunkList)-1 {
+			m.hunkCursor++
+		}
+	case " ":
+		if m.hunkCursor < len(m.hunkSel) {
+			m.hunkSel[m.hunkCursor] = !m.hunkSel[m.hunkCursor]
+		}
+	case "a":
+		allOn := true
+		for _, s := range m.hunkSel {
+			if !s {
+				allOn = false
+				break
+			}
+		}
+		for i := range m.hunkSel {
+			m.hunkSel[i] = !allOn
+		}
+	case "enter":
+		m.panel = panelMain
+		return m, m.doApplyHunks()
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) updatePushOptsPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.pushOptCursor > 0 {
+			m.pushOptCursor--
+		}
+	case "down", "j":
+		if m.pushOptCursor < len(pushMenuOptions)-1 {
+			m.pushOptCursor++
+		}
+	case "enter":
+		if m.pushing {
+			break
+		}
+		m.pushing = true
+		m.panel = panelMain
+		return m, m.doPushWithOpts()
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelMain
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 func (m model) updateStashListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "up", "k":
@@ -3430,6 +3605,12 @@ func (m model) View() string {
 	}
 	if m.panel == panelNoteView {
 		return m.noteView()
+	}
+	if m.panel == panelHunkStage {
+		return m.hunkStageView()
+	}
+	if m.panel == panelPushOpts {
+		return m.pushOptsView()
 	}
 	return m.mainView()
 }
@@ -4972,6 +5153,85 @@ func (m model) noteView() string {
 		b.WriteString("\n")
 	}
 	b.WriteString(styleDim.Render("  [e] edit  [d] delete  [esc] back") + "\n")
+	return b.String()
+}
+
+func (m model) hunkStageView() string {
+	action := "Stage hunks"
+	if m.hunkStaged {
+		action = "Unstage hunks"
+	}
+	title := styleTitle.Render(action + ": " + m.hunkFile)
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+
+	if m.hunkList == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+		return b.String()
+	}
+	if len(m.hunkList) == 0 {
+		b.WriteString("  " + styleDim.Render("no hunks found") + "\n\n")
+		b.WriteString(styleDim.Render("  [esc] back") + "\n")
+		return b.String()
+	}
+
+	for i, h := range m.hunkList {
+		cursor := "  "
+		if m.hunkCursor == i {
+			cursor = styleSelected.Render("▶ ")
+		}
+		checkbox := "[ ]"
+		if i < len(m.hunkSel) && m.hunkSel[i] {
+			checkbox = styleAdded.Render("[✓]")
+		}
+		b.WriteString(cursor + checkbox + " " + styleDim.Render(h.Header) + "\n")
+		maxLines := 5
+		for j, line := range h.Body {
+			if j >= maxLines {
+				b.WriteString("        " + styleDim.Render("...") + "\n")
+				break
+			}
+			var styled string
+			switch {
+			case strings.HasPrefix(line, "+"):
+				styled = styleAdded.Render(line)
+			case strings.HasPrefix(line, "-"):
+				styled = styleConflict.Render(line)
+			default:
+				styled = styleDim.Render(line)
+			}
+			b.WriteString("        " + styled + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString(styleDim.Render("  [↑↓] navigate  [space] toggle  [a] all/none  [enter] apply  [esc] back") + "\n")
+	return b.String()
+}
+
+func (m model) pushOptsView() string {
+	title := styleTitle.Render("Push")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+
+	branch := ""
+	if m.status != nil {
+		branch = m.status.Branch
+	}
+	labels := []string{
+		"Push",
+		"Push --force-with-lease",
+		"Push --set-upstream origin " + branch,
+	}
+	for i, label := range labels {
+		cursor := "  "
+		if m.pushOptCursor == i {
+			cursor = styleSelected.Render("▶ ")
+		}
+		b.WriteString(cursor + label + "\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(styleDim.Render("  [↑↓] select  [enter] push  [esc] back") + "\n")
 	return b.String()
 }
 

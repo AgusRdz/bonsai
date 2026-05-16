@@ -2,6 +2,40 @@
 
 All advanced operations are accessible from the main TUI panel. This page explains what each one does, how to reach it, and what to expect.
 
+## Hunk staging (`h`)
+
+Stage or unstage individual hunks within a file instead of the whole file.
+
+1. Navigate to a changed or staged file in the main panel.
+2. Press `h` to open the hunk panel.
+3. Each hunk shows its `@@ ... @@` header and a short preview of the changed lines.
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓` | Move selection |
+| `space` | Toggle the selected hunk on/off |
+| `a` | Select all / deselect all |
+| `enter` | Apply selected hunks (stage or unstage) |
+| `esc` | Cancel |
+
+All hunks are selected by default. Deselect the ones you want to leave out, then press `enter`.
+
+Staging hunks uses `git apply --cached`. Unstaging reverses the patch with `git apply --cached --reverse`.
+
+> Untracked files (new files not yet known to git) cannot be partially staged - press `space` to stage the full file first.
+
+## Push menu (`p`)
+
+Opens a menu instead of pushing immediately, so you can choose the push mode.
+
+| Option | Git command | When to use |
+|--------|-------------|-------------|
+| Push | `git push` | Normal push to the tracking remote |
+| Push --force-with-lease | `git push --force-with-lease` | Force-push after a rebase; safe because it fails if the remote has commits you have not fetched |
+| Push --set-upstream origin `<branch>` | `git push --set-upstream origin <branch>` | First push of a new branch; sets the tracking remote in one step |
+
+Navigate with `↑`/`↓` and press `enter` to execute.
+
 ## Reset (`z`)
 
 Opens a menu with three reset modes. Resets apply to the current HEAD.

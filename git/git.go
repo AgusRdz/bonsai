@@ -406,6 +406,113 @@ func (r *Runner) Push(ctx context.Context) error {
 	return err
 }
 
+// PushWithOptions pushes with optional --force-with-lease or --set-upstream.
+func (r *Runner) PushWithOptions(ctx context.Context, force, setUpstream bool, remote, branch string) error {
+	args := []string{"push"}
+	if force {
+		args = append(args, "--force-with-lease")
+	}
+	if setUpstream && remote != "" && branch != "" {
+		args = append(args, "--set-upstream", remote, branch)
+	}
+	_, err := r.run(ctx, args...)
+	return err
+}
+
+// Hunk is a single contiguous block of diff output.
+type Hunk struct {
+	Header string   // the "@@ -x,y +a,b @@" line
+	Body   []string // context and changed lines
+}
+
+func (h Hunk) raw() string {
+	raw := h.Header + "\n"
+	if len(h.Body) > 0 {
+		raw += strings.Join(h.Body, "\n") + "\n"
+	}
+	return raw
+}
+
+// DiffHunks returns the file-level patch header and individual hunks for one
+// file. staged=true diffs the index against HEAD; staged=false diffs the
+// working tree against the index.
+func (r *Runner) DiffHunks(ctx context.Context, path string, staged bool) (fileHeader string, hunks []Hunk, err error) {
+	args := []string{"diff", "--unified=3"}
+	if staged {
+		args = append(args, "--cached")
+	}
+	args = append(args, "--", path)
+
+	out, runErr := r.run(ctx, args...)
+	if runErr != nil {
+		return "", nil, runErr
+	}
+	if len(out) == 0 {
+		return "", nil, nil
+	}
+
+	lines := strings.Split(string(out), "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+
+	var headerLines []string
+	var cur *Hunk
+	inHeader := true
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "@@") {
+			inHeader = false
+			if cur != nil {
+				hunks = append(hunks, *cur)
+			}
+			cur = &Hunk{Header: line}
+			continue
+		}
+		if inHeader {
+			headerLines = append(headerLines, line)
+		} else if cur != nil {
+			cur.Body = append(cur.Body, line)
+		}
+	}
+	if cur != nil {
+		hunks = append(hunks, *cur)
+	}
+
+	fileHeader = strings.Join(headerLines, "\n")
+	return fileHeader, hunks, nil
+}
+
+// ApplyHunks stages (reverse=false) or unstages (reverse=true) the given
+// hunks by piping a constructed patch to git apply --cached.
+func (r *Runner) ApplyHunks(ctx context.Context, fileHeader string, hunks []Hunk, reverse bool) error {
+	if len(hunks) == 0 {
+		return nil
+	}
+
+	var patch strings.Builder
+	patch.WriteString(fileHeader)
+	if !strings.HasSuffix(fileHeader, "\n") {
+		patch.WriteByte('\n')
+	}
+	for _, h := range hunks {
+		patch.WriteString(h.raw())
+	}
+
+	args := []string{"apply", "--cached"}
+	if reverse {
+		args = append(args, "--reverse")
+	}
+	r.lastCmd = "git " + strings.Join(args, " ")
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Stdin = strings.NewReader(patch.String())
+	outB, applyErr := cmd.CombinedOutput()
+	if applyErr != nil {
+		return fmt.Errorf("%w: %s", applyErr, strings.TrimSpace(string(outB)))
+	}
+	return nil
+}
+
 // Pull fetches and merges the upstream into the current branch.
 func (r *Runner) Pull(ctx context.Context) error {
 	_, err := r.run(ctx, "pull")
