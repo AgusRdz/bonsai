@@ -1,6 +1,7 @@
 package git
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -372,5 +373,80 @@ func TestExtractCommitHash(t *testing.T) {
 		if got != c.want {
 			t.Errorf("extractCommitHash(%q) = %q, want %q", c.line, got, c.want)
 		}
+	}
+}
+
+func TestMostFrequentName(t *testing.T) {
+	cases := []struct {
+		names map[string]int
+		want  string
+	}{
+		{map[string]int{"Alice": 5, "Bob": 3}, "Alice"},
+		{map[string]int{"Alice": 2, "Bob": 2}, "Alice"}, // tie-break: alphabetical
+		{map[string]int{"Bob": 2, "Alice": 2}, "Alice"}, // same tie, alphabetical wins
+		{map[string]int{"Jane": 1}, "Jane"},
+		{map[string]int{}, ""},
+	}
+	for _, c := range cases {
+		got := mostFrequentName(c.names)
+		if got != c.want {
+			t.Errorf("mostFrequentName(%v) = %q, want %q", c.names, got, c.want)
+		}
+	}
+}
+
+func TestParseDiffOutput(t *testing.T) {
+	raw := "diff --git a/foo.go b/foo.go\nindex abc..def 100644\n--- a/foo.go\n+++ b/foo.go\n@@ -1,3 +1,4 @@\n context\n-removed\n+added\n+extra\n context2\n@@ -10,2 +11,2 @@\n other\n-old\n+new\n"
+	header, hunks, err := parseDiffOutput(raw)
+	if err != nil {
+		t.Fatalf("parseDiffOutput error: %v", err)
+	}
+	if len(hunks) != 2 {
+		t.Fatalf("hunk count = %d, want 2", len(hunks))
+	}
+	if !strings.HasPrefix(header, "diff --git") {
+		t.Errorf("header = %q, want diff --git prefix", header)
+	}
+	if hunks[0].Header != "@@ -1,3 +1,4 @@" {
+		t.Errorf("hunks[0].Header = %q", hunks[0].Header)
+	}
+	if len(hunks[0].Body) != 5 {
+		t.Errorf("hunks[0].Body len = %d, want 5", len(hunks[0].Body))
+	}
+	if hunks[1].Header != "@@ -10,2 +11,2 @@" {
+		t.Errorf("hunks[1].Header = %q", hunks[1].Header)
+	}
+}
+
+func TestParseDiffOutputEmpty(t *testing.T) {
+	header, hunks, err := parseDiffOutput("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if header != "" || len(hunks) != 0 {
+		t.Errorf("expected empty result, got header=%q hunks=%d", header, len(hunks))
+	}
+}
+
+func TestParseDiffOutputNoHunks(t *testing.T) {
+	raw := "diff --git a/foo.go b/foo.go\nnew file mode 100644\n"
+	header, hunks, err := parseDiffOutput(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hunks) != 0 {
+		t.Errorf("hunk count = %d, want 0", len(hunks))
+	}
+	if header == "" {
+		t.Error("header should not be empty for header-only diff")
+	}
+}
+
+func TestHunkRaw(t *testing.T) {
+	h := Hunk{Header: "@@ -1,2 +1,3 @@", Body: []string{" context", "-old", "+new"}}
+	got := h.raw()
+	want := "@@ -1,2 +1,3 @@\n context\n-old\n+new\n"
+	if got != want {
+		t.Errorf("Hunk.raw() = %q, want %q", got, want)
 	}
 }

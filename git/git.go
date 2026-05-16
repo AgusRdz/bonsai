@@ -451,8 +451,13 @@ func (r *Runner) DiffHunks(ctx context.Context, path string, staged bool) (fileH
 	if len(out) == 0 {
 		return "", nil, nil
 	}
+	return parseDiffOutput(string(out))
+}
 
-	lines := strings.Split(string(out), "\n")
+// parseDiffOutput splits raw unified diff output into a file header and
+// individual hunks. Each hunk starts at a "@@" line.
+func parseDiffOutput(raw string) (fileHeader string, hunks []Hunk, err error) {
+	lines := strings.Split(raw, "\n")
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}

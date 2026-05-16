@@ -5,6 +5,82 @@ import (
 	"testing"
 )
 
+func TestCommandKey(t *testing.T) {
+	cases := []struct {
+		cmd  string
+		want string
+	}{
+		{"git add -- file.go", "add"},
+		{"git restore --staged -- file.go", "unstage"},
+		{"git restore -- file.go", "restore"},
+		{"git restore --source HEAD -- file.go", "restore"},
+		{"git commit --amend", "amend"},
+		{"git commit --amend --author=foo", "amend"},
+		{"git commit -m msg", "commit"},
+		{"git push origin --delete feat/x", "remote-branch-delete"},
+		{"git push", "push"},
+		{"git push --force-with-lease", "push"},
+		{"git pull", "pull"},
+		{"git switch -c feat/x", "branch"},
+		{"git switch main", "switch"},
+		{"git branch -m new-name", "branch-rename"},
+		{"git stash pop", "stash-pop"},
+		{"git stash apply stash@{0}", "stash-apply"},
+		{"git stash drop stash@{0}", "stash-drop"},
+		{"git stash", "stash"},
+		{"git branch -d feat/old", "branch-delete"},
+		{"git branch -D feat/old", "branch-delete"},
+		{"git rebase main", "rebase"},
+		{"git rebase --continue", "rebase"},
+		{"git rebase --abort", "rebase"},
+		{"git merge feat/x", "merge"},
+		{"git merge --abort", "merge"},
+		{"git cherry-pick abc123", "cherry-pick"},
+		{"git cherry-pick --abort", "cherry-pick"},
+		{"git reset --soft HEAD~1", "reset-soft"},
+		{"git reset --mixed HEAD~1", "reset-mixed"},
+		{"git reset --hard HEAD~1", "reset-hard"},
+		{"git tag v1.0.0", "tag"},
+		{"git tag -d v1.0.0", "tag"},
+		{"git worktree add ../path branch", "worktree"},
+		{"git worktree remove ../path", "worktree"},
+		{"git fetch origin", "fetch"},
+		{"git fetch --all --prune", "fetch"},
+		{"git clean -fd", "clean"},
+		{"git remote add upstream url", "remote"},
+		{"git remote remove upstream", "remote"},
+		{"git submodule update --init", "submodule"},
+		{"git notes add -m note HEAD", "notes"},
+		{"git apply 0001.patch", "apply"},
+		{"git unknown-command", ""},
+		{"", ""},
+	}
+	for _, c := range cases {
+		got := commandKey(c.cmd)
+		if got != c.want {
+			t.Errorf("commandKey(%q) = %q, want %q", c.cmd, got, c.want)
+		}
+	}
+}
+
+func TestCommandKeyPushDeleteBeforeGenericPush(t *testing.T) {
+	if got := commandKey("git push origin --delete feat/x"); got != "remote-branch-delete" {
+		t.Errorf("commandKey(push --delete) = %q, want remote-branch-delete", got)
+	}
+	if got := commandKey("git push"); got != "push" {
+		t.Errorf("commandKey(push) = %q, want push", got)
+	}
+}
+
+func TestCommandKeyAmendBeforeGenericCommit(t *testing.T) {
+	if got := commandKey("git commit --amend"); got != "amend" {
+		t.Errorf("commandKey(commit --amend) = %q, want amend", got)
+	}
+	if got := commandKey("git commit -m msg"); got != "commit" {
+		t.Errorf("commandKey(commit -m) = %q, want commit", got)
+	}
+}
+
 func TestActionTitle(t *testing.T) {
 	cases := []struct {
 		cmd  string
