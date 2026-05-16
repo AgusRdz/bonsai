@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.27.0] - 2026-05-16
+
+### Features
+- Amend last commit (message, author, date, no-edit)
+([f7c9255](https://github.com/AgusRdz/bonsai/commit/f7c925562ec4ecf4a571a546658318202c8692e7))
 ## [0.26.0] - 2026-05-16
 
 ### Features
