@@ -51,9 +51,32 @@ The **command bar** at the bottom shows the most common keys. Press `?` for the 
 | Key | Action |
 |-----|--------|
 | `space` | Stage a changed/untracked file; unstage a staged file |
+| `h` | Open the hunk stage panel - stage or unstage individual hunks within a file |
 | `d` | View diff for the selected file |
+| `H` | Open file history - every commit that touched this file |
+| `e` | Open blame - who last changed each line |
 | `x` | Discard all working tree changes to the selected file (confirm required) |
 | `o` | Restore the selected file to HEAD or a specific ref |
+
+### Hunk staging
+
+Press `h` on any changed file to open the hunk panel. Each hunk shows its `@@ ... @@` header and a short preview. All hunks are selected by default - deselect the ones you want to leave out, then press `enter` to apply.
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓` | Move between hunks |
+| `space` | Toggle selected / deselected |
+| `a` | Select all hunks |
+| `enter` | Apply selected hunks |
+| `esc` | Cancel |
+
+### File history
+
+Press `H` on any file to see every commit that touched it. Press `enter` on a commit to open its full detail view.
+
+### Branch graph
+
+Press `g` to open the branch graph (`git log --graph --all`). Use `↑`/`↓` to scroll, `esc` to close.
 
 ## Committing
 

@@ -256,6 +256,9 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git restore --staged"):
 		return "The file was removed from the staging area. Your changes are still in the working tree - " +
 			"they are not lost. Stage it again when you are ready to include it in a commit."
+	case strings.HasPrefix(cmd, "git restore --source"):
+		return "The file was restored to the state it had at the given ref. " +
+			"The change appears as a modification in your working tree - you still need to stage and commit it."
 	case strings.HasPrefix(cmd, "git restore"):
 		return "The working tree changes for that file were permanently discarded. " +
 			"Git cannot recover them - the file now matches the last commit. " +
@@ -275,6 +278,9 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git commit"):
 		return "A new commit was created in the current branch. A commit is a permanent snapshot of your " +
 			"staged changes. It lives in the branch history and can always be recovered with git log."
+	case strings.HasPrefix(cmd, "git push") && strings.Contains(cmd, "--delete"):
+		return "The branch was deleted from the remote. " +
+			"The local branch still exists - delete it separately with 'git branch -d <branch>' if you no longer need it."
 	case strings.HasPrefix(cmd, "git push"):
 		return "Your local commits were sent to the remote repository. " +
 			"Others can now see and pull your changes. The remote branch is now in sync."
@@ -359,15 +365,9 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git fetch"):
 		return "The remote was fetched - remote-tracking refs are updated but your local branches remain unchanged. " +
 			"Use 'git merge' or 'git rebase' to integrate the fetched changes."
-	case strings.HasPrefix(cmd, "git restore --source"):
-		return "The file was restored to the state it had at the given ref. " +
-			"The change appears as a modification in your working tree - you still need to stage and commit it."
 	case strings.HasPrefix(cmd, "git clean -fd"):
 		return "Untracked files and directories were permanently removed from the working tree. " +
 			"This action cannot be undone - untracked files are not in git history."
-	case strings.HasPrefix(cmd, "git reset --mixed"):
-		return "HEAD was moved to the target commit with mixed reset. " +
-			"Commits after that point are undone and their changes are left in the working tree as unstaged modifications."
 	case strings.HasPrefix(cmd, "git remote add"):
 		return "A new remote was registered. You can now fetch, pull, and push to it. " +
 			"Run 'git fetch <name>' to download its refs."
@@ -394,9 +394,6 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git notes remove"):
 		return "The note was removed from the commit. " +
 			"The commit itself is unchanged - notes are metadata stored separately from the commit object."
-	case strings.HasPrefix(cmd, "git push") && strings.Contains(cmd, "--delete"):
-		return "The branch was deleted from the remote. " +
-			"The local branch still exists - delete it separately with 'git branch -d <branch>' if you no longer need it."
 	case strings.HasPrefix(cmd, "git branch -d"), strings.HasPrefix(cmd, "git branch -D"):
 		return "The local branch was deleted. " +
 			"If the branch was pushed to a remote, it still exists there - use [D] in the branch list to delete it remotely."

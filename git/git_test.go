@@ -136,3 +136,61 @@ func TestFileEntryHelpers(t *testing.T) {
 		t.Errorf("StagedCode = %q, want ?", untracked.StagedCode())
 	}
 }
+
+func TestConflictDesc(t *testing.T) {
+	cases := []struct {
+		code string
+		want string
+	}{
+		{"UU", "both modified"},
+		{"AA", "both added"},
+		{"DD", "both deleted"},
+		{"AU", "added by us"},
+		{"UA", "added by them"},
+		{"DU", "deleted by us"},
+		{"UD", "deleted by them"},
+		{"XY", "conflict"},
+		{"", "conflict"},
+	}
+	for _, c := range cases {
+		if got := ConflictDesc(c.code); got != c.want {
+			t.Errorf("ConflictDesc(%q) = %q, want %q", c.code, got, c.want)
+		}
+	}
+}
+
+func TestParseWorktrees(t *testing.T) {
+	output := "worktree /home/user/project\nHEAD abc123\nbranch refs/heads/main\n\nworktree /home/user/project-hotfix\nHEAD def456\nbranch refs/heads/hotfix/fix\n\nworktree /home/user/project-detached\nHEAD ghi789\ndetached\n"
+	entries := parseWorktrees(output)
+
+	if len(entries) != 3 {
+		t.Fatalf("entry count = %d, want 3", len(entries))
+	}
+
+	cases := []struct {
+		path    string
+		branch  string
+		current bool
+	}{
+		{"/home/user/project", "main", true},
+		{"/home/user/project-hotfix", "hotfix/fix", false},
+		{"/home/user/project-detached", "(detached)", false},
+	}
+	for i, c := range cases {
+		if entries[i].Path != c.path {
+			t.Errorf("entries[%d].Path = %q, want %q", i, entries[i].Path, c.path)
+		}
+		if entries[i].Branch != c.branch {
+			t.Errorf("entries[%d].Branch = %q, want %q", i, entries[i].Branch, c.branch)
+		}
+		if entries[i].Current != c.current {
+			t.Errorf("entries[%d].Current = %v, want %v", i, entries[i].Current, c.current)
+		}
+	}
+}
+
+func TestParseWorktreesEmpty(t *testing.T) {
+	if entries := parseWorktrees(""); len(entries) != 0 {
+		t.Errorf("expected empty, got %v", entries)
+	}
+}
