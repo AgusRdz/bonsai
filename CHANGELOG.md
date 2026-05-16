@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.48.0] - 2026-05-16
+
+### Features
+- LFS support, SSH key manager TUI, and LFS pointer detection in diffs
+([38ed52e](https://github.com/AgusRdz/bonsai/commit/38ed52ecfd4e35ee6f50f858efe539e3389233e5))
 ## [0.47.0] - 2026-05-16
 
 ### Features
