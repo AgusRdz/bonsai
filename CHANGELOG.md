@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.35.3] - 2026-05-16
+
+### Bug Fixes
+- Ordering bugs in explain(), new tests, tui-guide hunk/history/graph
+([027dbd1](https://github.com/AgusRdz/bonsai/commit/027dbd1a98d81f52443a2959ac82f3032d4cbc82))
 ## [0.35.2] - 2026-05-16
 
 ### Bug Fixes
