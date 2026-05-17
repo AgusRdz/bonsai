@@ -7973,6 +7973,7 @@ type cmdBarEntry struct {
 
 var cmdBarCatalog = []cmdBarEntry{
 	{"space", "[space]", "stage/unstage"},
+	{"stage-all", "[+]", "stage all"},
 	{"hunks", "[h]", "stage by section"},
 	{"diff", "[d]", "diff"},
 	{"commit", "[c]", "commit"},
@@ -7999,7 +8000,7 @@ var cmdBarCatalog = []cmdBarEntry{
 	{"config", "[C]", "config"},
 }
 
-var defaultCmdBarItems = []string{"space", "hunks", "diff", "commit", "push", "pull", "branch", "log"}
+var defaultCmdBarItems = []string{"space", "stage-all", "commit", "push", "pull", "branch", "log"}
 
 func cmdBarEnabledFromConfig(items []string) []bool {
 	active := items
@@ -8037,6 +8038,7 @@ func (m model) commandBar() string {
 	kb := m.cfg.Keybindings
 	labelFor := map[string]string{
 		"space":      "[space] stage/unstage",
+		"stage-all":  "[+] stage all",
 		"hunks":      "[h] stage by section",
 		"diff":       "[d] diff",
 		"commit":     fmt.Sprintf("[%s] commit", kb.Commit),
