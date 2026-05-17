@@ -2,6 +2,12 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.60.0] - 2026-05-17
+
+### Features
+- PR merge picker in PR panel: press m to choose merge / squash / rebase; deletes source branch automatically
+([9933507](https://github.com/AgusRdz/bonsai/commit/9933507))
+
 ## [0.59.0] - 2026-05-17
 
 ### Features
