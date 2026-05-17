@@ -27,6 +27,8 @@ func FormatXML(v any) string {
 		stashXML(&b, out)
 	case *ReviewOut:
 		reviewXML(&b, out)
+	case *ContextOut:
+		contextXML(&b, out)
 	default:
 		fmt.Fprintf(&b, "<!-- unsupported type %T -->\n", v)
 	}
@@ -212,6 +214,14 @@ func stashXML(b *strings.Builder, entries []StashEntry) {
 		fmt.Fprintf(b, `  <entry ref="%s">%s</entry>`+"\n", xe(e.Ref), xe(e.Description))
 	}
 	b.WriteString("</stash>\n")
+}
+
+func contextXML(b *strings.Builder, c *ContextOut) {
+	b.WriteString("<context>\n")
+	statusXML(b, c.Status)
+	diffXML(b, c.Diff)
+	logXML(b, c.Log)
+	b.WriteString("</context>\n")
 }
 
 func reviewXML(b *strings.Builder, r *ReviewOut) {

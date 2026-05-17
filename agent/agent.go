@@ -118,6 +118,14 @@ type ReviewOut struct {
 	Status       *StatusOut  `json:"status"`
 }
 
+// ContextOut is the structured output for `bonsai context`.
+// It bundles status, working-tree diff, and recent commits into one snapshot.
+type ContextOut struct {
+	Status *StatusOut `json:"status"`
+	Diff   *DiffOut   `json:"diff"`
+	Log    []LogEntry `json:"log"`
+}
+
 // ---------------------------------------------------------------------------
 // Builders
 // ---------------------------------------------------------------------------
@@ -354,6 +362,32 @@ func BuildStashList(ctx context.Context, g *git.Runner) ([]StashEntry, error) {
 		out = append(out, StashEntry{Ref: e.Ref, Description: e.Description})
 	}
 	return out, nil
+}
+
+// BuildContext returns a single snapshot of repo status, working-tree diff,
+// and recent commits. logLimit controls how many commits to include (0 = 10).
+// When detailed is false, diff contains only file counts (no patch hunks).
+func BuildContext(ctx context.Context, g *git.Runner, logLimit int, detailed bool) (*ContextOut, error) {
+	if logLimit <= 0 {
+		logLimit = 10
+	}
+
+	status, err := BuildStatus(ctx, g)
+	if err != nil {
+		return nil, err
+	}
+
+	diff, err := BuildDiff(ctx, g, "", true, true, true, detailed)
+	if err != nil {
+		return nil, err
+	}
+
+	log, err := BuildLog(ctx, g, LogParams{Limit: logLimit})
+	if err != nil {
+		return nil, err
+	}
+
+	return &ContextOut{Status: status, Diff: diff, Log: log}, nil
 }
 
 // BuildReview returns diff and commit context for code review.

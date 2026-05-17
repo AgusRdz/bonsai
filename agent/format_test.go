@@ -109,6 +109,76 @@ func TestFormatMarkdown_Review(t *testing.T) {
 	}
 }
 
+func TestFormatMarkdown_Context(t *testing.T) {
+	c := &ContextOut{
+		Status: &StatusOut{
+			Branch:    "feat/login",
+			Upstream:  "origin/feat/login",
+			Ahead:     1,
+			Staged:    []FileEntry{{Status: "M", Path: "auth.go"}},
+			Unstaged:  []FileEntry{},
+			Conflicts: []FileEntry{},
+			Untracked: []FileEntry{},
+		},
+		Diff: &DiffOut{
+			Staged:    []FileDiff{{Path: "auth.go", Status: "M", Additions: 5, Deletions: 2}},
+			Unstaged:  []FileDiff{},
+			Untracked: []UntrackedEntry{},
+		},
+		Log: []LogEntry{
+			{Hash: "abc1234", Subject: "feat: add auth", Author: "Alice", Date: "2026-05-17"},
+		},
+	}
+	out := FormatMarkdown(c)
+	for _, want := range []string{
+		"# Context: feat/login",
+		"origin/feat/login",
+		"↑1",
+		"## Status",
+		"auth.go",
+		"## Changes",
+		"## Recent Commits",
+		"abc1234",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("markdown context: expected %q in output\n%s", want, out)
+		}
+	}
+}
+
+func TestFormatXML_Context(t *testing.T) {
+	c := &ContextOut{
+		Status: &StatusOut{
+			Branch:    "feat/login",
+			Staged:    []FileEntry{{Status: "M", Path: "auth.go"}},
+			Unstaged:  []FileEntry{},
+			Conflicts: []FileEntry{},
+			Untracked: []FileEntry{},
+		},
+		Diff: &DiffOut{
+			Staged:    []FileDiff{{Path: "auth.go", Status: "M", Additions: 5, Deletions: 2}},
+			Unstaged:  []FileDiff{},
+			Untracked: []UntrackedEntry{},
+		},
+		Log: []LogEntry{
+			{Hash: "abc1234", Subject: "feat: add auth", Author: "Alice", Date: "2026-05-17"},
+		},
+	}
+	out := FormatXML(c)
+	for _, want := range []string{
+		"<context>",
+		"<branch>feat/login</branch>",
+		`path="auth.go"`,
+		"<commits>",
+		"<hash>abc1234</hash>",
+		"</context>",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("xml context: expected %q in output\n%s", want, out)
+		}
+	}
+}
+
 func TestFormatMarkdown_DiffWithHunks(t *testing.T) {
 	d := &DiffOut{
 		Staged: []FileDiff{{

@@ -24,6 +24,8 @@ func FormatMarkdown(v any) string {
 		return stashMarkdown(out)
 	case *ReviewOut:
 		return reviewMarkdown(out)
+	case *ContextOut:
+		return contextMarkdown(out)
 	default:
 		return fmt.Sprintf("<!-- unsupported type %T -->\n", v)
 	}
@@ -227,6 +229,94 @@ func stashMarkdown(entries []StashEntry) string {
 		rows[i] = []string{e.Ref, e.Description}
 	}
 	b.WriteString(mdTable([]string{"Ref", "Description"}, rows))
+	return b.String()
+}
+
+func contextMarkdown(c *ContextOut) string {
+	var b strings.Builder
+
+	s := c.Status
+	upstreamInfo := ""
+	if s.Upstream != "" {
+		upstreamInfo = fmt.Sprintf(" → `%s`", s.Upstream)
+	}
+	if s.Ahead > 0 || s.Behind > 0 {
+		upstreamInfo += fmt.Sprintf(" ↑%d ↓%d", s.Ahead, s.Behind)
+	}
+	fmt.Fprintf(&b, "# Context: %s%s\n\n", s.Branch, upstreamInfo)
+
+	if s.MergeState != "" {
+		fmt.Fprintf(&b, "> **In progress:** %s\n\n", s.MergeState)
+	}
+
+	// Status summary
+	b.WriteString("## Status\n\n")
+	if len(s.Staged) > 0 {
+		fmt.Fprintf(&b, "**Staged (%d):**\n\n", len(s.Staged))
+		rows := make([][]string, len(s.Staged))
+		for i, f := range s.Staged {
+			rows[i] = []string{f.Status, "`" + f.Path + "`"}
+		}
+		b.WriteString(mdTable([]string{"Status", "File"}, rows))
+		b.WriteByte('\n')
+	}
+	if len(s.Unstaged) > 0 {
+		fmt.Fprintf(&b, "**Unstaged (%d):**\n\n", len(s.Unstaged))
+		rows := make([][]string, len(s.Unstaged))
+		for i, f := range s.Unstaged {
+			rows[i] = []string{f.Status, "`" + f.Path + "`"}
+		}
+		b.WriteString(mdTable([]string{"Status", "File"}, rows))
+		b.WriteByte('\n')
+	}
+	if len(s.Conflicts) > 0 {
+		fmt.Fprintf(&b, "**Conflicts (%d):**\n\n", len(s.Conflicts))
+		rows := make([][]string, len(s.Conflicts))
+		for i, f := range s.Conflicts {
+			rows[i] = []string{f.Status, "`" + f.Path + "`"}
+		}
+		b.WriteString(mdTable([]string{"Status", "File"}, rows))
+		b.WriteByte('\n')
+	}
+	if len(s.Staged) == 0 && len(s.Unstaged) == 0 && len(s.Conflicts) == 0 {
+		b.WriteString("_working tree clean_\n\n")
+	}
+	if len(s.Untracked) > 0 {
+		fmt.Fprintf(&b, "**Untracked (%d):**\n\n", len(s.Untracked))
+		for _, f := range s.Untracked {
+			fmt.Fprintf(&b, "- `%s`\n", f.Path)
+		}
+		b.WriteByte('\n')
+	}
+	if s.StashCount > 0 {
+		fmt.Fprintf(&b, "**Stash:** %d %s\n\n", s.StashCount, mdPlural(s.StashCount, "entry", "entries"))
+	}
+
+	// Diff changes (only if there is something)
+	d := c.Diff
+	hasChanges := len(d.Staged) > 0 || len(d.Unstaged) > 0
+	if hasChanges {
+		b.WriteString("## Changes\n\n")
+		if len(d.Staged) > 0 {
+			fmt.Fprintf(&b, "### Staged (%d %s)\n\n", len(d.Staged), mdPlural(len(d.Staged), "file", "files"))
+			b.WriteString(diffFilesMarkdown(d.Staged))
+		}
+		if len(d.Unstaged) > 0 {
+			fmt.Fprintf(&b, "### Unstaged (%d %s)\n\n", len(d.Unstaged), mdPlural(len(d.Unstaged), "file", "files"))
+			b.WriteString(diffFilesMarkdown(d.Unstaged))
+		}
+	}
+
+	// Recent commits
+	if len(c.Log) > 0 {
+		fmt.Fprintf(&b, "## Recent Commits (%d)\n\n", len(c.Log))
+		rows := make([][]string, len(c.Log))
+		for i, e := range c.Log {
+			rows[i] = []string{"`" + e.Hash + "`", e.Date, e.Author, e.Subject}
+		}
+		b.WriteString(mdTable([]string{"Hash", "Date", "Author", "Subject"}, rows))
+	}
+
 	return b.String()
 }
 

@@ -81,6 +81,8 @@ func main() {
 		runStandup(os.Args[2:])
 	case "repo":
 		runRepo(os.Args[2:])
+	case "context":
+		runAgentContext(os.Args[2:])
 	case "status":
 		runAgentStatus(os.Args[2:])
 	case "log":
@@ -212,6 +214,9 @@ Commands:
   lfs --install     install lfs hooks into this repository
 
 Agent / structured output:
+  context           full repo snapshot: status + diff + recent commits
+                    --limit=N    number of commits (default: 10)
+                    --detailed   include patch hunks in diff
   status            repository status (json/markdown/xml)
   log               recent commits (--limit=N, --yesterday, --weeks=N,
                     --from=YYYY-MM-DD, --to=YYYY-MM-DD)
@@ -1046,6 +1051,29 @@ func printOutput(format string, v any) {
 	default:
 		printJSON(v)
 	}
+}
+
+func runAgentContext(args []string) {
+	limit := 10
+	detailed := false
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, "--limit="):
+			if n, err := strconv.Atoi(strings.TrimPrefix(a, "--limit=")); err == nil && n > 0 {
+				limit = n
+			}
+		case a == "--detailed":
+			detailed = true
+		}
+	}
+	ctx := context.Background()
+	g := git.New()
+	out, err := agent.BuildContext(ctx, g, limit, detailed)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai context:", err)
+		os.Exit(1)
+	}
+	printOutput(agentResolveFormat(args), out)
 }
 
 func runAgentStatus(args []string) {
