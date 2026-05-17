@@ -2348,3 +2348,154 @@ func parseDiffNameStatus(output string) map[string]string {
 	}
 	return result
 }
+
+// FileNumstat is one entry from git diff --numstat or git show --numstat.
+type FileNumstat struct {
+	Additions int
+	Deletions int
+	Path      string
+}
+
+// DiffNumstat returns per-file line counts without patch content.
+// staged=true diffs the index against HEAD; staged=false diffs the working tree against the index.
+func (r *Runner) DiffNumstat(ctx context.Context, staged bool) ([]FileNumstat, error) {
+	args := []string{"diff", "--numstat"}
+	if staged {
+		args = append(args, "--staged")
+	}
+	out, err := r.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	return parseDiffNumstat(string(out)), nil
+}
+
+// DiffRangeNumstat returns per-file line counts for base..HEAD.
+func (r *Runner) DiffRangeNumstat(ctx context.Context, base string) ([]FileNumstat, error) {
+	out, err := r.run(ctx, "diff", "--numstat", base+"..HEAD")
+	if err != nil {
+		return nil, err
+	}
+	return parseDiffNumstat(string(out)), nil
+}
+
+// ListUntracked returns paths of untracked, non-ignored files.
+func (r *Runner) ListUntracked(ctx context.Context) ([]string, error) {
+	out, err := r.run(ctx, "ls-files", "--others", "--exclude-standard")
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			paths = append(paths, line)
+		}
+	}
+	return paths, nil
+}
+
+// ShowCommit returns structured metadata for a single commit ref (hash, HEAD, HEAD~N, etc.).
+func (r *Runner) ShowCommit(ctx context.Context, ref string) (*StructuredLogEntry, error) {
+	out, err := r.run(ctx, "show", "--no-patch", "--pretty=tformat:%h\x1f%s\x1f%an\x1f%as", ref)
+	if err != nil {
+		return nil, err
+	}
+	line := strings.TrimSpace(string(out))
+	parts := strings.SplitN(line, "\x1f", 4)
+	if len(parts) < 4 {
+		return nil, fmt.Errorf("unexpected show output for %s", ref)
+	}
+	return &StructuredLogEntry{Hash: parts[0], Subject: parts[1], Author: parts[2], Date: parts[3]}, nil
+}
+
+// ShowNumstat returns per-file line counts for a single commit.
+func (r *Runner) ShowNumstat(ctx context.Context, ref string) ([]FileNumstat, error) {
+	out, err := r.run(ctx, "show", "--numstat", "--format=", ref)
+	if err != nil {
+		return nil, err
+	}
+	return parseDiffNumstat(strings.TrimPrefix(string(out), "\n")), nil
+}
+
+// ShowDiff returns the full unified diff for a single commit.
+func (r *Runner) ShowDiff(ctx context.Context, ref string) (string, error) {
+	out, err := r.run(ctx, "show", "--format=", ref)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(string(out), "\n"), nil
+}
+
+// ShowNameStatus returns a path -> status map for files changed in a single commit.
+func (r *Runner) ShowNameStatus(ctx context.Context, ref string) (map[string]string, error) {
+	out, err := r.run(ctx, "show", "--name-status", "--format=", ref)
+	if err != nil {
+		return nil, err
+	}
+	return parseDiffNameStatus(strings.TrimPrefix(string(out), "\n")), nil
+}
+
+// LogStructuredOpts filters for LogStructuredWithOpts.
+type LogStructuredOpts struct {
+	Limit int    // 0 = 20
+	Since string // e.g. "yesterday", "1 week ago", "2026-05-01"
+	Until string // e.g. "2026-05-17"
+}
+
+// LogStructuredWithOpts returns structured log entries filtered by opts.
+func (r *Runner) LogStructuredWithOpts(ctx context.Context, opts LogStructuredOpts) ([]StructuredLogEntry, error) {
+	n := opts.Limit
+	if n <= 0 {
+		n = 20
+	}
+	args := []string{
+		"log",
+		fmt.Sprintf("--max-count=%d", n),
+		"--pretty=tformat:%h\x1f%s\x1f%an\x1f%as",
+	}
+	if opts.Since != "" {
+		args = append(args, "--since="+opts.Since)
+	}
+	if opts.Until != "" {
+		args = append(args, "--until="+opts.Until)
+	}
+	out, err := r.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	var entries []StructuredLogEntry
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\x1f", 4)
+		if len(parts) < 4 {
+			continue
+		}
+		entries = append(entries, StructuredLogEntry{
+			Hash:    parts[0],
+			Subject: parts[1],
+			Author:  parts[2],
+			Date:    parts[3],
+		})
+	}
+	return entries, nil
+}
+
+func parseDiffNumstat(output string) []FileNumstat {
+	var files []FileNumstat
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) < 3 {
+			continue
+		}
+		add, _ := strconv.Atoi(parts[0])
+		del, _ := strconv.Atoi(parts[1])
+		files = append(files, FileNumstat{Additions: add, Deletions: del, Path: parts[2]})
+	}
+	return files
+}

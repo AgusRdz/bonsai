@@ -540,3 +540,69 @@ func TestParseBlamePorcelainSkipsMalformed(t *testing.T) {
 		t.Errorf("malformed: got %d lines, want 0", len(lines))
 	}
 }
+
+func TestParseDiffNumstat(t *testing.T) {
+	output := "10\t5\tsrc/main.go\n3\t1\tsrc/auth.go\n0\t2\tdocs/README.md\n"
+	files := parseDiffNumstat(output)
+
+	if len(files) != 3 {
+		t.Fatalf("file count = %d, want 3", len(files))
+	}
+	cases := []struct {
+		path string
+		add  int
+		del  int
+	}{
+		{"src/main.go", 10, 5},
+		{"src/auth.go", 3, 1},
+		{"docs/README.md", 0, 2},
+	}
+	for i, c := range cases {
+		if files[i].Path != c.path {
+			t.Errorf("files[%d].Path = %q, want %q", i, files[i].Path, c.path)
+		}
+		if files[i].Additions != c.add {
+			t.Errorf("files[%d].Additions = %d, want %d", i, files[i].Additions, c.add)
+		}
+		if files[i].Deletions != c.del {
+			t.Errorf("files[%d].Deletions = %d, want %d", i, files[i].Deletions, c.del)
+		}
+	}
+}
+
+func TestParseDiffNumstatEmpty(t *testing.T) {
+	if files := parseDiffNumstat(""); len(files) != 0 {
+		t.Errorf("expected empty, got %v", files)
+	}
+	if files := parseDiffNumstat("   \n  \n"); len(files) != 0 {
+		t.Errorf("expected empty for whitespace, got %v", files)
+	}
+}
+
+func TestParseDiffNumstatTabPath(t *testing.T) {
+	// Path contains a tab (unusual but valid in some renames)
+	output := "5\t3\told.go => new.go\n"
+	files := parseDiffNumstat(output)
+	if len(files) != 1 {
+		t.Fatalf("file count = %d, want 1", len(files))
+	}
+	if files[0].Path != "old.go => new.go" {
+		t.Errorf("path = %q, want old.go => new.go", files[0].Path)
+	}
+	if files[0].Additions != 5 || files[0].Deletions != 3 {
+		t.Errorf("counts = +%d -%d, want +5 -3", files[0].Additions, files[0].Deletions)
+	}
+}
+
+func TestParseDiffNumstatSkipsMalformed(t *testing.T) {
+	output := "notanumber\t5\tfile.go\nabc\tdef\tghi.go\n"
+	files := parseDiffNumstat(output)
+	// strconv.Atoi("notanumber") returns 0, not an error - entries are still produced
+	// but with 0 additions. The function is lenient.
+	if len(files) != 2 {
+		t.Fatalf("file count = %d, want 2", len(files))
+	}
+	if files[0].Additions != 0 {
+		t.Errorf("files[0].Additions = %d, want 0 for invalid number", files[0].Additions)
+	}
+}
