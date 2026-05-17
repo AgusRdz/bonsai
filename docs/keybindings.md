@@ -183,13 +183,44 @@ Three-way merge editor (base / ours / theirs per hunk):
 | Key | Action |
 |-----|--------|
 | `↑` / `↓` | Scroll |
-| `enter` | Open PR in browser |
+| `enter` | Open PR detail view |
+| `o` | Open PR in browser |
 | `d` | View full diff |
 | `a` | Approve |
 | `A` | Request changes (with reason) |
 | `c` | Post a general comment |
+| `m` | Open merge picker (merge / squash / rebase) |
 | `n` | Create a new PR for the current branch |
+| `r` | Refresh PR list |
 | `esc` | Back |
+
+## PR detail panel
+
+| Key | Action |
+|-----|--------|
+| `o` | Open PR in browser |
+| `d` | View full diff |
+| `a` | Approve |
+| `m` | Open merge picker |
+| `y` | Copy PR URL to clipboard |
+| `esc` | Back to PR list |
+
+## PR create panel
+
+| Key | Action |
+|-----|--------|
+| `tab` / `shift+tab` | Move between fields (title / description / base branch) |
+| `enter` | Submit (when focused on title or base branch field) |
+| `ctrl+s` | Submit from any field |
+| `esc` | Cancel |
+
+## PR merge picker
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Select merge method |
+| `enter` | Execute merge and delete source branch |
+| `esc` | Cancel |
 
 ## SSH panel (`` ` ``)
 

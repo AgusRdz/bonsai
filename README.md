@@ -259,13 +259,27 @@ Open bonsai and press `?` for the full in-app reference. Key highlights:
 
 | Key | Action |
 |-----|--------|
-| `enter` | Open PR in browser |
+| `enter` | Open PR detail view (state, CI, labels, reviewers, URL) |
+| `o` | Open PR in browser |
 | `d` | View full PR diff (cursor-based, press `c` to comment on a line) |
 | `a` | Approve PR |
 | `A` | Request changes (with reason) |
 | `c` | Post a general comment |
-| `n` | Create a new PR for the current branch |
+| `m` | Merge picker - choose merge / squash / rebase |
+| `n` | Create a new PR (title, description, base branch form) |
+| `r` | Refresh list |
 | `esc` | Back |
+
+### PR detail panel
+
+| Key | Action |
+|-----|--------|
+| `o` | Open in browser |
+| `d` | View diff |
+| `a` | Approve |
+| `m` | Merge picker |
+| `y` | Copy URL to clipboard |
+| `esc` | Back to PR list |
 
 ### Conflict panel
 

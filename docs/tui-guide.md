@@ -149,6 +149,58 @@ From the commit detail view:
 | `s` | Stash all current changes (opens a message input so you can name the stash) |
 | `S` | Open stash list - pop, apply, or drop an entry |
 
+## Pull requests
+
+Press `K` to open the PR / MR panel. bonsai detects the remote host and picks the right provider (gh for GitHub, glab for GitLab, bb for Bitbucket).
+
+### PR list
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Move selection |
+| `enter` | Open PR detail view |
+| `o` | Open PR in browser |
+| `d` | View full diff |
+| `n` | Create a new PR for the current branch |
+| `r` | Refresh list |
+| `esc` | Back |
+
+### PR detail
+
+Press `enter` on a PR to open the detail panel. It shows state, CI status, labels, requested reviewers, assignees, and URL.
+
+| Key | Action |
+|-----|--------|
+| `o` | Open in browser |
+| `d` | View full diff |
+| `a` | Approve |
+| `A` | Request changes (prompts for a reason) |
+| `c` | Post a general comment |
+| `m` | Open merge picker |
+| `y` | Copy URL to clipboard |
+| `esc` | Back to PR list |
+
+### Creating a PR
+
+Press `n` from the PR list to open the create form. Three fields are shown - title (pre-filled from the HEAD commit), description (optional textarea), and base branch (optional, defaults to the provider default).
+
+| Key | Action |
+|-----|--------|
+| `tab` / `shift+tab` | Move between fields |
+| `enter` | Submit (from title or base branch field) |
+| `ctrl+s` | Submit from any field |
+| `esc` | Cancel |
+
+### Merging a PR
+
+Press `m` from the PR list or from the detail panel to open the merge picker. Choose between merge commit, squash, or rebase. Confirming deletes the source branch automatically.
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Select merge method |
+| `enter` | Execute merge |
+| `esc` | Cancel |
+
 ## Advanced operations
 
 ### Reset
