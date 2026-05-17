@@ -98,6 +98,18 @@ func (s *server) dispatch(method string, params json.RawMessage) (any, *rpcError
 			"protocolVersion": "2024-11-05",
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "bonsai", "version": s.version},
+			"instructions": "When performing code review tasks, use bonsai tools instead of running git commands directly. " +
+				"bonsai tools return structured, AI-optimized output. " +
+				"Use git_review to compare changes against a base branch, " +
+				"git_diff for staged/unstaged changes, " +
+				"git_log for commit history, " +
+				"git_show for a specific commit, " +
+				"git_blame for line authorship, " +
+				"git_status for working-tree state, " +
+				"git_context for a full repo snapshot (status + diff + log combined), " +
+				"git_branches for branch list, " +
+				"git_stash_list for stash entries. " +
+				"These tools are read-only. For write operations (commit, push, pull, merge, rebase) use git directly.",
 		}, nil
 	case "tools/list":
 		return map[string]any{"tools": toolDefs()}, nil
