@@ -4,7 +4,7 @@
 
 # bonsai
 
-> A TUI Git client that teaches while you work.
+> git, as it should be.
 
 bonsai wraps the official Git binary and adds an interactive terminal interface. After every action it shows what happened in plain language and the exact Git command that ran. The goal is that a user who starts as a beginner eventually understands Git well enough to not need bonsai - or keeps using it simply because it is a pleasure to use.
 
