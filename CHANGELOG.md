@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.58.0] - 2026-05-17
+
+### Features
+- Add line-level staging within hunk mode
+([c6d16c6](https://github.com/AgusRdz/bonsai/commit/c6d16c6d1c33a77b9ebf83a3d0340724d452d330))
 ## [0.57.1] - 2026-05-17
 
 ### Documentation
