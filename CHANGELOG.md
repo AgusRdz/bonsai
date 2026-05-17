@@ -2,6 +2,16 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.59.0] - 2026-05-17
+
+### Features
+- Full PR creation form in TUI: title (pre-filled from HEAD commit), description textarea, and base branch input; Tab cycles fields, ctrl+s submits
+([9332c32](https://github.com/AgusRdz/bonsai/commit/9332c32))
+
+### Bug Fixes
+- Approve (a) in PR panel now shows the real error from gh/glab/bb instead of "exit status 1"
+([9332c32](https://github.com/AgusRdz/bonsai/commit/9332c32))
+
 ## [0.58.2] - 2026-05-17
 
 ### Bug Fixes
