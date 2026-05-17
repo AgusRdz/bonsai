@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.54.0] - 2026-05-17
+
+### Features
+- Inline PR diff comments and complete interactive rebase
+([810f7df](https://github.com/AgusRdz/bonsai/commit/810f7dfb1f12b8c213112c793930521c2caa2332))
 ## [0.53.2] - 2026-05-17
 
 ### Bug Fixes
