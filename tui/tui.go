@@ -2124,6 +2124,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.body != "" {
 			m.prCreateBodyTA.SetValue(msg.body)
 		}
+		// Re-focus the title field after SetValue so the cursor is active.
+		m.prCreateTitleInput.Focus()
+		m.prCreateBodyTA.Blur()
+		m.prCreateBaseInput.Blur()
+		m.prCreateField = 0
 
 	case prMergeResultMsg:
 		m.lastCmd = msg.cmd
@@ -9301,11 +9306,20 @@ func (m model) submitPRCreate() (tea.Model, tea.Cmd) {
 		Base:   strings.TrimSpace(m.prCreateBaseInput.Value()),
 	}
 	prov := m.prProvider
+	runner := m.git
+	branch := m.status.Branch
+	upstream := m.status.Upstream
 	m.panel = panelPR
 	m.prListLoading = true
 	return m, func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
+		// Push the branch first if it has no upstream tracking ref.
+		if upstream == "" {
+			if pushErr := runner.PushWithOptions(ctx, false, true, "origin", branch); pushErr != nil {
+				return actionDoneMsg{cmd: "gh pr create", err: fmt.Errorf("push failed: %w", pushErr)}
+			}
+		}
 		err := prov.CreatePR(ctx, opts)
 		return actionDoneMsg{cmd: "gh pr create", err: err, info: fmt.Sprintf("created PR: %s", opts.Title)}
 	}
