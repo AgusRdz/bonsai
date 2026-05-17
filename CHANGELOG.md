@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.54.1] - 2026-05-17
+
+### Documentation
+- Sync README and docs with current feature set
+([df1a090](https://github.com/AgusRdz/bonsai/commit/df1a09040974861629839f177483a216b3bf52d2))
 ## [0.54.0] - 2026-05-17
 
 ### Features
