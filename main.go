@@ -1012,8 +1012,12 @@ func agentResolveFormat(args []string) string {
 		if strings.HasPrefix(a, "--format=") {
 			f := strings.TrimPrefix(a, "--format=")
 			switch f {
-			case "json", "markdown", "xml":
-				return f
+			case "json":
+				return "json"
+			case "markdown", "md":
+				return "markdown"
+			case "xml":
+				return "xml"
 			default:
 				fmt.Fprintf(os.Stderr, "bonsai: unsupported format %q (json, markdown, xml)\n", f)
 				os.Exit(1)
@@ -1022,8 +1026,12 @@ func agentResolveFormat(args []string) string {
 	}
 	if cfg, err := config.Load(); err == nil && cfg.Agent.DefaultFormat != "" {
 		switch cfg.Agent.DefaultFormat {
-		case "json", "markdown", "xml":
-			return cfg.Agent.DefaultFormat
+		case "json":
+			return "json"
+		case "markdown", "md":
+			return "markdown"
+		case "xml":
+			return "xml"
 		}
 	}
 	return "json"
