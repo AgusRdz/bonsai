@@ -78,6 +78,7 @@ const (
 	panelCommandBar
 	panelDiverged
 	panelPR
+	panelPRDetail
 	panelPRReview
 	panelPRCreate
 	panelPRMerge
@@ -2745,6 +2746,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelPR {
 			return m.updatePRPanel(msg)
+		}
+		if m.panel == panelPRDetail {
+			return m.updatePRDetailPanel(msg)
 		}
 		if m.panel == panelPRReview {
 			return m.updatePRReviewPanel(msg)
@@ -5423,6 +5427,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelPR {
 		return m.prView()
+	}
+	if m.panel == panelPRDetail {
+		return m.prDetailView()
 	}
 	if m.panel == panelPRReview {
 		return m.prReviewView()
@@ -8343,7 +8350,11 @@ func (m model) updatePRPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.prListCursor < len(m.prListItems)-1 {
 			m.prListCursor++
 		}
-	case "enter", "o":
+	case "enter":
+		if len(m.prListItems) > 0 {
+			m.panel = panelPRDetail
+		}
+	case "o":
 		if len(m.prListItems) > 0 {
 			item := m.prListItems[m.prListCursor]
 			if item.URL != "" {
@@ -8524,7 +8535,7 @@ func (m model) prView() string {
 	if _, ok := m.prProvider.(pr.PRMerger); ok && len(m.prListItems) > 0 {
 		mergeHint = "  [m] merge"
 	}
-	b.WriteString(styleDim.Render("  [enter/o] open  [d] diff  [n] new PR  [r] refresh"+reviewHints+mergeHint+"  [esc] back") + "\n")
+	b.WriteString(styleDim.Render("  [enter] details  [o] open browser  [d] diff  [n] new PR  [r] refresh"+reviewHints+mergeHint+"  [esc] back") + "\n")
 	return b.String()
 }
 
@@ -9039,6 +9050,131 @@ func (m model) dashboardView() string {
 		content += strings.Repeat("\n", pad)
 	}
 	return content + styleDim.Render("  [↑↓/jk] navigate  [y] copy path  [r] refresh  [esc] back") + "\n"
+}
+
+func (m model) updatePRDetailPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	item := m.prListItems[m.prListCursor]
+	switch msg.String() {
+	case "esc":
+		m.panel = panelPR
+	case "ctrl+c":
+		return m, tea.Quit
+	case "o":
+		if item.URL != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+			defer cancel()
+			_ = m.prProvider.Open(ctx, item.URL)
+		}
+	case "d":
+		differ, ok := m.prProvider.(pr.PRDiffer)
+		if !ok {
+			m.actionErr = fmt.Errorf("this provider does not support PR diffs")
+			break
+		}
+		num := item.Number
+		m.diffLines = nil
+		m.diffScroll = 0
+		m.diffCursor = 0
+		m.prDiffNumber = num
+		m.prLineCommentActive = false
+		m.diffOrigin = panelPR
+		m.panel = panelDiff
+		return m, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			raw, err := differ.Diff(ctx, num)
+			if err != nil {
+				return actionDoneMsg{cmd: "pr diff", err: fmt.Errorf("pr diff: %w", err)}
+			}
+			var lines []string
+			if raw != "" {
+				lines = strings.Split(strings.TrimRight(raw, "\n"), "\n")
+			}
+			return diffMsg{title: fmt.Sprintf("PR #%d diff", num), lines: lines}
+		}
+	case "a":
+		reviewer, ok := m.prProvider.(pr.PRReviewer)
+		if !ok {
+			m.actionErr = fmt.Errorf("this provider does not support PR reviews")
+			break
+		}
+		num := item.Number
+		prov := reviewer
+		return m, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			err := prov.Approve(ctx, num)
+			return actionDoneMsg{cmd: fmt.Sprintf("pr review --approve #%d", num), err: err,
+				info: fmt.Sprintf("approved PR #%d", num)}
+		}
+	case "m":
+		if _, ok := m.prProvider.(pr.PRMerger); !ok {
+			m.actionErr = fmt.Errorf("this provider does not support merging PRs")
+			break
+		}
+		m.prMergeNumber = item.Number
+		m.prMergeCursor = 0
+		m.panel = panelPRMerge
+	case "y":
+		_ = clipboard.WriteAll(item.URL)
+	}
+	return m, nil
+}
+
+func (m model) prDetailView() string {
+	if len(m.prListItems) == 0 || m.prListCursor >= len(m.prListItems) {
+		return ""
+	}
+	item := m.prListItems[m.prListCursor]
+
+	stateStyle := styleStaged
+	if item.State == "closed" || item.State == "merged" {
+		stateStyle = styleDim
+	}
+
+	ciIcon := ""
+	switch item.CI {
+	case "success":
+		ciIcon = styleStaged.Render(" ✓")
+	case "failure":
+		ciIcon = styleConflict.Render(" ✗")
+	case "pending":
+		ciIcon = styleChanged.Render(" ●")
+	}
+
+	title := styleTitle.Render(fmt.Sprintf("PR #%d", item.Number))
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+
+	b.WriteString("  " + item.Title + "\n\n")
+
+	b.WriteString("  State:   " + stateStyle.Render(item.State))
+	if item.Draft {
+		b.WriteString("  " + styleDim.Render("[draft]"))
+	}
+	b.WriteString(ciIcon + "\n")
+
+	if len(item.Labels) > 0 {
+		b.WriteString("  Labels:  " + strings.Join(item.Labels, ", ") + "\n")
+	}
+	if len(item.Reviewers) > 0 {
+		b.WriteString("  Reviews: " + strings.Join(item.Reviewers, ", ") + "\n")
+	}
+	if len(item.Assignees) > 0 {
+		b.WriteString("  Assigned:" + strings.Join(item.Assignees, ", ") + "\n")
+	}
+	if item.URL != "" {
+		b.WriteString("  URL:     " + styleDim.Render(item.URL) + "\n")
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+
+	hints := "  [o] open browser  [d] diff  [m] merge  [a] approve  [y] copy URL  [esc] back"
+	return content + styleDim.Render(hints) + "\n"
 }
 
 func (m model) updatePRReviewPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
