@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "bonsai": {
+      "type": "stdio",
+      "command": "bonsai",
+      "args": [
+        "mcp"
+      ],
+      "env": {}
+    }
+  }
+}

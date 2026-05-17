@@ -50,6 +50,9 @@ install:
 	docker compose run --rm dev sh -c "CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags='$(LDFLAGS)' -o $(BINARY) ."
 	@mkdir -p "$(INSTALL_DIR)"
 	cp $(BINARY) "$(INSTALL_DIR)/bonsai$(EXT)"
+ifeq ($(GOOS),darwin)
+	codesign --force --sign - "$(INSTALL_DIR)/bonsai$(EXT)" 2>/dev/null || true
+endif
 	@echo "installed bonsai $(VERSION) ($(GOOS)/$(GOARCH)) to $(INSTALL_DIR)/bonsai$(EXT)"
 
 cross:

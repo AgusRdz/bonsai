@@ -83,7 +83,7 @@ func main() {
 	case "repo":
 		runRepo(os.Args[2:])
 	case "mcp":
-		mcp.Run(version)
+		runMCP(os.Args[2:])
 	case "context":
 		runAgentContext(os.Args[2:])
 	case "status":
@@ -217,8 +217,8 @@ Commands:
   lfs --install     install lfs hooks into this repository
 
 MCP server:
-  mcp               start the Model Context Protocol stdio server
-                    add to claude_desktop_config.json or .claude/mcp.json
+  mcp install       detect AI tools and configure bonsai as an MCP server
+  mcp               start the MCP stdio server (used by AI tools internally)
 
 Agent / structured output:
   context           full repo snapshot: status + diff + recent commits
@@ -1058,6 +1058,17 @@ func printOutput(format string, v any) {
 	default:
 		printJSON(v)
 	}
+}
+
+func runMCP(args []string) {
+	if len(args) > 0 && args[0] == "install" {
+		if err := mcp.Install(); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai mcp install:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	mcp.Run(version)
 }
 
 func runAgentContext(args []string) {
