@@ -2,6 +2,15 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.56.1] - 2026-05-17
+
+### Bug Fixes
+- Use -- prefix for mcp subcommands and add uninstall to help
+([6e104e7](https://github.com/AgusRdz/bonsai/commit/6e104e71ada1517614e7a84c0cb8a90f8b64166e))
+
+### Miscellaneous
+- Remove .mcp.json from tracking and add to .gitignore
+([fedec71](https://github.com/AgusRdz/bonsai/commit/fedec71e01e3030854890641921253b38bddb3ef))
 ## [0.56.0] - 2026-05-17
 
 ### Features
