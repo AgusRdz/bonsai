@@ -2,6 +2,14 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.60.5] - 2026-05-17
+
+### Bug Fixes
+- PR create: auto-push branch with --set-upstream before calling gh pr create when no upstream is configured
+([e2f6137](https://github.com/AgusRdz/bonsai/commit/e2f6137))
+- PR create form: restore cursor focus on title field after async prefill arrives
+([e2f6137](https://github.com/AgusRdz/bonsai/commit/e2f6137))
+
 ## [0.60.4] - 2026-05-17
 
 ### Documentation
