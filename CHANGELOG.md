@@ -2,6 +2,12 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.60.2] - 2026-05-17
+
+### Documentation
+- Update PR panel keybindings and add Pull requests section to tui-guide
+([51f2cb2](https://github.com/AgusRdz/bonsai/commit/51f2cb2))
+
 ## [0.60.1] - 2026-05-17
 
 ### Features
