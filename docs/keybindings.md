@@ -14,6 +14,7 @@
 | Key | Action |
 |-----|--------|
 | `space` | Stage an unstaged file / unstage a staged file |
+| `+` | Stage all changes at once (`git add .`) |
 | `h` | Stage / unstage individual hunks within a file |
 | `H` | View commit history for the selected file |
 | `d` | View diff for the selected file |

@@ -805,12 +805,15 @@ func (m model) doDeleteBranch(name string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
+		// Try safe delete first; fall back to force if branch has unmerged work.
 		err := m.git.DeleteBranch(ctx, name, false)
 		if err != nil {
-			return actionDoneMsg{cmd: "git branch -d " + name,
-				err: fmt.Errorf("%w (branch has unmerged work - use force delete)", err)}
+			err = m.git.DeleteBranch(ctx, name, true)
 		}
-		return actionDoneMsg{cmd: "git branch -d " + name, err: nil, info: "deleted branch " + name}
+		if err != nil {
+			return actionDoneMsg{cmd: "git branch -D " + name, err: err}
+		}
+		return actionDoneMsg{cmd: "git branch -D " + name, err: nil, info: "deleted branch " + name}
 	}
 }
 
@@ -2715,6 +2718,19 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "down", "j":
 		if m.cursor < len(m.files)-1 {
 			m.cursor++
+		}
+
+	case "+":
+		// Stage all unstaged/untracked files (git add .)
+		if m.status == nil || (len(m.status.Changed) == 0 && len(m.status.Untracked) == 0) {
+			m.actionErr = fmt.Errorf("nothing to stage")
+			break
+		}
+		return m, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+			defer cancel()
+			err := m.git.StageAll(ctx)
+			return actionDoneMsg{cmd: "git add .", err: err, info: "staged all changes"}
 		}
 
 	case " ", "enter":
@@ -5662,6 +5678,7 @@ func (m model) helpView() string {
 	section("Files")
 	row("↑↓ / k/j", "navigate file list")
 	row("space", "stage / unstage selected file")
+	row("+", "stage all changes (git add .)")
 	row("h", "stage by section - pick which parts of a file to stage (useful for splitting a commit)")
 	row("d", "diff selected file (staged or unstaged)")
 	row("H", "file history - every commit that touched this file")

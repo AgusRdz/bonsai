@@ -4,7 +4,7 @@
 
 # bonsai
 
-> git, as it should be.
+> trim. stage. grow.
 
 bonsai wraps the official Git binary and adds an interactive terminal interface. After every action it shows what happened in plain language and the exact Git command that ran. The goal is that a user who starts as a beginner eventually understands Git well enough to not need bonsai - or keeps using it simply because it is a pleasure to use.
 
@@ -140,6 +140,7 @@ Open bonsai and press `?` for the full in-app reference. Key highlights:
 | Key | Action |
 |-----|--------|
 | `space` | Stage / unstage the selected file |
+| `+` | Stage all changes at once (`git add .`) |
 | `h` | Hunk staging - choose which hunks to stage within a file |
 | `d` | Diff for the selected file |
 | `H` | File history - every commit that touched this file |

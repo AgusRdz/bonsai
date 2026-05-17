@@ -224,6 +224,12 @@ func (r *Runner) Add(ctx context.Context, paths ...string) error {
 	return err
 }
 
+// StageAll stages all changes in the working tree (git add .).
+func (r *Runner) StageAll(ctx context.Context) error {
+	_, err := r.run(ctx, "add", ".")
+	return err
+}
+
 // Restore removes the given paths from the index (unstages), keeping working tree.
 func (r *Runner) Restore(ctx context.Context, paths ...string) error {
 	args := append([]string{"restore", "--staged", "--"}, paths...)
