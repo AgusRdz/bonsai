@@ -359,8 +359,18 @@ Step 2: edit the todo list, then press `enter` to execute.
 | `↑` / `↓` | Move selection |
 | `space` | Toggle hunk selected / deselected |
 | `a` | Select all / deselect all |
+| `l` | Enter line mode for the focused hunk |
 | `enter` | Apply selected hunks |
 | `esc` | Back |
+
+### Line mode (within a hunk)
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Move between lines |
+| `space` | Toggle individual `+`/`-` line selected / deselected |
+| `enter` | Apply selected lines |
+| `esc` | Back to hunk list |
 
 ## Push menu
 

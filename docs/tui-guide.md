@@ -67,8 +67,20 @@ Press `h` on any changed file to open the hunk panel. Each hunk shows its `@@ ..
 | `↑`/`↓` | Move between hunks |
 | `space` | Toggle selected / deselected |
 | `a` | Select all hunks |
+| `l` | Enter line mode for the focused hunk |
 | `enter` | Apply selected hunks |
 | `esc` | Cancel |
+
+#### Line mode
+
+Press `l` on a hunk to enter line mode. Each `+` and `-` line can be toggled individually - useful when a hunk mixes changes you want to stage with ones you don't. Unselected `-` lines are kept as context (not staged as removals); unselected `+` lines are dropped entirely.
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓` | Move between lines |
+| `space` | Toggle individual line |
+| `enter` | Apply selected lines |
+| `esc` | Back to hunk list |
 
 ### File history
 
