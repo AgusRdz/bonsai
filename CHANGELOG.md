@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.53.2] - 2026-05-17
+
+### Bug Fixes
+- Use -- prefix for all subcommands (patch, bundle, ssh, lfs, repo)
+([a5da3a9](https://github.com/AgusRdz/bonsai/commit/a5da3a9ef153b9ca8dec90742bf7c60725ee0429))
 ## [0.53.1] - 2026-05-17
 
 ### Miscellaneous
