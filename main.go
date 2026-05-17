@@ -176,21 +176,21 @@ Commands:
   standup -a name   filter by author name (default: you)
   metrics           show locally tracked habit and error metrics
 
-  patch create      create .patch files from commits (git format-patch)
-  patch apply       apply a .patch file (git am)
+  patch --create    create .patch files from commits (git format-patch)
+  patch --apply     apply a .patch file (git am)
   archive           export repo snapshot as tar.gz or zip
-  bundle create     pack refs into a portable bundle file
-  bundle verify     verify a bundle file
+  bundle --create   pack refs into a portable bundle file
+  bundle --verify   verify a bundle file
 
-  ssh status        show SSH key and agent status
-  ssh keygen        generate a new SSH key pair
-  ssh show          print your SSH public key
+  ssh --status      show SSH key and agent status
+  ssh --keygen      generate a new SSH key pair
+  ssh --show        print your SSH public key
 
-  lfs status        show pending git lfs objects
-  lfs track <pat>   track a file pattern via git lfs (.gitattributes)
-  lfs untrack <pat> stop tracking a pattern
-  lfs pull          download all lfs objects for the current checkout
-  lfs install       install lfs hooks into this repository
+  lfs --status      show pending git lfs objects
+  lfs --track <pat> track a file pattern via git lfs (.gitattributes)
+  lfs --untrack <pat> stop tracking a pattern
+  lfs --pull        download all lfs objects for the current checkout
+  lfs --install     install lfs hooks into this repository
 
 Options:
   -h, --help        show help
@@ -497,14 +497,14 @@ func runStats() {
 
 func runPatch(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: bonsai patch create --base=<ref> [--output=<dir>]")
-		fmt.Fprintln(os.Stderr, "       bonsai patch apply <file> [<file>...]")
+		fmt.Fprintln(os.Stderr, "usage: bonsai patch --create --base=<ref> [--output=<dir>]")
+		fmt.Fprintln(os.Stderr, "       bonsai patch --apply <file> [<file>...]")
 		os.Exit(1)
 	}
 	ctx := context.Background()
 	r := git.New()
 	switch args[0] {
-	case "create":
+	case "--create":
 		base := ""
 		outputDir := ""
 		for _, a := range args[1:] {
@@ -515,26 +515,26 @@ func runPatch(args []string) {
 			}
 		}
 		if base == "" {
-			fmt.Fprintln(os.Stderr, "bonsai: patch create requires --base=<ref>")
+			fmt.Fprintln(os.Stderr, "bonsai: patch --create requires --base=<ref>")
 			os.Exit(1)
 		}
 		files, err := r.FormatPatch(ctx, base, outputDir)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "bonsai: patch create: %v\n", err)
+			fmt.Fprintf(os.Stderr, "bonsai: patch --create: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("created %d patch file(s):\n", len(files))
 		for _, f := range files {
 			fmt.Printf("  %s\n", f)
 		}
-	case "apply":
+	case "--apply":
 		files := args[1:]
 		if len(files) == 0 {
-			fmt.Fprintln(os.Stderr, "bonsai: patch apply requires at least one file")
+			fmt.Fprintln(os.Stderr, "bonsai: patch --apply requires at least one file")
 			os.Exit(1)
 		}
 		if err := r.ApplyPatch(ctx, files...); err != nil {
-			fmt.Fprintf(os.Stderr, "bonsai: patch apply: %v\n", err)
+			fmt.Fprintf(os.Stderr, "bonsai: patch --apply: %v\n", err)
 			fmt.Fprintln(os.Stderr, "resolve conflicts then run: git am --continue")
 			fmt.Fprintln(os.Stderr, "to abort: git am --abort")
 			os.Exit(1)
@@ -582,33 +582,33 @@ func runArchive(args []string) {
 
 func runBundle(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: bonsai bundle create <file> [<ref>...]")
-		fmt.Fprintln(os.Stderr, "       bonsai bundle verify <file>")
+		fmt.Fprintln(os.Stderr, "usage: bonsai bundle --create <file> [<ref>...]")
+		fmt.Fprintln(os.Stderr, "       bonsai bundle --verify <file>")
 		os.Exit(1)
 	}
 	ctx := context.Background()
 	r := git.New()
 	switch args[0] {
-	case "create":
+	case "--create":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "bonsai: bundle create requires <file>")
+			fmt.Fprintln(os.Stderr, "bonsai: bundle --create requires <file>")
 			os.Exit(1)
 		}
 		output := args[1]
 		refs := args[2:]
 		if err := r.BundleCreate(ctx, output, refs...); err != nil {
-			fmt.Fprintf(os.Stderr, "bonsai: bundle create: %v\n", err)
+			fmt.Fprintf(os.Stderr, "bonsai: bundle --create: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("bundle written to %s\n", output)
-	case "verify":
+	case "--verify":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "bonsai: bundle verify requires <file>")
+			fmt.Fprintln(os.Stderr, "bonsai: bundle --verify requires <file>")
 			os.Exit(1)
 		}
 		msg, err := r.BundleVerify(ctx, args[1])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "bonsai: bundle verify: %v\n", err)
+			fmt.Fprintf(os.Stderr, "bonsai: bundle --verify: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Println(msg)
@@ -650,17 +650,17 @@ func runClone(args []string) {
 
 func runSSH(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: bonsai ssh status")
-		fmt.Fprintln(os.Stderr, "       bonsai ssh keygen")
-		fmt.Fprintln(os.Stderr, "       bonsai ssh show")
+		fmt.Fprintln(os.Stderr, "usage: bonsai ssh --status")
+		fmt.Fprintln(os.Stderr, "       bonsai ssh --keygen")
+		fmt.Fprintln(os.Stderr, "       bonsai ssh --show")
 		os.Exit(1)
 	}
 	switch args[0] {
-	case "status":
+	case "--status":
 		runSSHStatus()
-	case "keygen":
+	case "--keygen":
 		runSSHKeygen()
-	case "show":
+	case "--show":
 		runSSHShow()
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai: ssh: unknown subcommand %q\n", args[0])
@@ -907,7 +907,7 @@ func runLFS(args []string) {
 	}
 
 	switch sub {
-	case "", "status":
+	case "", "--status":
 		out, err := g.LFSStatus(ctx)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "bonsai lfs: git lfs may not be installed:", err)
@@ -918,41 +918,41 @@ func runLFS(args []string) {
 		} else {
 			fmt.Print(out)
 		}
-	case "track":
+	case "--track":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: bonsai lfs track <pattern>")
+			fmt.Fprintln(os.Stderr, "usage: bonsai lfs --track <pattern>")
 			os.Exit(1)
 		}
 		if err := g.LFSTrack(ctx, args[1]); err != nil {
-			fmt.Fprintln(os.Stderr, "bonsai lfs track:", err)
+			fmt.Fprintln(os.Stderr, "bonsai lfs --track:", err)
 			os.Exit(1)
 		}
 		fmt.Printf("tracking %s via git lfs\n", args[1])
-	case "untrack":
+	case "--untrack":
 		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: bonsai lfs untrack <pattern>")
+			fmt.Fprintln(os.Stderr, "usage: bonsai lfs --untrack <pattern>")
 			os.Exit(1)
 		}
 		if err := g.LFSUntrack(ctx, args[1]); err != nil {
-			fmt.Fprintln(os.Stderr, "bonsai lfs untrack:", err)
+			fmt.Fprintln(os.Stderr, "bonsai lfs --untrack:", err)
 			os.Exit(1)
 		}
 		fmt.Printf("untracked %s from git lfs\n", args[1])
-	case "pull":
+	case "--pull":
 		if err := g.LFSPull(ctx); err != nil {
-			fmt.Fprintln(os.Stderr, "bonsai lfs pull:", err)
+			fmt.Fprintln(os.Stderr, "bonsai lfs --pull:", err)
 			os.Exit(1)
 		}
 		fmt.Println("lfs objects downloaded")
-	case "install":
+	case "--install":
 		if err := g.LFSInstall(ctx); err != nil {
-			fmt.Fprintln(os.Stderr, "bonsai lfs install:", err)
+			fmt.Fprintln(os.Stderr, "bonsai lfs --install:", err)
 			os.Exit(1)
 		}
 		fmt.Println("git lfs hooks installed")
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai lfs: unknown subcommand %q\n", sub)
-		fmt.Fprintln(os.Stderr, "usage: bonsai lfs [status|track <pat>|untrack <pat>|pull|install]")
+		fmt.Fprintln(os.Stderr, "usage: bonsai lfs [--status|--track <pat>|--untrack <pat>|--pull|--install]")
 		os.Exit(1)
 	}
 }
@@ -1099,12 +1099,12 @@ func runStandup(args []string) {
 
 func runRepo(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: bonsai repo create [--private] <name>")
-		fmt.Fprintln(os.Stderr, "       bonsai repo open")
+		fmt.Fprintln(os.Stderr, "usage: bonsai repo --create [--private] <name>")
+		fmt.Fprintln(os.Stderr, "       bonsai repo --open")
 		os.Exit(1)
 	}
 	switch args[0] {
-	case "create":
+	case "--create":
 		name := ""
 		visibility := "public"
 		for _, a := range args[1:] {
@@ -1117,10 +1117,9 @@ func runRepo(args []string) {
 			}
 		}
 		if name == "" {
-			fmt.Fprintln(os.Stderr, "bonsai repo create: a repository name is required")
+			fmt.Fprintln(os.Stderr, "bonsai repo --create: a repository name is required")
 			os.Exit(1)
 		}
-		// Detect provider from origin URL (best-effort).
 		g := git.New()
 		ctx := context.Background()
 		remoteURL := g.OriginURL(ctx)
@@ -1129,31 +1128,30 @@ func runRepo(args []string) {
 			prov = pr.DetectByCLI()
 		}
 		if prov == nil {
-			fmt.Fprintln(os.Stderr, "bonsai repo create: no supported CLI found (gh or glab)")
+			fmt.Fprintln(os.Stderr, "bonsai repo --create: no supported CLI found (gh or glab)")
 			os.Exit(1)
 		}
 		creator, ok := prov.(pr.RepoCreator)
 		if !ok {
-			fmt.Fprintln(os.Stderr, "bonsai repo create: provider does not support repo creation")
+			fmt.Fprintln(os.Stderr, "bonsai repo --create: provider does not support repo creation")
 			os.Exit(1)
 		}
 		if err := creator.CreateRepo(ctx, name, visibility); err != nil {
-			fmt.Fprintf(os.Stderr, "bonsai repo create: %v\n", err)
+			fmt.Fprintf(os.Stderr, "bonsai repo --create: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("repository %s created (%s)\n", name, visibility)
-	case "open":
+	case "--open":
 		g := git.New()
 		ctx := context.Background()
 		remoteURL := g.OriginURL(ctx)
 		prov := pr.Detect(remoteURL)
 		if prov == nil {
-			fmt.Fprintln(os.Stderr, "bonsai repo open: no supported provider detected for this remote")
+			fmt.Fprintln(os.Stderr, "bonsai repo --open: no supported provider detected for this remote")
 			os.Exit(1)
 		}
-		// Open the repo URL - use pr.Open with empty string to open the repo root.
 		if err := prov.Open(ctx, ""); err != nil {
-			fmt.Fprintf(os.Stderr, "bonsai repo open: %v\n", err)
+			fmt.Fprintf(os.Stderr, "bonsai repo --open: %v\n", err)
 			os.Exit(1)
 		}
 	default:
