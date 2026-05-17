@@ -58,6 +58,20 @@ bonsai                # open the TUI
 
 On first run bonsai opens the setup wizard automatically.
 
+If you run bonsai in a directory that is not a git repository, it will offer to initialize one for you:
+
+```
+  No git repository found
+
+  /Users/you/my-project
+
+  this directory is not a git repository
+
+  [i] initialize here   [q] quit
+```
+
+Press `i` to run `git init`, then optionally add a remote - or press `esc` to skip and go straight to the TUI.
+
 ## CLI commands
 
 | Command | Description |
