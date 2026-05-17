@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.53.0] - 2026-05-17
+
+### Features
+- OAuth token storage and device flow for bonsai auth CLI
+([0dbdd33](https://github.com/AgusRdz/bonsai/commit/0dbdd331950da752490a1a3ae001aafb9641770c))
 ## [0.52.0] - 2026-05-16
 
 ### Features
