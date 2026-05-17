@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.55.3] - 2026-05-17
+
+### Features
+- Add [+] stage all to command bar, simplify default bar items
+([4ec533f](https://github.com/AgusRdz/bonsai/commit/4ec533fbc82ec72696b015b61d1bc67ea4fceb8a))
 ## [0.55.2] - 2026-05-17
 
 ### Bug Fixes
