@@ -182,7 +182,8 @@ func installClaudeCodeUser(bonsaiCmd string) error {
 	if err != nil {
 		return err
 	}
-	return mergeIntoConfig(filepath.Join(home, ".claude", "settings.json"), bonsaiCmd)
+	// User-scope MCPs live in ~/.claude.json (not ~/.claude/settings.json).
+	return mergeIntoConfig(filepath.Join(home, ".claude.json"), bonsaiCmd)
 }
 
 func installCursor(bonsaiCmd string) error {
@@ -222,8 +223,10 @@ func writeMCPJSON(path, bonsaiCmd string) error {
 		servers = map[string]any{}
 	}
 	servers["bonsai"] = map[string]any{
+		"type":    "stdio",
 		"command": bonsaiCmd,
 		"args":    []string{"mcp"},
+		"env":     map[string]any{},
 	}
 	cfg["mcpServers"] = servers
 
@@ -251,8 +254,10 @@ func mergeIntoConfig(path, bonsaiCmd string) error {
 		}
 	}
 	servers["bonsai"] = map[string]any{
+		"type":    "stdio",
 		"command": bonsaiCmd,
 		"args":    []string{"mcp"},
+		"env":     map[string]any{},
 	}
 	cfg["mcpServers"] = servers
 
@@ -297,7 +302,7 @@ func Uninstall() error {
 	locations := []location{
 		{".mcp.json", "Claude Code project scope"},
 		{filepath.Join(".cursor", "mcp.json"), "Cursor project scope"},
-		{filepath.Join(home, ".claude", "settings.json"), "Claude Code user scope"},
+		{filepath.Join(home, ".claude.json"), "Claude Code user scope"},
 	}
 	if p := claudeDesktopConfigPath(); p != "" {
 		locations = append(locations, location{p, "Claude Desktop"})
