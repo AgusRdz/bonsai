@@ -51,11 +51,16 @@ func (e *ExternalProvider) CurrentPR(ctx context.Context, branch string) (*PRSta
 	return &s, nil
 }
 
-func (e *ExternalProvider) CreatePR(ctx context.Context, branch string) error {
-	cmd := exec.CommandContext(ctx, e.binary, "create", branch)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+func (e *ExternalProvider) CreatePR(ctx context.Context, opts PRCreateOpts) error {
+	out, err := exec.CommandContext(ctx, e.binary, "create", opts.Branch, opts.Title, opts.Body, opts.Base).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return err
+	}
+	return nil
 }
 
 func (e *ExternalProvider) ListPRs(ctx context.Context) ([]PRStatus, error) {

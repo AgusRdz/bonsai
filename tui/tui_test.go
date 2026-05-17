@@ -394,9 +394,9 @@ func (s *stubProvider) DetectRemote(url string) bool { return true }
 func (s *stubProvider) CurrentPR(ctx context.Context, branch string) (*pr.PRStatus, error) {
 	return nil, fmt.Errorf("stub")
 }
-func (s *stubProvider) CreatePR(ctx context.Context, branch string) error  { return nil }
-func (s *stubProvider) ListPRs(ctx context.Context) ([]pr.PRStatus, error) { return nil, nil }
-func (s *stubProvider) Open(ctx context.Context, branch string) error      { return nil }
+func (s *stubProvider) CreatePR(ctx context.Context, opts pr.PRCreateOpts) error { return nil }
+func (s *stubProvider) ListPRs(ctx context.Context) ([]pr.PRStatus, error)       { return nil, nil }
+func (s *stubProvider) Open(ctx context.Context, branch string) error            { return nil }
 
 func TestPRHintNoProvider(t *testing.T) {
 	m := model{cfg: &config.Config{}, status: &git.Status{Branch: "feat/login"}}

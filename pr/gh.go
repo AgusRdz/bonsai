@@ -50,12 +50,20 @@ func (g *ghProvider) CurrentPR(ctx context.Context, branch string) (*PRStatus, e
 	}, nil
 }
 
-func (g *ghProvider) CreatePR(ctx context.Context, branch string) error {
+func (g *ghProvider) CreatePR(ctx context.Context, opts PRCreateOpts) error {
 	if !g.CLIAvailable() {
 		return fmt.Errorf("gh CLI not found")
 	}
-	// --web opens the browser so the interactive gh form doesn't conflict with the TUI.
-	out, err := exec.CommandContext(ctx, "gh", "pr", "create", "--head", branch, "--web").CombinedOutput()
+	args := []string{"pr", "create", "--head", opts.Branch, "--title", opts.Title}
+	if opts.Body != "" {
+		args = append(args, "--body", opts.Body)
+	} else {
+		args = append(args, "--body", "")
+	}
+	if opts.Base != "" {
+		args = append(args, "--base", opts.Base)
+	}
+	out, err := exec.CommandContext(ctx, "gh", args...).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg != "" {
@@ -130,7 +138,15 @@ func (g *ghProvider) Approve(ctx context.Context, number int) error {
 	if !g.CLIAvailable() {
 		return fmt.Errorf("gh CLI not found")
 	}
-	return exec.CommandContext(ctx, "gh", "pr", "review", fmt.Sprintf("%d", number), "--approve").Run()
+	out, err := exec.CommandContext(ctx, "gh", "pr", "review", fmt.Sprintf("%d", number), "--approve", "--body", "").CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return err
+	}
+	return nil
 }
 
 func (g *ghProvider) RequestChanges(ctx context.Context, number int, body string) error {

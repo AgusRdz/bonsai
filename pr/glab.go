@@ -49,11 +49,16 @@ func (g *glabProvider) CurrentPR(ctx context.Context, branch string) (*PRStatus,
 	}, nil
 }
 
-func (g *glabProvider) CreatePR(ctx context.Context, branch string) error {
+func (g *glabProvider) CreatePR(ctx context.Context, opts PRCreateOpts) error {
 	if !g.CLIAvailable() {
 		return fmt.Errorf("glab CLI not found")
 	}
-	out, err := exec.CommandContext(ctx, "glab", "mr", "create", "--source-branch", branch, "--web").CombinedOutput()
+	args := []string{"mr", "create", "--source-branch", opts.Branch, "--title", opts.Title, "--description", opts.Body}
+	if opts.Base != "" {
+		args = append(args, "--target-branch", opts.Base)
+	}
+	args = append(args, "--yes")
+	out, err := exec.CommandContext(ctx, "glab", args...).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg != "" {
@@ -170,7 +175,15 @@ func (g *glabProvider) Approve(ctx context.Context, number int) error {
 	if !g.CLIAvailable() {
 		return fmt.Errorf("glab CLI not found")
 	}
-	return exec.CommandContext(ctx, "glab", "mr", "approve", fmt.Sprintf("%d", number)).Run()
+	out, err := exec.CommandContext(ctx, "glab", "mr", "approve", fmt.Sprintf("%d", number)).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return err
+	}
+	return nil
 }
 
 func (g *glabProvider) RequestChanges(_ context.Context, _ int, _ string) error {

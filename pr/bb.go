@@ -52,11 +52,18 @@ func (b *bbProvider) CurrentPR(ctx context.Context, branch string) (*PRStatus, e
 	}, nil
 }
 
-func (b *bbProvider) CreatePR(ctx context.Context, branch string) error {
+func (b *bbProvider) CreatePR(ctx context.Context, opts PRCreateOpts) error {
 	if !b.CLIAvailable() {
 		return fmt.Errorf("bb CLI not found - open Bitbucket in your browser to create a PR")
 	}
-	out, err := exec.CommandContext(ctx, "bb", "pr", "create", "--source", branch, "--web").CombinedOutput()
+	args := []string{"pr", "create", "--source", opts.Branch, "--title", opts.Title}
+	if opts.Body != "" {
+		args = append(args, "--description", opts.Body)
+	}
+	if opts.Base != "" {
+		args = append(args, "--destination", opts.Base)
+	}
+	out, err := exec.CommandContext(ctx, "bb", args...).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg != "" {
@@ -126,7 +133,15 @@ func (b *bbProvider) Approve(ctx context.Context, number int) error {
 	if !b.CLIAvailable() {
 		return fmt.Errorf("bb CLI not found")
 	}
-	return exec.CommandContext(ctx, "bb", "pr", "approve", fmt.Sprintf("%d", number)).Run()
+	out, err := exec.CommandContext(ctx, "bb", "pr", "approve", fmt.Sprintf("%d", number)).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return err
+	}
+	return nil
 }
 
 func (b *bbProvider) RequestChanges(ctx context.Context, number int, body string) error {

@@ -19,6 +19,7 @@ import (
 	chroma "github.com/alecthomas/chroma/v2"
 	chromaLexers "github.com/alecthomas/chroma/v2/lexers"
 	"github.com/atotto/clipboard"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -78,6 +79,7 @@ const (
 	panelDiverged
 	panelPR
 	panelPRReview
+	panelPRCreate
 	panelIssues
 	panelSSH
 	panelLFS
@@ -475,6 +477,12 @@ type model struct {
 	prReviewMode      string // "approve" | "changes" | "comment"
 	prReviewNumber    int
 
+	// pr create form
+	prCreateTitleInput textinput.Model
+	prCreateBodyTA     textarea.Model
+	prCreateBaseInput  textinput.Model
+	prCreateField      int // 0=title 1=body 2=base
+
 	// issues
 	issues           []pr.Issue
 	issueCursor      int
@@ -628,6 +636,11 @@ type prStatusMsg struct {
 type prListMsg struct {
 	items []pr.PRStatus
 	err   error
+}
+
+type prCreatePrefillMsg struct {
+	subject string
+	body    string
 }
 
 type tickMsg time.Time
@@ -2092,6 +2105,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.prListLoading = false
 
+	case prCreatePrefillMsg:
+		if msg.subject != "" {
+			m.prCreateTitleInput.SetValue(msg.subject)
+		}
+		if msg.body != "" {
+			m.prCreateBodyTA.SetValue(msg.body)
+		}
+
 	case errMsg:
 		m.err = msg.err
 		m.ready = true
@@ -2722,6 +2743,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelPRReview {
 			return m.updatePRReviewPanel(msg)
+		}
+		if m.panel == panelPRCreate {
+			return m.updatePRCreatePanel(msg)
 		}
 		if m.panel == panelIssues {
 			return m.updateIssuesPanel(msg)
@@ -5394,6 +5418,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelPRReview {
 		return m.prReviewView()
+	}
+	if m.panel == panelPRCreate {
+		return m.prCreateView()
 	}
 	if m.panel == panelIssues {
 		return m.issuesView()
@@ -8402,15 +8429,8 @@ func (m model) updatePRPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.panel = panelPRReview
 	case "n":
 		if m.prProvider != nil && m.status != nil {
-			branch := m.status.Branch
-			prov := m.prProvider
-			m.panel = panelMain
-			return m, func() tea.Msg {
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				err := prov.CreatePR(ctx, branch)
-				return actionDoneMsg{cmd: "pr create", err: err, info: "opened PR creation flow"}
-			}
+			m, cmd := m.openPRCreatePanel()
+			return m, cmd
 		}
 	case "r":
 		return m, m.fetchPRList()
@@ -9046,6 +9066,158 @@ func (m model) prReviewView() string {
 		content += strings.Repeat("\n", pad)
 	}
 	return content + styleDim.Render("  [enter] submit  [esc] cancel") + "\n"
+}
+
+// openPRCreatePanel initialises the PR create form and switches to panelPRCreate.
+// It returns a command that fetches the HEAD commit to pre-fill title/body.
+func (m model) openPRCreatePanel() (model, tea.Cmd) {
+	ti := textinput.New()
+	ti.Placeholder = "PR title"
+	ti.Focus()
+	ti.CharLimit = 200
+	ti.Width = m.width - 6
+	m.prCreateTitleInput = ti
+
+	ta := textarea.New()
+	ta.Placeholder = "Description (optional)"
+	ta.CharLimit = 8000
+	ta.SetWidth(m.width - 6)
+	ta.SetHeight(6)
+	m.prCreateBodyTA = ta
+
+	base := textinput.New()
+	base.Placeholder = "Base branch (e.g. main)"
+	base.CharLimit = 100
+	base.Width = m.width - 6
+	m.prCreateBaseInput = base
+
+	m.prCreateField = 0
+	m.panel = panelPRCreate
+
+	runner := m.git
+	return m, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		detail, err := runner.ShowStat(ctx, "HEAD")
+		if err != nil || detail == nil {
+			return prCreatePrefillMsg{}
+		}
+		return prCreatePrefillMsg{subject: detail.Subject, body: detail.Body}
+	}
+}
+
+func (m model) submitPRCreate() (tea.Model, tea.Cmd) {
+	title := strings.TrimSpace(m.prCreateTitleInput.Value())
+	if title == "" {
+		m.actionErr = fmt.Errorf("title is required")
+		return m, nil
+	}
+	opts := pr.PRCreateOpts{
+		Branch: m.status.Branch,
+		Title:  title,
+		Body:   m.prCreateBodyTA.Value(),
+		Base:   strings.TrimSpace(m.prCreateBaseInput.Value()),
+	}
+	prov := m.prProvider
+	m.panel = panelPR
+	m.prListLoading = true
+	return m, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		err := prov.CreatePR(ctx, opts)
+		return actionDoneMsg{cmd: "gh pr create", err: err, info: fmt.Sprintf("created PR: %s", opts.Title)}
+	}
+}
+
+func (m model) updatePRCreatePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.panel = panelPR
+		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
+	case "tab", "shift+tab":
+		// cycle through fields
+		if msg.String() == "tab" {
+			m.prCreateField = (m.prCreateField + 1) % 3
+		} else {
+			m.prCreateField = (m.prCreateField + 2) % 3
+		}
+		switch m.prCreateField {
+		case 0:
+			m.prCreateTitleInput.Focus()
+			m.prCreateBodyTA.Blur()
+			m.prCreateBaseInput.Blur()
+		case 1:
+			m.prCreateTitleInput.Blur()
+			m.prCreateBodyTA.Focus()
+			m.prCreateBaseInput.Blur()
+		case 2:
+			m.prCreateTitleInput.Blur()
+			m.prCreateBodyTA.Blur()
+			m.prCreateBaseInput.Focus()
+		}
+		return m, nil
+	case "ctrl+s":
+		return m.submitPRCreate()
+	case "enter":
+		// in title or base field: submit; in body textarea: let textarea handle (newline)
+		if m.prCreateField != 1 {
+			return m.submitPRCreate()
+		}
+	}
+
+	var cmd tea.Cmd
+	switch m.prCreateField {
+	case 0:
+		m.prCreateTitleInput, cmd = m.prCreateTitleInput.Update(msg)
+	case 1:
+		m.prCreateBodyTA, cmd = m.prCreateBodyTA.Update(msg)
+	case 2:
+		m.prCreateBaseInput, cmd = m.prCreateBaseInput.Update(msg)
+	}
+	return m, cmd
+}
+
+func (m model) prCreateView() string {
+	title := styleTitle.Render("Create Pull Request")
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n\n")
+
+	labelStyle := styleDim
+	activeLabel := styleStaged // bright green highlight for focused field
+
+	titleLabel := labelStyle.Render("  Title")
+	if m.prCreateField == 0 {
+		titleLabel = activeLabel.Render("  Title")
+	}
+	b.WriteString(titleLabel + "\n")
+	b.WriteString("  " + m.prCreateTitleInput.View() + "\n\n")
+
+	bodyLabel := labelStyle.Render("  Description")
+	if m.prCreateField == 1 {
+		bodyLabel = activeLabel.Render("  Description")
+	}
+	b.WriteString(bodyLabel + "\n")
+	b.WriteString("  " + m.prCreateBodyTA.View() + "\n\n")
+
+	baseLabel := labelStyle.Render("  Base branch")
+	if m.prCreateField == 2 {
+		baseLabel = activeLabel.Render("  Base branch")
+	}
+	b.WriteString(baseLabel + "\n")
+	b.WriteString("  " + m.prCreateBaseInput.View() + "\n\n")
+
+	if m.actionErr != nil {
+		b.WriteString("  " + styleConflict.Render("error: "+m.actionErr.Error()) + "\n\n")
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [tab] next field  [ctrl+s] submit  [esc] cancel") + "\n"
 }
 
 // fetchPRStatus fetches the current PR status in the background.

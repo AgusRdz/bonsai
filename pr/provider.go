@@ -19,13 +19,21 @@ type PRStatus struct {
 	Assignees []string
 }
 
+// PRCreateOpts holds the parameters for creating a new pull request.
+type PRCreateOpts struct {
+	Branch string
+	Title  string
+	Body   string
+	Base   string // target branch; empty means provider default
+}
+
 // Provider abstracts a PR hosting platform (GitHub, GitLab, Bitbucket, or plugin).
 type Provider interface {
 	Name() string
 	CLIAvailable() bool
 	DetectRemote(remoteURL string) bool
 	CurrentPR(ctx context.Context, branch string) (*PRStatus, error)
-	CreatePR(ctx context.Context, branch string) error
+	CreatePR(ctx context.Context, opts PRCreateOpts) error
 	ListPRs(ctx context.Context) ([]PRStatus, error)
 	Open(ctx context.Context, branch string) error
 }
