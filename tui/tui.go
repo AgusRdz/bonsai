@@ -419,6 +419,10 @@ type model struct {
 	hunkList    []git.Hunk
 	hunkSel     []bool
 	hunkCursor  int
+	// line-level staging (within a hunk)
+	hunkLineMode   bool
+	hunkLineCursor int
+	hunkLineSel    []bool // parallel to hunkList[hunkCursor].Body
 
 	// push options
 	pushOptCursor int
@@ -895,6 +899,20 @@ func (m model) doApplyHunks() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.ApplyHunks(ctx, hdr, selected, reverse)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
+func (m model) doApplyLines() tea.Cmd {
+	hdr := m.hunkFileHdr
+	hunk := m.hunkList[m.hunkCursor]
+	sel := make([]bool, len(m.hunkLineSel))
+	copy(sel, m.hunkLineSel)
+	reverse := m.hunkStaged
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.ApplyLines(ctx, hdr, hunk, sel, reverse)
 		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
 	}
 }
@@ -4593,6 +4611,40 @@ func (m model) updateHunkStagePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+
+	// Line mode: navigate and toggle individual lines within the focused hunk.
+	if m.hunkLineMode {
+		hunk := m.hunkList[m.hunkCursor]
+		switch msg.String() {
+		case "up", "k":
+			if m.hunkLineCursor > 0 {
+				m.hunkLineCursor--
+			}
+		case "down", "j":
+			if m.hunkLineCursor < len(hunk.Body)-1 {
+				m.hunkLineCursor++
+			}
+		case " ":
+			i := m.hunkLineCursor
+			if i < len(hunk.Body) {
+				line := hunk.Body[i]
+				if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
+					m.hunkLineSel[i] = !m.hunkLineSel[i]
+				}
+			}
+		case "enter":
+			m.hunkLineMode = false
+			m.panel = panelMain
+			return m, m.doApplyLines()
+		case "esc":
+			m.hunkLineMode = false
+		case "ctrl+c":
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
+	// Hunk mode: navigate and toggle whole hunks.
 	switch msg.String() {
 	case "up", "k":
 		if m.hunkCursor > 0 {
@@ -4616,6 +4668,17 @@ func (m model) updateHunkStagePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		for i := range m.hunkSel {
 			m.hunkSel[i] = !allOn
+		}
+	case "l":
+		// Enter line mode for the focused hunk.
+		if m.hunkCursor < len(m.hunkList) {
+			hunk := m.hunkList[m.hunkCursor]
+			m.hunkLineSel = make([]bool, len(hunk.Body))
+			for i := range m.hunkLineSel {
+				m.hunkLineSel[i] = true
+			}
+			m.hunkLineCursor = 0
+			m.hunkLineMode = true
 		}
 	case "enter":
 		m.panel = panelMain
@@ -7848,6 +7911,10 @@ func (m model) hunkStageView() string {
 		return b.String()
 	}
 
+	if m.hunkLineMode && m.hunkCursor < len(m.hunkList) {
+		return m.hunkLineModeView(title)
+	}
+
 	for i, h := range m.hunkList {
 		cursor := "  "
 		if m.hunkCursor == i {
@@ -7864,22 +7931,52 @@ func (m model) hunkStageView() string {
 				b.WriteString("        " + styleDim.Render("...") + "\n")
 				break
 			}
-			var styled string
-			switch {
-			case strings.HasPrefix(line, "+"):
-				styled = styleAdded.Render(line)
-			case strings.HasPrefix(line, "-"):
-				styled = styleConflict.Render(line)
-			default:
-				styled = styleDim.Render(line)
-			}
-			b.WriteString("        " + styled + "\n")
+			b.WriteString("        " + m.styledDiffLine(line) + "\n")
 		}
 		b.WriteString("\n")
 	}
 
-	b.WriteString(styleDim.Render("  [↑↓] navigate  [space] toggle  [a] all/none  [enter] apply  [esc] back") + "\n")
+	b.WriteString(styleDim.Render("  [↑↓] navigate  [space] toggle  [a] all/none  [l] line mode  [enter] apply  [esc] back") + "\n")
 	return b.String()
+}
+
+func (m model) hunkLineModeView(title string) string {
+	var lb strings.Builder
+	lb.WriteString("\n  " + title + "  " + styleDim.Render("(line mode)") + "\n\n")
+	hunk := m.hunkList[m.hunkCursor]
+	lb.WriteString("  " + styleDim.Render(hunk.Header) + "\n")
+	for i, line := range hunk.Body {
+		isChange := strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-")
+		cursor := "  "
+		if m.hunkLineCursor == i {
+			cursor = styleSelected.Render("▶ ")
+		}
+		var checkbox string
+		if isChange {
+			if i < len(m.hunkLineSel) && m.hunkLineSel[i] {
+				checkbox = styleAdded.Render("[✓]") + " "
+			} else {
+				checkbox = "[ ] "
+			}
+		} else {
+			checkbox = "    "
+		}
+		lb.WriteString("  " + cursor + checkbox + m.styledDiffLine(line) + "\n")
+	}
+	lb.WriteString("\n")
+	lb.WriteString(styleDim.Render("  [↑↓] navigate  [space] toggle line  [enter] apply  [esc] back to hunks") + "\n")
+	return lb.String()
+}
+
+func (m model) styledDiffLine(line string) string {
+	switch {
+	case strings.HasPrefix(line, "+"):
+		return styleAdded.Render(line)
+	case strings.HasPrefix(line, "-"):
+		return styleConflict.Render(line)
+	default:
+		return styleDim.Render(line)
+	}
 }
 
 func (m model) pushOptsView() string {

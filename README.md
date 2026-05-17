@@ -186,7 +186,7 @@ Open bonsai and press `?` for the full in-app reference. Key highlights:
 |-----|--------|
 | `space` | Stage / unstage the selected file |
 | `+` | Stage all changes at once (`git add .`) |
-| `h` | Hunk staging - choose which hunks to stage within a file |
+| `h` | Hunk staging - choose which hunks to stage; press `l` inside to select individual lines |
 | `d` | Diff for the selected file |
 | `H` | File history - every commit that touched this file |
 | `e` | Blame - who last changed each line |

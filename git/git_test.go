@@ -606,3 +606,47 @@ func TestParseDiffNumstatSkipsMalformed(t *testing.T) {
 		t.Errorf("files[0].Additions = %d, want 0 for invalid number", files[0].Additions)
 	}
 }
+
+func TestBuildPartialHunk(t *testing.T) {
+	hunk := Hunk{
+		Header: "@@ -5,4 +5,4 @@",
+		Body: []string{
+			" context",
+			"-removed1",
+			"-removed2",
+			"+added1",
+			"+added2",
+		},
+	}
+
+	// Select only the first removal and first addition.
+	// lineSel: context=true, removed1=true, removed2=false, added1=true, added2=false
+	sel := []bool{true, true, false, true, false}
+	got := buildPartialHunk(hunk, sel)
+	if got == nil {
+		t.Fatal("buildPartialHunk returned nil")
+	}
+
+	// oldCount = C + D = 1 + 2 = 3
+	// newCount = C + (D-d) + a = 1 + 1 + 1 = 3
+	wantHeader := "@@ -5,3 +5,3 @@"
+	if got.Header != wantHeader {
+		t.Errorf("header = %q, want %q", got.Header, wantHeader)
+	}
+
+	wantBody := []string{" context", "-removed1", " removed2", "+added1"}
+	if len(got.Body) != len(wantBody) {
+		t.Fatalf("body len = %d, want %d: %v", len(got.Body), len(wantBody), got.Body)
+	}
+	for i, line := range wantBody {
+		if got.Body[i] != line {
+			t.Errorf("body[%d] = %q, want %q", i, got.Body[i], line)
+		}
+	}
+
+	// Select nothing: should return nil.
+	nothingSel := []bool{true, false, false, false, false}
+	if buildPartialHunk(hunk, nothingSel) != nil {
+		t.Error("expected nil when no change lines selected")
+	}
+}

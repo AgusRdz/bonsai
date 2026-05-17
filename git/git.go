@@ -573,6 +573,87 @@ func (r *Runner) ApplyHunks(ctx context.Context, fileHeader string, hunks []Hunk
 	return nil
 }
 
+// ApplyLines stages a subset of lines from a single hunk.
+// lineSel is parallel to hunk.Body: context lines are always included;
+// '-' lines are kept as removals if selected, converted to context if not;
+// '+' lines are included if selected, omitted entirely if not.
+func (r *Runner) ApplyLines(ctx context.Context, fileHeader string, hunk Hunk, lineSel []bool, reverse bool) error {
+	partial := buildPartialHunk(hunk, lineSel)
+	if partial == nil {
+		return nil
+	}
+	var patch strings.Builder
+	patch.WriteString(fileHeader)
+	if !strings.HasSuffix(fileHeader, "\n") {
+		patch.WriteByte('\n')
+	}
+	patch.WriteString(partial.raw())
+
+	args := []string{"apply", "--cached"}
+	if reverse {
+		args = append(args, "--reverse")
+	}
+	r.lastCmd = "git " + strings.Join(args, " ")
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Stdin = strings.NewReader(patch.String())
+	outB, applyErr := cmd.CombinedOutput()
+	if applyErr != nil {
+		return fmt.Errorf("%w: %s", applyErr, strings.TrimSpace(string(outB)))
+	}
+	return nil
+}
+
+// buildPartialHunk returns a new Hunk containing only the selected change lines.
+// Unselected '-' lines become context; unselected '+' lines are dropped.
+// Returns nil if no change lines are selected.
+func buildPartialHunk(h Hunk, lineSel []bool) *Hunk {
+	var newBody []string
+	var C, D, d, a int
+
+	for i, line := range h.Body {
+		sel := i >= len(lineSel) || lineSel[i]
+		switch {
+		case strings.HasPrefix(line, "-"):
+			D++
+			if sel {
+				d++
+				newBody = append(newBody, line)
+			} else {
+				newBody = append(newBody, " "+line[1:])
+			}
+		case strings.HasPrefix(line, "+"):
+			if sel {
+				a++
+				newBody = append(newBody, line)
+			}
+		default:
+			C++
+			newBody = append(newBody, line)
+		}
+	}
+
+	if d == 0 && a == 0 {
+		return nil
+	}
+
+	oldStart, newStart := parseHunkStarts(h.Header)
+	oldCount := C + D
+	newCount := C + D - d + a
+
+	header := fmt.Sprintf("@@ -%d,%d +%d,%d @@", oldStart, oldCount, newStart, newCount)
+	if idx := strings.Index(h.Header, " @@ "); idx >= 0 {
+		header += h.Header[idx+3:]
+	}
+
+	return &Hunk{Header: header, Body: newBody}
+}
+
+func parseHunkStarts(header string) (oldStart, newStart int) {
+	var os, oc, ns, nc int
+	_, _ = fmt.Sscanf(header, "@@ -%d,%d +%d,%d", &os, &oc, &ns, &nc)
+	return os, ns
+}
+
 // Pull fetches and fast-forwards the current branch.
 func (r *Runner) Pull(ctx context.Context) error {
 	_, err := r.run(ctx, "pull")
