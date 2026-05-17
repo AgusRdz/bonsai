@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="docs/logo.svg" alt="bonsai" width="240">
+</div>
+
 # bonsai
 
 > A TUI Git client that teaches while you work.
