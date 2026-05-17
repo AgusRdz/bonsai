@@ -3,6 +3,7 @@ package mcp
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 )
+
+var errAlreadyConfigured = errors.New("already configured")
 
 // mcpConfig is the standard MCP server config block shared by all tools.
 var mcpConfig = map[string]any{
@@ -76,13 +79,18 @@ func Install() error {
 
 func installOne(t installTarget) {
 	fmt.Printf("Installing for %s... ", t.label)
-	if err := t.install(); err != nil {
+	err := t.install()
+	if errors.Is(err, errAlreadyConfigured) {
+		fmt.Println("already configured, skipping")
+		return
+	}
+	if err != nil {
 		fmt.Printf("failed: %v\n", err)
 		return
 	}
 	fmt.Println("done")
 	if t.note != "" {
-		fmt.Printf("  %s\n", t.note)
+		fmt.Printf("  note: %s\n", t.note)
 	}
 }
 
@@ -218,8 +226,7 @@ func writeMCPJSON(path string) error {
 	if existing != nil {
 		if servers, ok := existing["mcpServers"].(map[string]any); ok {
 			if _, alreadySet := servers["bonsai"]; alreadySet {
-				fmt.Printf("(already configured in %s) ", path)
-				return nil
+				return errAlreadyConfigured
 			}
 		}
 	}
@@ -260,8 +267,7 @@ func mergeIntoConfig(path string) error {
 		servers = map[string]any{}
 	}
 	if _, alreadySet := servers["bonsai"]; alreadySet {
-		fmt.Printf("(already configured in %s) ", path)
-		return nil
+		return errAlreadyConfigured
 	}
 	servers["bonsai"] = map[string]any{
 		"command": "bonsai",
@@ -289,6 +295,72 @@ func readJSONMap(path string) map[string]any {
 		return nil
 	}
 	return m
+}
+
+// Uninstall removes the bonsai MCP server entry from all known config locations.
+func Uninstall() error {
+	fmt.Println()
+	fmt.Println("bonsai mcp uninstall - remove bonsai MCP server configuration")
+	fmt.Println(strings.Repeat("-", 56))
+	fmt.Println()
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	type location struct {
+		path  string
+		label string
+	}
+	locations := []location{
+		{".mcp.json", "Claude Code project scope"},
+		{filepath.Join(".cursor", "mcp.json"), "Cursor project scope"},
+		{filepath.Join(home, ".claude", "settings.json"), "Claude Code user scope"},
+	}
+	if p := claudeDesktopConfigPath(); p != "" {
+		locations = append(locations, location{p, "Claude Desktop"})
+	}
+
+	removed := 0
+	for _, loc := range locations {
+		if removeFromFile(loc.path) {
+			fmt.Printf("  removed from %s (%s)\n", loc.path, loc.label)
+			removed++
+		}
+	}
+
+	fmt.Println()
+	if removed == 0 {
+		fmt.Println("bonsai was not found in any known configuration location.")
+	} else {
+		fmt.Printf("Removed from %d location(s). Restart affected tools to apply.\n", removed)
+	}
+	return nil
+}
+
+// removeFromFile deletes the bonsai key from mcpServers in a JSON config file.
+// Returns true if the entry was present and successfully removed.
+func removeFromFile(path string) bool {
+	cfg := readJSONMap(path)
+	if cfg == nil {
+		return false
+	}
+	servers, ok := cfg["mcpServers"].(map[string]any)
+	if !ok {
+		return false
+	}
+	if _, exists := servers["bonsai"]; !exists {
+		return false
+	}
+	delete(servers, "bonsai")
+	cfg["mcpServers"] = servers
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return false
+	}
+	return os.WriteFile(path, append(data, '\n'), 0644) == nil
 }
 
 func printManualConfig() {

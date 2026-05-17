@@ -1061,12 +1061,21 @@ func printOutput(format string, v any) {
 }
 
 func runMCP(args []string) {
-	if len(args) > 0 && args[0] == "install" {
-		if err := mcp.Install(); err != nil {
-			fmt.Fprintln(os.Stderr, "bonsai mcp install:", err)
-			os.Exit(1)
+	if len(args) > 0 {
+		switch args[0] {
+		case "install":
+			if err := mcp.Install(); err != nil {
+				fmt.Fprintln(os.Stderr, "bonsai mcp install:", err)
+				os.Exit(1)
+			}
+			return
+		case "uninstall":
+			if err := mcp.Uninstall(); err != nil {
+				fmt.Fprintln(os.Stderr, "bonsai mcp uninstall:", err)
+				os.Exit(1)
+			}
+			return
 		}
-		return
 	}
 	mcp.Run(version)
 }
