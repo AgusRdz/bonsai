@@ -2,6 +2,12 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.60.3] - 2026-05-17
+
+### Bug Fixes
+- PR list no longer stuck on loading after merge or create
+([970b4b0](https://github.com/AgusRdz/bonsai/commit/970b4b0))
+
 ## [0.60.2] - 2026-05-17
 
 ### Documentation
