@@ -272,85 +272,90 @@ const (
 )
 
 type model struct {
-	cfg                *config.Config
-	git                *git.Runner
-	status             *git.Status
-	files              []fileItem // flat list of all selectable files
-	cursor             int
-	panel              panel
-	commitMsg          textinput.Model
-	branchInput        textinput.Model
-	branchMode         branchMode
-	convViolation      *conventions.Result
-	convPanelShown     bool // panel already shown for current branch violation
-	logEntries         []git.LogEntry
-	logCursor          int
-	logOffset          int             // pagination: how many commits already loaded
-	logHasMore         bool            // more commits available to load
-	logFilter          string          // active filter query; empty = no filter
-	logFilterInput     textinput.Model // search input field
-	logFiltering       bool            // search input is focused
-	branches           []git.Branch
-	branchCursor       int
-	branchFilter       string
-	branchFilterInput  textinput.Model
-	branchFiltering    bool
-	diffLines          []string
-	diffScroll         int
-	diffTitle          string
-	stashes            []git.StashEntry
-	stashCursor        int
-	stashFilter        string
-	stashFilterInput   textinput.Model
-	stashFiltering     bool
-	confirmPrompt      string
-	confirmCmd         tea.Cmd
-	flowOptions        []flowOption
-	flowPickCursor     int
-	commitDetail       *git.CommitDetail
-	commitDetailScroll int
-	conflictPath       string
-	conflictLines      []string
-	conflictScroll     int
-	conflictParts      []conflictPart
-	conflictHunkCursor int
-	conflictHunkRes    []int    // parallel to conflict-only parts; hunkUnresolved/Ours/Theirs/Both
-	conflictCustom     []string // per-hunk custom content when edited manually (nil = not edited)
-	conflictEditMode   bool
-	conflictEditInput  textinput.Model
-	tags               []git.TagEntry
-	tagCursor          int
-	tagFilter          string
-	tagFilterInput     textinput.Model
-	tagFiltering       bool
-	worktrees          []git.WorktreeEntry
-	worktreeCursor     int
-	edu                *educationPanel
-	eduTimer           int
-	width              int
-	height             int
-	ready              bool
-	err                error  // startup/refresh error
-	actionErr          error  // error from last action
-	lastCmd            string // last git command run
-	lastInfo           string // human-readable result of last action
-	pushing            bool
-	pulling            bool
-	blameLines         []git.BlameLine
-	blameScroll        int
-	blameTitle         string
-	bisectState        *git.BisectState
-	bisectLog          string
-	bisectInput        textinput.Model
-	bisectInputActive  bool
-	rebaseTodos        []rebaseTodo
-	rebaseCursor       int
-	rebaseBase         string          // e.g. "HEAD~3"
-	rebaseBaseInput    textinput.Model // input for entering the base ref
-	rebaseStep         int             // 0 = enter base ref, 1 = edit todo list
-	amendInput         textinput.Model
-	amendField         int               // 0=menu, 1=message, 2=author, 3=date
-	amendDetail        *git.CommitDetail // HEAD commit shown in the panel
+	cfg                 *config.Config
+	git                 *git.Runner
+	status              *git.Status
+	files               []fileItem // flat list of all selectable files
+	cursor              int
+	panel               panel
+	commitMsg           textinput.Model
+	branchInput         textinput.Model
+	branchMode          branchMode
+	convViolation       *conventions.Result
+	convPanelShown      bool // panel already shown for current branch violation
+	logEntries          []git.LogEntry
+	logCursor           int
+	logOffset           int             // pagination: how many commits already loaded
+	logHasMore          bool            // more commits available to load
+	logFilter           string          // active filter query; empty = no filter
+	logFilterInput      textinput.Model // search input field
+	logFiltering        bool            // search input is focused
+	branches            []git.Branch
+	branchCursor        int
+	branchFilter        string
+	branchFilterInput   textinput.Model
+	branchFiltering     bool
+	diffLines           []string
+	diffPositions       []diffLinePos
+	diffCursor          int
+	diffScroll          int
+	diffTitle           string
+	prDiffNumber        int
+	prLineCommentActive bool
+	prLineCommentInput  textinput.Model
+	stashes             []git.StashEntry
+	stashCursor         int
+	stashFilter         string
+	stashFilterInput    textinput.Model
+	stashFiltering      bool
+	confirmPrompt       string
+	confirmCmd          tea.Cmd
+	flowOptions         []flowOption
+	flowPickCursor      int
+	commitDetail        *git.CommitDetail
+	commitDetailScroll  int
+	conflictPath        string
+	conflictLines       []string
+	conflictScroll      int
+	conflictParts       []conflictPart
+	conflictHunkCursor  int
+	conflictHunkRes     []int    // parallel to conflict-only parts; hunkUnresolved/Ours/Theirs/Both
+	conflictCustom      []string // per-hunk custom content when edited manually (nil = not edited)
+	conflictEditMode    bool
+	conflictEditInput   textinput.Model
+	tags                []git.TagEntry
+	tagCursor           int
+	tagFilter           string
+	tagFilterInput      textinput.Model
+	tagFiltering        bool
+	worktrees           []git.WorktreeEntry
+	worktreeCursor      int
+	edu                 *educationPanel
+	eduTimer            int
+	width               int
+	height              int
+	ready               bool
+	err                 error  // startup/refresh error
+	actionErr           error  // error from last action
+	lastCmd             string // last git command run
+	lastInfo            string // human-readable result of last action
+	pushing             bool
+	pulling             bool
+	blameLines          []git.BlameLine
+	blameScroll         int
+	blameTitle          string
+	bisectState         *git.BisectState
+	bisectLog           string
+	bisectInput         textinput.Model
+	bisectInputActive   bool
+	rebaseTodos         []rebaseTodo
+	rebaseCursor        int
+	rebaseBase          string          // e.g. "HEAD~3"
+	rebaseBaseInput     textinput.Model // input for entering the base ref
+	rebaseStep          int             // 0 = enter base ref, 1 = edit todo list
+	amendInput          textinput.Model
+	amendField          int               // 0=menu, 1=message, 2=author, 3=date
+	amendDetail         *git.CommitDetail // HEAD commit shown in the panel
 
 	configMenuCursor      int
 	configSection         configSection
@@ -529,6 +534,11 @@ type dashboardMsg []git.DashboardEntry
 type diffMsg struct {
 	title string
 	lines []string
+}
+
+type diffLinePos struct {
+	file     string // empty = not commentable (header lines)
+	position int    // 0 = not commentable
 }
 type stashListMsg []git.StashEntry
 type commitDetailMsg *git.CommitDetail
@@ -2107,8 +2117,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.panel = panelDashboard
 
 	case diffMsg:
+		m.diffPositions = parseDiffLinePositions(msg.lines)
 		m.diffLines = syntaxHighlightDiff(msg.lines)
 		m.diffTitle = msg.title
+		m.diffCursor = 0
 
 	case stashListMsg:
 		m.stashes = []git.StashEntry(msg)
@@ -3601,14 +3613,95 @@ func (m model) diffViewport() (visibleLines, maxScroll int) {
 }
 
 func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	_, maxScroll := m.diffViewport()
+	visibleLines, maxScroll := m.diffViewport()
+
+	// PR diff mode: cursor-based navigation with inline comment support.
+	if m.diffOrigin == panelPR {
+		if m.prLineCommentActive {
+			switch msg.String() {
+			case "enter":
+				body := strings.TrimSpace(m.prLineCommentInput.Value())
+				if body != "" && m.diffCursor < len(m.diffPositions) {
+					pos := m.diffPositions[m.diffCursor]
+					if pos.position > 0 {
+						m.prLineCommentActive = false
+						num := m.prDiffNumber
+						return m, func() tea.Msg {
+							ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+							defer cancel()
+							commenter, ok := m.prProvider.(pr.PRLineCommenter)
+							if !ok {
+								return actionDoneMsg{cmd: "pr comment line", err: fmt.Errorf("provider does not support inline comments")}
+							}
+							err := commenter.CommentPRLine(ctx, num, pos.file, pos.position, body)
+							info := ""
+							if err == nil {
+								info = fmt.Sprintf("commented on %s (position %d)", pos.file, pos.position)
+							}
+							return actionDoneMsg{cmd: "pr comment line", err: err, info: info}
+						}
+					}
+				}
+				m.prLineCommentActive = false
+			case "esc":
+				m.prLineCommentActive = false
+			case "ctrl+c":
+				return m, tea.Quit
+			default:
+				var cmd tea.Cmd
+				m.prLineCommentInput, cmd = m.prLineCommentInput.Update(msg)
+				return m, cmd
+			}
+			return m, nil
+		}
+
+		switch msg.String() {
+		case "up", "k":
+			if m.diffCursor > 0 {
+				m.diffCursor--
+				if m.diffCursor < m.diffScroll {
+					m.diffScroll = m.diffCursor
+				}
+			}
+		case "down", "j":
+			if m.diffCursor < len(m.diffLines)-1 {
+				m.diffCursor++
+				if m.diffCursor >= m.diffScroll+visibleLines {
+					m.diffScroll = m.diffCursor - visibleLines + 1
+					if m.diffScroll > maxScroll {
+						m.diffScroll = maxScroll
+					}
+				}
+			}
+		case "c":
+			if m.diffCursor < len(m.diffPositions) && m.diffPositions[m.diffCursor].position > 0 {
+				ti := textinput.New()
+				ti.Placeholder = "inline comment..."
+				ti.Focus()
+				ti.CharLimit = 512
+				ti.Width = m.width - 6
+				m.prLineCommentInput = ti
+				m.prLineCommentActive = true
+			}
+		case "esc", m.cfg.Keybindings.Quit:
+			m.panel = m.diffOrigin
+			m.diffOrigin = panelMain
+		case "ctrl+c":
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
+	// Regular scroll mode for non-PR diffs.
+	_ = maxScroll
 	switch msg.String() {
 	case "up", "k":
 		if m.diffScroll > 0 {
 			m.diffScroll--
 		}
 	case "down", "j":
-		if m.diffScroll < maxScroll {
+		_, ms := m.diffViewport()
+		if m.diffScroll < ms {
 			m.diffScroll++
 		}
 	case "e":
@@ -5696,9 +5789,25 @@ func (m model) diffView() string {
 		if end > len(m.diffLines) {
 			end = len(m.diffLines)
 		}
-		for _, line := range m.diffLines[m.diffScroll:end] {
-			b.WriteString(renderDiffLine(line) + "\n")
+		for i, line := range m.diffLines[m.diffScroll:end] {
+			cursor := m.diffOrigin == panelPR && (m.diffScroll+i) == m.diffCursor
+			b.WriteString(renderDiffLine(line, cursor) + "\n")
 		}
+	}
+
+	if m.diffOrigin == panelPR && m.prLineCommentActive {
+		content := b.String()
+		lines := strings.Count(content, "\n")
+		if pad := m.height - lines - 3; pad > 0 {
+			content += strings.Repeat("\n", pad)
+		}
+		var fileHint string
+		if m.diffCursor < len(m.diffPositions) && m.diffPositions[m.diffCursor].position > 0 {
+			p := m.diffPositions[m.diffCursor]
+			fileHint = styleDim.Render(fmt.Sprintf("  %s  position %d", p.file, p.position)) + "\n"
+		}
+		return content + fileHint + "  " + m.prLineCommentInput.View() + "\n" +
+			styleDim.Render("  [enter] post  [esc] cancel") + "\n"
 	}
 
 	content := b.String()
@@ -5708,31 +5817,39 @@ func (m model) diffView() string {
 	}
 	pos := ""
 	if len(m.diffLines) > 0 {
-		pos = fmt.Sprintf("  (%d/%d)", m.diffScroll+1, len(m.diffLines))
+		pos = fmt.Sprintf("  (%d/%d)", m.diffCursor+1, len(m.diffLines))
 	}
-	return content + styleDim.Render("  [↑↓] scroll  [e] blame  [esc] back"+pos) + "\n"
+	hint := "  [↑↓] scroll  [e] blame  [esc] back"
+	if m.diffOrigin == panelPR {
+		hint = "  [↑↓] move cursor  [c] comment line  [esc] back"
+	}
+	return content + styleDim.Render(hint+pos) + "\n"
 }
 
-func renderDiffLine(line string) string {
+func renderDiffLine(line string, cursor bool) string {
+	pfx := "  "
+	if cursor {
+		pfx = styleSelected.Render(">") + " "
+	}
 	switch {
 	case strings.HasPrefix(line, "@@"):
-		return "  " + styleCmd.Render(line)
+		return pfx + styleCmd.Render(line)
 	case strings.HasPrefix(line, "+"):
 		content := line[1:]
 		if isLFSPointerLine(content) {
-			return "  " + styleStaged.Render("+") + lfsPointerStyle(content)
+			return pfx + styleStaged.Render("+") + lfsPointerStyle(content)
 		}
-		return "  " + styleStaged.Render(line)
+		return pfx + styleStaged.Render(line)
 	case strings.HasPrefix(line, "-"):
 		content := line[1:]
 		if isLFSPointerLine(content) {
-			return "  " + styleChanged.Render("-") + lfsPointerStyle(content)
+			return pfx + styleChanged.Render("-") + lfsPointerStyle(content)
 		}
-		return "  " + styleChanged.Render(line)
+		return pfx + styleChanged.Render(line)
 	case strings.HasPrefix(line, "Binary files"), strings.HasPrefix(line, "GIT binary patch"):
-		return "  " + styleChanged.Render(line)
+		return pfx + styleChanged.Render(line)
 	default:
-		return "  " + styleDim.Render(line)
+		return pfx + styleDim.Render(line)
 	}
 }
 
@@ -5760,6 +5877,34 @@ var chromaTokenStyles = []struct {
 // It detects the filename from "diff --git" headers and uses chroma to
 // colorize added (+) and context ( ) lines. Removed (-) lines are left plain
 // so the red removal color stays dominant.
+// parseDiffLinePositions returns a diffLinePos for each raw diff line, tracking
+// which file and 1-based diff position (from the first @@ of each file) it maps to.
+// Lines that cannot be commented on (headers, blank separators) have position=0.
+func parseDiffLinePositions(lines []string) []diffLinePos {
+	result := make([]diffLinePos, len(lines))
+	var currentFile string
+	var position int
+	for i, line := range lines {
+		switch {
+		case strings.HasPrefix(line, "diff --git "):
+			currentFile = ""
+			position = 0
+		case strings.HasPrefix(line, "+++ b/"):
+			currentFile = strings.TrimPrefix(line, "+++ b/")
+			position = 0
+		case strings.HasPrefix(line, "@@"):
+			position++
+			result[i] = diffLinePos{file: currentFile, position: position}
+		default:
+			if currentFile != "" && position > 0 {
+				position++
+				result[i] = diffLinePos{file: currentFile, position: position}
+			}
+		}
+	}
+	return result
+}
+
 func syntaxHighlightDiff(lines []string) []string {
 	out := make([]string, len(lines))
 	var lexer chroma.Lexer = chromaLexers.Fallback
@@ -7995,6 +8140,9 @@ func (m model) updatePRPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		num := item.Number
 		m.diffLines = nil
 		m.diffScroll = 0
+		m.diffCursor = 0
+		m.prDiffNumber = num
+		m.prLineCommentActive = false
 		m.diffOrigin = panelPR
 		m.panel = panelDiff
 		return m, func() tea.Msg {

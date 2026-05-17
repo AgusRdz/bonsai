@@ -138,3 +138,10 @@ type PRReviewer interface {
 	RequestChanges(ctx context.Context, number int, body string) error
 	ReviewComment(ctx context.Context, number int, body string) error
 }
+
+// PRLineCommenter is an optional Provider extension for posting inline diff comments
+// on a specific line of a pull request. Type-assert before calling.
+// position is 1-based from the first @@ line within the file's diff section.
+type PRLineCommenter interface {
+	CommentPRLine(ctx context.Context, number int, path string, position int, body string) error
+}

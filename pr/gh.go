@@ -147,6 +147,30 @@ func (g *ghProvider) ReviewComment(ctx context.Context, number int, body string)
 		"--comment", "--body", body).Run()
 }
 
+func (g *ghProvider) CommentPRLine(ctx context.Context, number int, path string, position int, body string) error {
+	if !g.CLIAvailable() {
+		return fmt.Errorf("gh CLI not found")
+	}
+	out, err := exec.CommandContext(ctx, "gh", "pr", "view", fmt.Sprintf("%d", number),
+		"--json", "headRefOid", "-q", ".headRefOid").Output()
+	if err != nil {
+		return fmt.Errorf("pr head SHA: %w", err)
+	}
+	commitID := strings.TrimSpace(string(out))
+	cmd := exec.CommandContext(ctx, "gh", "api",
+		fmt.Sprintf("repos/{owner}/{repo}/pulls/%d/comments", number),
+		"--method", "POST",
+		"-f", "body="+body,
+		"-f", "commit_id="+commitID,
+		"-f", "path="+path,
+		"-F", fmt.Sprintf("position=%d", position),
+	)
+	if out2, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("gh api: %s", strings.TrimSpace(string(out2)))
+	}
+	return nil
+}
+
 func (g *ghProvider) Open(ctx context.Context, branch string) error {
 	if !g.CLIAvailable() {
 		return fmt.Errorf("gh CLI not found")

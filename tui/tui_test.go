@@ -243,7 +243,7 @@ func TestRenderDiffLine(t *testing.T) {
 		" context line",
 	}
 	for _, input := range cases {
-		got := renderDiffLine(input)
+		got := renderDiffLine(input, false)
 		if !strings.Contains(got, input) {
 			t.Errorf("renderDiffLine(%q): output does not contain input", input)
 		}
