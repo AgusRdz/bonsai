@@ -219,6 +219,27 @@ func (g *glabProvider) ProtectedBranches(ctx context.Context) ([]string, error) 
 	return names, nil
 }
 
+func (g *glabProvider) MergePR(ctx context.Context, number int, method string) error {
+	if !g.CLIAvailable() {
+		return fmt.Errorf("glab CLI not found")
+	}
+	args := []string{"mr", "merge", fmt.Sprintf("%d", number), "--yes", "--remove-source-branch"}
+	if method == "squash" {
+		args = append(args, "--squash")
+	} else if method == "rebase" {
+		args = append(args, "--rebase")
+	}
+	out, err := exec.CommandContext(ctx, "glab", args...).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return err
+	}
+	return nil
+}
+
 func normaliseGlabState(s string) string {
 	switch strings.ToLower(s) {
 	case "opened":

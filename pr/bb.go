@@ -173,6 +173,21 @@ func (b *bbProvider) CreateIssueBranch(_ context.Context, _ int, _ string) error
 	return fmt.Errorf("bb CLI does not support create-issue-branch")
 }
 
+func (b *bbProvider) MergePR(ctx context.Context, number int, _ string) error {
+	if !b.CLIAvailable() {
+		return fmt.Errorf("bb CLI not found")
+	}
+	out, err := exec.CommandContext(ctx, "bb", "pr", "merge", fmt.Sprintf("%d", number)).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return err
+	}
+	return nil
+}
+
 func normaliseBBState(s string) string {
 	switch strings.ToUpper(s) {
 	case "OPEN":

@@ -147,6 +147,12 @@ type PRReviewer interface {
 	ReviewComment(ctx context.Context, number int, body string) error
 }
 
+// PRMerger is an optional Provider extension for merging a pull request.
+// method must be "merge", "squash", or "rebase". Type-assert before calling.
+type PRMerger interface {
+	MergePR(ctx context.Context, number int, method string) error
+}
+
 // PRLineCommenter is an optional Provider extension for posting inline diff comments
 // on a specific line of a pull request. Type-assert before calling.
 // position is 1-based from the first @@ line within the file's diff section.

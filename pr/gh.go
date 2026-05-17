@@ -306,6 +306,28 @@ func (g *ghProvider) ProtectedBranches(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
+func (g *ghProvider) MergePR(ctx context.Context, number int, method string) error {
+	if !g.CLIAvailable() {
+		return fmt.Errorf("gh CLI not found")
+	}
+	flag := "--merge"
+	switch method {
+	case "squash":
+		flag = "--squash"
+	case "rebase":
+		flag = "--rebase"
+	}
+	out, err := exec.CommandContext(ctx, "gh", "pr", "merge", fmt.Sprintf("%d", number), flag, "--delete-branch").CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return err
+	}
+	return nil
+}
+
 // ciCheck holds one entry from gh's statusCheckRollup JSON field.
 type ciCheck struct {
 	Conclusion string `json:"conclusion"`

@@ -80,6 +80,7 @@ const (
 	panelPR
 	panelPRReview
 	panelPRCreate
+	panelPRMerge
 	panelIssues
 	panelSSH
 	panelLFS
@@ -482,6 +483,10 @@ type model struct {
 	prCreateBodyTA     textarea.Model
 	prCreateBaseInput  textinput.Model
 	prCreateField      int // 0=title 1=body 2=base
+
+	// pr merge picker
+	prMergeNumber int
+	prMergeCursor int // 0=merge 1=squash 2=rebase
 
 	// issues
 	issues           []pr.Issue
@@ -2746,6 +2751,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelPRCreate {
 			return m.updatePRCreatePanel(msg)
+		}
+		if m.panel == panelPRMerge {
+			return m.updatePRMergePanel(msg)
 		}
 		if m.panel == panelIssues {
 			return m.updateIssuesPanel(msg)
@@ -5421,6 +5429,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelPRCreate {
 		return m.prCreateView()
+	}
+	if m.panel == panelPRMerge {
+		return m.prMergeView()
 	}
 	if m.panel == panelIssues {
 		return m.issuesView()
@@ -8427,6 +8438,17 @@ func (m model) updatePRPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		ti.Width = m.width - 6
 		m.prReviewInput = ti
 		m.panel = panelPRReview
+	case "m":
+		if len(m.prListItems) == 0 {
+			break
+		}
+		if _, ok := m.prProvider.(pr.PRMerger); !ok {
+			m.actionErr = fmt.Errorf("this provider does not support merging PRs")
+			break
+		}
+		m.prMergeNumber = m.prListItems[m.prListCursor].Number
+		m.prMergeCursor = 0
+		m.panel = panelPRMerge
 	case "n":
 		if m.prProvider != nil && m.status != nil {
 			m, cmd := m.openPRCreatePanel()
@@ -8498,7 +8520,11 @@ func (m model) prView() string {
 	if _, ok := m.prProvider.(pr.PRReviewer); ok {
 		reviewHints = "  [a] approve  [A] req changes  [c] comment"
 	}
-	b.WriteString(styleDim.Render("  [enter/o] open  [d] diff  [n] new PR  [r] refresh"+reviewHints+"  [esc] back") + "\n")
+	mergeHint := ""
+	if _, ok := m.prProvider.(pr.PRMerger); ok && len(m.prListItems) > 0 {
+		mergeHint = "  [m] merge"
+	}
+	b.WriteString(styleDim.Render("  [enter/o] open  [d] diff  [n] new PR  [r] refresh"+reviewHints+mergeHint+"  [esc] back") + "\n")
 	return b.String()
 }
 
@@ -9218,6 +9244,82 @@ func (m model) prCreateView() string {
 		content += strings.Repeat("\n", pad)
 	}
 	return content + styleDim.Render("  [tab] next field  [ctrl+s] submit  [esc] cancel") + "\n"
+}
+
+func (m model) updatePRMergePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.panel = panelPR
+	case "ctrl+c":
+		return m, tea.Quit
+	case "up", "k":
+		if m.prMergeCursor > 0 {
+			m.prMergeCursor--
+		}
+	case "down", "j":
+		if m.prMergeCursor < 2 {
+			m.prMergeCursor++
+		}
+	case "enter":
+		methods := []string{"merge", "squash", "rebase"}
+		method := methods[m.prMergeCursor]
+		merger := m.prProvider.(pr.PRMerger)
+		num := m.prMergeNumber
+		m.panel = panelPR
+		m.prListLoading = true
+		return m, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			err := merger.MergePR(ctx, num, method)
+			return actionDoneMsg{
+				cmd:  fmt.Sprintf("gh pr merge #%d --%s", num, method),
+				err:  err,
+				info: fmt.Sprintf("merged PR #%d (%s)", num, method),
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m model) prMergeView() string {
+	item := pr.PRStatus{}
+	for _, it := range m.prListItems {
+		if it.Number == m.prMergeNumber {
+			item = it
+			break
+		}
+	}
+	title := styleTitle.Render(fmt.Sprintf("Merge PR #%d", m.prMergeNumber))
+	var b strings.Builder
+	b.WriteString("\n  " + title + "\n")
+	if item.Title != "" {
+		b.WriteString("  " + styleDim.Render(item.Title) + "\n")
+	}
+	b.WriteString("\n")
+
+	opts := []struct {
+		label string
+		desc  string
+	}{
+		{"Merge commit", "keep all commits, add a merge commit"},
+		{"Squash and merge", "squash into one commit on base branch"},
+		{"Rebase and merge", "rebase commits onto base branch, no merge commit"},
+	}
+	for i, opt := range opts {
+		cursor := "  "
+		if i == m.prMergeCursor {
+			cursor = styleSelected.Render(">>")
+		}
+		b.WriteString(cursor + " " + opt.label + "\n")
+		b.WriteString("     " + styleDim.Render(opt.desc) + "\n\n")
+	}
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [↑/↓] select  [enter] merge  [esc] cancel") + "\n"
 }
 
 // fetchPRStatus fetches the current PR status in the background.
