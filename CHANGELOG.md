@@ -2,6 +2,12 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.58.2] - 2026-05-17
+
+### Bug Fixes
+- Open browser for PR creation instead of running interactive gh/glab/bb CLI
+([1aafa05](https://github.com/AgusRdz/bonsai/commit/1aafa05))
+
 ## [0.58.1] - 2026-05-17
 
 ### Bug Fixes
