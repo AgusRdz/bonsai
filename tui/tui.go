@@ -649,6 +649,12 @@ type prCreatePrefillMsg struct {
 	body    string
 }
 
+type prMergeResultMsg struct {
+	cmd  string
+	info string
+	err  error
+}
+
 type tickMsg time.Time
 
 func autoRefreshCmd() tea.Cmd {
@@ -2119,6 +2125,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prCreateBodyTA.SetValue(msg.body)
 		}
 
+	case prMergeResultMsg:
+		m.lastCmd = msg.cmd
+		m.lastInfo = msg.info
+		m.actionErr = msg.err
+		if msg.err == nil && m.prListCursor > 0 {
+			m.prListCursor--
+		}
+		return m, m.fetchPRList()
+
 	case errMsg:
 		m.err = msg.err
 		m.ready = true
@@ -2464,6 +2479,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		var baseCmds []tea.Cmd
 		baseCmds = append(baseCmds, m.fetchStatus())
+
+		// After a PR create, refresh the list so prListLoading clears.
+		if strings.Contains(msg.cmd, "pr create") && msg.err == nil {
+			baseCmds = append(baseCmds, m.fetchPRList())
+		}
 
 		key := commandKey(msg.cmd)
 		if key != "" && msg.err == nil {
@@ -9407,10 +9427,10 @@ func (m model) updatePRMergePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			err := merger.MergePR(ctx, num, method)
-			return actionDoneMsg{
+			return prMergeResultMsg{
 				cmd:  fmt.Sprintf("gh pr merge #%d --%s", num, method),
-				err:  err,
 				info: fmt.Sprintf("merged PR #%d (%s)", num, method),
+				err:  err,
 			}
 		}
 	}
