@@ -8388,103 +8388,6 @@ func (m model) updatePRPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				_ = m.prProvider.Open(ctx, item.URL)
 			}
 		}
-	case "d":
-		if len(m.prListItems) == 0 {
-			break
-		}
-		differ, ok := m.prProvider.(pr.PRDiffer)
-		if !ok {
-			m.actionErr = fmt.Errorf("this provider does not support PR diffs")
-			break
-		}
-		item := m.prListItems[m.prListCursor]
-		num := item.Number
-		m.diffLines = nil
-		m.diffScroll = 0
-		m.diffCursor = 0
-		m.prDiffNumber = num
-		m.prLineCommentActive = false
-		m.diffOrigin = panelPR
-		m.panel = panelDiff
-		return m, func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			raw, err := differ.Diff(ctx, num)
-			if err != nil {
-				return actionDoneMsg{cmd: "pr diff", err: fmt.Errorf("pr diff: %w", err)}
-			}
-			var lines []string
-			if raw != "" {
-				lines = strings.Split(strings.TrimRight(raw, "\n"), "\n")
-			}
-			return diffMsg{title: fmt.Sprintf("PR #%d diff", num), lines: lines}
-		}
-	case "a":
-		if len(m.prListItems) == 0 {
-			break
-		}
-		reviewer, ok := m.prProvider.(pr.PRReviewer)
-		if !ok {
-			m.actionErr = fmt.Errorf("this provider does not support PR reviews")
-			break
-		}
-		item := m.prListItems[m.prListCursor]
-		num := item.Number
-		prov := reviewer
-		return m, func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			err := prov.Approve(ctx, num)
-			return actionDoneMsg{cmd: fmt.Sprintf("pr review --approve #%d", num), err: err,
-				info: fmt.Sprintf("approved PR #%d", num)}
-		}
-	case "A":
-		if len(m.prListItems) == 0 {
-			break
-		}
-		if _, ok := m.prProvider.(pr.PRReviewer); !ok {
-			m.actionErr = fmt.Errorf("this provider does not support PR reviews")
-			break
-		}
-		item := m.prListItems[m.prListCursor]
-		m.prReviewNumber = item.Number
-		m.prReviewMode = "changes"
-		ti := textinput.New()
-		ti.Placeholder = "reason for requesting changes (required)"
-		ti.Focus()
-		ti.CharLimit = 256
-		ti.Width = m.width - 6
-		m.prReviewInput = ti
-		m.panel = panelPRReview
-	case "c":
-		if len(m.prListItems) == 0 {
-			break
-		}
-		if _, ok := m.prProvider.(pr.PRReviewer); !ok {
-			m.actionErr = fmt.Errorf("this provider does not support PR reviews")
-			break
-		}
-		item := m.prListItems[m.prListCursor]
-		m.prReviewNumber = item.Number
-		m.prReviewMode = "comment"
-		ti := textinput.New()
-		ti.Placeholder = "comment text"
-		ti.Focus()
-		ti.CharLimit = 512
-		ti.Width = m.width - 6
-		m.prReviewInput = ti
-		m.panel = panelPRReview
-	case "m":
-		if len(m.prListItems) == 0 {
-			break
-		}
-		if _, ok := m.prProvider.(pr.PRMerger); !ok {
-			m.actionErr = fmt.Errorf("this provider does not support merging PRs")
-			break
-		}
-		m.prMergeNumber = m.prListItems[m.prListCursor].Number
-		m.prMergeCursor = 0
-		m.panel = panelPRMerge
 	case "n":
 		if m.prProvider != nil && m.status != nil {
 			m, cmd := m.openPRCreatePanel()
@@ -8552,15 +8455,7 @@ func (m model) prView() string {
 		}
 	}
 	b.WriteString("\n")
-	reviewHints := ""
-	if _, ok := m.prProvider.(pr.PRReviewer); ok {
-		reviewHints = "  [a] approve  [A] req changes  [c] comment"
-	}
-	mergeHint := ""
-	if _, ok := m.prProvider.(pr.PRMerger); ok && len(m.prListItems) > 0 {
-		mergeHint = "  [m] merge"
-	}
-	b.WriteString(styleDim.Render("  [enter] details  [o] open browser  [d] diff  [n] new PR  [r] refresh"+reviewHints+mergeHint+"  [esc] back") + "\n")
+	b.WriteString(styleDim.Render("  [enter] details  [o] open browser  [n] new PR  [r] refresh  [esc] back") + "\n")
 	return b.String()
 }
 
@@ -9132,6 +9027,34 @@ func (m model) updatePRDetailPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return actionDoneMsg{cmd: fmt.Sprintf("pr review --approve #%d", num), err: err,
 				info: fmt.Sprintf("approved PR #%d", num)}
 		}
+	case "A":
+		if _, ok := m.prProvider.(pr.PRReviewer); !ok {
+			m.actionErr = fmt.Errorf("this provider does not support PR reviews")
+			break
+		}
+		m.prReviewNumber = item.Number
+		m.prReviewMode = "changes"
+		ti := textinput.New()
+		ti.Placeholder = "reason for requesting changes (required)"
+		ti.Focus()
+		ti.CharLimit = 256
+		ti.Width = m.width - 6
+		m.prReviewInput = ti
+		m.panel = panelPRReview
+	case "c":
+		if _, ok := m.prProvider.(pr.PRReviewer); !ok {
+			m.actionErr = fmt.Errorf("this provider does not support PR reviews")
+			break
+		}
+		m.prReviewNumber = item.Number
+		m.prReviewMode = "comment"
+		ti := textinput.New()
+		ti.Placeholder = "comment text"
+		ti.Focus()
+		ti.CharLimit = 512
+		ti.Width = m.width - 6
+		m.prReviewInput = ti
+		m.panel = panelPRReview
 	case "m":
 		if _, ok := m.prProvider.(pr.PRMerger); !ok {
 			m.actionErr = fmt.Errorf("this provider does not support merging PRs")
@@ -9198,7 +9121,7 @@ func (m model) prDetailView() string {
 		content += strings.Repeat("\n", pad)
 	}
 
-	hints := "  [o] open browser  [d] diff  [m] merge  [a] approve  [y] copy URL  [esc] back"
+	hints := "  [o] open browser  [d] diff  [a] approve  [A] req changes  [c] comment  [m] merge  [y] copy URL  [esc] back"
 	return content + styleDim.Render(hints) + "\n"
 }
 
