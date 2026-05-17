@@ -2378,11 +2378,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// After a successful git init, clear the error and offer to add a remote.
 		if msg.cmd == "git init" && msg.err == nil {
 			m.err = nil
-			m.initFromNoRepo = false
-			m.remoteAddInputs[0].SetValue("origin")
-			m.remoteAddInputs[0].Blur()
-			m.remoteAddInputs[1].SetValue("")
-			m.remoteAddInputs[1].Focus()
+			ti0 := textinput.New()
+			ti0.Placeholder = "name (e.g. origin)"
+			ti0.CharLimit = 64
+			ti0.Width = m.width - 6
+			ti0.SetValue("origin")
+			ti0.Blur()
+			ti1 := textinput.New()
+			ti1.Placeholder = "url (e.g. git@github.com:org/repo.git)"
+			ti1.CharLimit = 256
+			ti1.Width = m.width - 6
+			ti1.Focus()
+			m.remoteAddInputs = [2]textinput.Model{ti0, ti1}
 			m.remoteAddStep = 1
 			m.panel = panelRemoteAdd
 			return m, m.fetchStatus()
