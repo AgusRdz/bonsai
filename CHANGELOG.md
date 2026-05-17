@@ -2,6 +2,13 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.53.1] - 2026-05-17
+
+### Miscellaneous
+- Untrack docs/oauth-architecture.md (planning doc, not for repo)
+([80c3d30](https://github.com/AgusRdz/bonsai/commit/80c3d30fbe5445e6c927920fc58afdf0f4a4b15d))
+- Remove auth package - delegate credential management to gh/glab
+([12668f3](https://github.com/AgusRdz/bonsai/commit/12668f3a9da4084917aa96917fc4cef38a33088b))
 ## [0.53.0] - 2026-05-17
 
 ### Features
