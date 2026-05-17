@@ -28,6 +28,12 @@ type Config struct {
 	CommandBar  CommandBarConfig  `toml:"command_bar"`
 	Signing     SigningConfig     `toml:"signing"`
 	Dashboard   DashboardConfig   `toml:"dashboard"`
+	Agent       AgentConfig       `toml:"agent"`
+}
+
+// AgentConfig controls structured JSON output for AI agent consumption.
+type AgentConfig struct {
+	DefaultFormat string `toml:"default_format"` // "json" or "" (plain text)
 }
 
 // DashboardConfig lists repositories shown in the multi-repo dashboard ([D] key).
@@ -297,6 +303,9 @@ func WriteLocalTemplate(path string) error {
 # Available: space hunks diff commit push pull branch log amend fetch stash graph
 #            reset restore reflog tags bisect rebase worktrees remotes submodules
 #            notes clean abort config
+
+# [agent]
+# default_format = "json"  # emit JSON from status/log/diff/show/review commands
 `
 	return os.WriteFile(path, []byte(tmpl), 0o644)
 }

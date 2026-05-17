@@ -237,6 +237,21 @@ func wizard(local bool, existing *config.Config) (*config.Config, error) {
 		cfg.Editor.Command = ask(sc, "editor", editorDefault)
 	}
 
+	// --- agent / AI output (global only) ---
+	if !local {
+		fmt.Println()
+		fmt.Println("AI coding assistants (Claude, Copilot, Cursor, etc.)")
+		fmt.Println("bonsai can output structured JSON so agents consume less tokens")
+		agentDefault := "n"
+		if existing != nil && existing.Agent.DefaultFormat == "json" {
+			agentDefault = "y"
+		}
+		agentChoice := ask(sc, "set JSON as default output for agent commands? [y/n]", agentDefault)
+		if agentChoice == "y" || agentChoice == "yes" {
+			cfg.Agent.DefaultFormat = "json"
+		}
+	}
+
 	// Fill required fields that weren't set so config.Write produces valid TOML.
 	if !local {
 		if cfg.Modes.Default == "" {
