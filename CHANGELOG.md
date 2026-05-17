@@ -2,6 +2,12 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.60.4] - 2026-05-17
+
+### Documentation
+- Add missing keybindings to all docs: K (PR panel), I (issues), U (undo), u (untrack), F (gitflow finish), SSH/LFS/Dashboard panels
+([dd0a3b5](https://github.com/AgusRdz/bonsai/commit/dd0a3b5))
+
 ## [0.60.3] - 2026-05-17
 
 ### Bug Fixes
