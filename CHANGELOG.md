@@ -2,6 +2,17 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.55.0] - 2026-05-17
+
+### Documentation
+- Add bonsai logo to README
+([d297de1](https://github.com/AgusRdz/bonsai/commit/d297de1529471cf504eaf2730d37ed27ec8dc947))
+- Update tagline to match website
+([8af115a](https://github.com/AgusRdz/bonsai/commit/8af115aa5aa9a840cf16adf3b2513d3d166e2efe))
+
+### Features
+- Stage all, fix branch delete, update tagline
+([51506cc](https://github.com/AgusRdz/bonsai/commit/51506ccd90a5ee31e022c6011c235153b5b4e087))
 ## [0.54.1] - 2026-05-17
 
 ### Documentation
