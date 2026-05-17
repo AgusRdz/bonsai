@@ -45,7 +45,14 @@ func RunLocal() error {
 	fmt.Println("press enter on any question to inherit from your global config")
 	fmt.Println()
 
-	existing, _ := config.LoadFile(".bonsai.toml") // nil if no local config yet
+	existing, _ := config.LoadFile(".bonsai.toml")
+	if existing == nil {
+		// No local config yet - use global as the baseline so the wizard shows
+		// effective values instead of "inherit" for everything.
+		if p, err := config.GlobalConfigPath(); err == nil {
+			existing, _ = config.LoadFile(p)
+		}
+	}
 
 	cfg, err := wizard(true, existing)
 	if err != nil {
