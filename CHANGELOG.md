@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.57.1] - 2026-05-17
+
+### Documentation
+- Document MCP commands and AI structured output commands
+([a9a8504](https://github.com/AgusRdz/bonsai/commit/a9a8504bfb2624e6ee16f1ed298349259967b9be))
 ## [0.57.0] - 2026-05-17
 
 ### Features
