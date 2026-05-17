@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.57.0] - 2026-05-17
+
+### Features
+- Add MCP instructions for code review tool preference
+([5ad7ee8](https://github.com/AgusRdz/bonsai/commit/5ad7ee8898698be3c8c199b25f1b691d8ef5ad6f))
 ## [0.56.3] - 2026-05-17
 
 ### Bug Fixes
