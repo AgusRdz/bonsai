@@ -202,8 +202,10 @@ func writeMCPJSON(path, bonsaiCmd string) error {
 	existing := readJSONMap(path)
 	if existing != nil {
 		if servers, ok := existing["mcpServers"].(map[string]any); ok {
-			if _, alreadySet := servers["bonsai"]; alreadySet {
-				return errAlreadyConfigured
+			if entry, alreadySet := servers["bonsai"]; alreadySet {
+				if m, ok := entry.(map[string]any); ok && m["command"] == bonsaiCmd {
+					return errAlreadyConfigured
+				}
 			}
 		}
 	}
@@ -243,8 +245,10 @@ func mergeIntoConfig(path, bonsaiCmd string) error {
 	if servers == nil {
 		servers = map[string]any{}
 	}
-	if _, alreadySet := servers["bonsai"]; alreadySet {
-		return errAlreadyConfigured
+	if entry, alreadySet := servers["bonsai"]; alreadySet {
+		if m, ok := entry.(map[string]any); ok && m["command"] == bonsaiCmd {
+			return errAlreadyConfigured
+		}
 	}
 	servers["bonsai"] = map[string]any{
 		"command": bonsaiCmd,
