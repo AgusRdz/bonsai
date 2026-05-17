@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/AgusRdz/bonsai/auth"
 	"github.com/AgusRdz/bonsai/config"
 	"github.com/AgusRdz/bonsai/doctor"
 	"github.com/AgusRdz/bonsai/git"
@@ -79,8 +78,6 @@ func main() {
 		runStandup(os.Args[2:])
 	case "repo":
 		runRepo(os.Args[2:])
-	case "auth":
-		runAuth(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai: unknown command %q\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "Run 'bonsai help' for available commands.")
@@ -1162,126 +1159,5 @@ func runRepo(args []string) {
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai repo: unknown subcommand %q\n", args[0])
 		os.Exit(1)
-	}
-}
-
-func runAuth(args []string) {
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: bonsai auth login <github|gitlab>")
-		fmt.Fprintln(os.Stderr, "       bonsai auth status")
-		fmt.Fprintln(os.Stderr, "       bonsai auth logout <github|gitlab>")
-		os.Exit(1)
-	}
-	switch args[0] {
-	case "login":
-		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: bonsai auth login <github|gitlab>")
-			os.Exit(1)
-		}
-		runAuthLogin(args[1])
-	case "status":
-		runAuthStatus()
-	case "logout":
-		if len(args) < 2 {
-			fmt.Fprintln(os.Stderr, "usage: bonsai auth logout <github|gitlab>")
-			os.Exit(1)
-		}
-		host := authHostAlias(args[1])
-		if err := auth.DefaultManager.Delete(host); err != nil {
-			fmt.Fprintf(os.Stderr, "bonsai auth logout: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("logged out from %s\n", host)
-	default:
-		fmt.Fprintf(os.Stderr, "bonsai auth: unknown subcommand %q\n", args[0])
-		os.Exit(1)
-	}
-}
-
-func authHostAlias(name string) string {
-	switch strings.ToLower(name) {
-	case "github", "gh":
-		return "github.com"
-	case "gitlab", "glab":
-		return "gitlab.com"
-	case "bitbucket", "bb":
-		return "bitbucket.org"
-	default:
-		return name
-	}
-}
-
-func runAuthLogin(provider string) {
-	host := authHostAlias(provider)
-	var cfg auth.DeviceFlowConfig
-	switch host {
-	case "github.com":
-		clientID := os.Getenv("BONSAI_GITHUB_CLIENT_ID")
-		if clientID == "" {
-			fmt.Fprintln(os.Stderr, "bonsai auth login github: set BONSAI_GITHUB_CLIENT_ID to your OAuth App client ID")
-			fmt.Fprintln(os.Stderr, "Create one at: https://github.com/settings/developers > OAuth Apps > New OAuth App")
-			fmt.Fprintln(os.Stderr, "Set Authorization callback URL to: http://localhost (device flow ignores it)")
-			os.Exit(1)
-		}
-		cfg = auth.GitHubConfig(clientID)
-	case "gitlab.com":
-		clientID := os.Getenv("BONSAI_GITLAB_CLIENT_ID")
-		if clientID == "" {
-			fmt.Fprintln(os.Stderr, "bonsai auth login gitlab: set BONSAI_GITLAB_CLIENT_ID to your OAuth App client ID")
-			os.Exit(1)
-		}
-		cfg = auth.GitLabConfig(clientID)
-	default:
-		fmt.Fprintf(os.Stderr, "bonsai auth login: unsupported provider %q (supported: github, gitlab)\n", provider)
-		os.Exit(1)
-	}
-
-	ctx := context.Background()
-	fmt.Printf("Connecting to %s...\n", host)
-
-	dcr, err := auth.StartDeviceFlow(ctx, cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "bonsai auth login: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("\nOpen this URL in your browser:\n  %s\n\n", dcr.VerificationURI)
-	fmt.Printf("Enter this code when prompted:\n  %s\n\n", dcr.UserCode)
-	fmt.Println("Waiting for authorization (Ctrl+C to cancel)...")
-
-	tok, err := auth.PollDeviceFlow(ctx, cfg, dcr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "\nbonsai auth login: %v\n", err)
-		os.Exit(1)
-	}
-
-	if err := auth.DefaultManager.Set(*tok); err != nil {
-		fmt.Fprintf(os.Stderr, "bonsai auth login: save token: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("\nAuthenticated with %s. Token saved to ~/.bonsai.tokens\n", host)
-}
-
-func runAuthStatus() {
-	tokens, err := auth.DefaultManager.List()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "bonsai auth status: %v\n", err)
-		os.Exit(1)
-	}
-	if len(tokens) == 0 {
-		fmt.Println("no tokens stored. Run `bonsai auth login github` to authenticate.")
-		return
-	}
-	fmt.Printf("%-20s  %-10s  %s\n", "HOST", "STATUS", "SCOPES")
-	for _, tok := range tokens {
-		status := "valid"
-		if !tok.Valid() {
-			status = "expired"
-		}
-		scopes := strings.Join(tok.Scopes, ",")
-		if scopes == "" {
-			scopes = "-"
-		}
-		fmt.Printf("%-20s  %-10s  %s\n", tok.Host, status, scopes)
 	}
 }
