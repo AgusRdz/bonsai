@@ -211,20 +211,21 @@ Commands:
   lfs --pull        download all lfs objects for the current checkout
   lfs --install     install lfs hooks into this repository
 
-Agent / structured output (JSON):
-  status            repository status as JSON
-  log               recent commits as JSON (--limit=N, --yesterday, --weeks=N,
+Agent / structured output:
+  status            repository status (json/markdown/xml)
+  log               recent commits (--limit=N, --yesterday, --weeks=N,
                     --from=YYYY-MM-DD, --to=YYYY-MM-DD)
-  diff              changed files as JSON; default: all scopes, counts only
+  diff              changed files; default: all scopes, counts only
                     --staged / --unstaged / --untracked  show only that scope
                     --detailed                           include patch hunks
                     --file=<path>                        filter to one file
-  show [<ref>]      single commit as JSON (default: HEAD); --detailed for hunks
-  blame --file=path line-by-line blame as JSON
-  branches          branch list as JSON
-  stash-list        stash entries as JSON
-  review            diff and commit context as JSON (--base=<ref>)
+  show [<ref>]      single commit (default: HEAD); --detailed for hunks
+  blame --file=path line-by-line blame
+  branches          branch list
+  stash-list        stash entries
+  review            diff and commit context (--base=<ref>)
                     --detailed                           include patch hunks
+  --format=<fmt>    override output format: json (default), markdown, xml
 
 Options:
   -h, --help        show help
@@ -1004,20 +1005,42 @@ func printJSON(v any) {
 	fmt.Println(string(data))
 }
 
-func agentCheckFormat(args []string, cmd string) {
+// agentResolveFormat returns the output format for an agent command.
+// Priority: --format= flag > config Agent.DefaultFormat > "json".
+func agentResolveFormat(args []string) string {
 	for _, a := range args {
 		if strings.HasPrefix(a, "--format=") {
 			f := strings.TrimPrefix(a, "--format=")
-			if f != "json" {
-				fmt.Fprintf(os.Stderr, "bonsai %s: unsupported format %q (only json is supported)\n", cmd, f)
+			switch f {
+			case "json", "markdown", "xml":
+				return f
+			default:
+				fmt.Fprintf(os.Stderr, "bonsai: unsupported format %q (json, markdown, xml)\n", f)
 				os.Exit(1)
 			}
 		}
 	}
+	if cfg, err := config.Load(); err == nil && cfg.Agent.DefaultFormat != "" {
+		switch cfg.Agent.DefaultFormat {
+		case "json", "markdown", "xml":
+			return cfg.Agent.DefaultFormat
+		}
+	}
+	return "json"
+}
+
+func printOutput(format string, v any) {
+	switch format {
+	case "markdown":
+		fmt.Print(agent.FormatMarkdown(v))
+	case "xml":
+		fmt.Print(agent.FormatXML(v))
+	default:
+		printJSON(v)
+	}
 }
 
 func runAgentStatus(args []string) {
-	agentCheckFormat(args, "status")
 	ctx := context.Background()
 	g := git.New()
 	out, err := agent.BuildStatus(ctx, g)
@@ -1025,11 +1048,10 @@ func runAgentStatus(args []string) {
 		fmt.Fprintln(os.Stderr, "bonsai status:", err)
 		os.Exit(1)
 	}
-	printJSON(out)
+	printOutput(agentResolveFormat(args), out)
 }
 
 func runAgentLog(args []string) {
-	agentCheckFormat(args, "log")
 	params := agent.LogParams{Limit: 20}
 	for _, a := range args {
 		switch {
@@ -1057,11 +1079,10 @@ func runAgentLog(args []string) {
 		fmt.Fprintln(os.Stderr, "bonsai log:", err)
 		os.Exit(1)
 	}
-	printJSON(out)
+	printOutput(agentResolveFormat(args), out)
 }
 
 func runAgentDiff(args []string) {
-	agentCheckFormat(args, "diff")
 	var file string
 	var showStaged, showUnstaged, showUntracked, detailed bool
 	for _, a := range args {
@@ -1085,11 +1106,10 @@ func runAgentDiff(args []string) {
 		fmt.Fprintln(os.Stderr, "bonsai diff:", err)
 		os.Exit(1)
 	}
-	printJSON(out)
+	printOutput(agentResolveFormat(args), out)
 }
 
 func runAgentBlame(args []string) {
-	agentCheckFormat(args, "blame")
 	var file string
 	for _, a := range args {
 		if strings.HasPrefix(a, "--file=") {
@@ -1107,11 +1127,10 @@ func runAgentBlame(args []string) {
 		fmt.Fprintln(os.Stderr, "bonsai blame:", err)
 		os.Exit(1)
 	}
-	printJSON(out)
+	printOutput(agentResolveFormat(args), out)
 }
 
 func runAgentBranches(args []string) {
-	agentCheckFormat(args, "branches")
 	ctx := context.Background()
 	g := git.New()
 	out, err := agent.BuildBranches(ctx, g)
@@ -1119,11 +1138,10 @@ func runAgentBranches(args []string) {
 		fmt.Fprintln(os.Stderr, "bonsai branches:", err)
 		os.Exit(1)
 	}
-	printJSON(out)
+	printOutput(agentResolveFormat(args), out)
 }
 
 func runAgentStashList(args []string) {
-	agentCheckFormat(args, "stash-list")
 	ctx := context.Background()
 	g := git.New()
 	out, err := agent.BuildStashList(ctx, g)
@@ -1131,11 +1149,10 @@ func runAgentStashList(args []string) {
 		fmt.Fprintln(os.Stderr, "bonsai stash-list:", err)
 		os.Exit(1)
 	}
-	printJSON(out)
+	printOutput(agentResolveFormat(args), out)
 }
 
 func runAgentShow(args []string) {
-	agentCheckFormat(args, "show")
 	ref := "HEAD"
 	detailed := false
 	for _, a := range args {
@@ -1153,11 +1170,10 @@ func runAgentShow(args []string) {
 		fmt.Fprintln(os.Stderr, "bonsai show:", err)
 		os.Exit(1)
 	}
-	printJSON(out)
+	printOutput(agentResolveFormat(args), out)
 }
 
 func runAgentReview(args []string) {
-	agentCheckFormat(args, "review")
 	var base string
 	detailed := false
 	for _, a := range args {
@@ -1175,7 +1191,7 @@ func runAgentReview(args []string) {
 		fmt.Fprintln(os.Stderr, "bonsai review:", err)
 		os.Exit(1)
 	}
-	printJSON(out)
+	printOutput(agentResolveFormat(args), out)
 }
 
 func runSSHShow() {
