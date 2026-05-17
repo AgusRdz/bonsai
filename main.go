@@ -16,6 +16,7 @@ import (
 	"github.com/AgusRdz/bonsai/doctor"
 	"github.com/AgusRdz/bonsai/git"
 	"github.com/AgusRdz/bonsai/gitcheck"
+	"github.com/AgusRdz/bonsai/mcp"
 	"github.com/AgusRdz/bonsai/metrics"
 	"github.com/AgusRdz/bonsai/plugins"
 	"github.com/AgusRdz/bonsai/pr"
@@ -81,6 +82,8 @@ func main() {
 		runStandup(os.Args[2:])
 	case "repo":
 		runRepo(os.Args[2:])
+	case "mcp":
+		mcp.Run(version)
 	case "context":
 		runAgentContext(os.Args[2:])
 	case "status":
@@ -212,6 +215,10 @@ Commands:
   lfs --untrack <pat> stop tracking a pattern
   lfs --pull        download all lfs objects for the current checkout
   lfs --install     install lfs hooks into this repository
+
+MCP server:
+  mcp               start the Model Context Protocol stdio server
+                    add to claude_desktop_config.json or .claude/mcp.json
 
 Agent / structured output:
   context           full repo snapshot: status + diff + recent commits
