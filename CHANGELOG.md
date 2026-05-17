@@ -2,6 +2,13 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.56.2] - 2026-05-17
+
+### Bug Fixes
+- Use absolute binary path in MCP config for GUI app compatibility
+([54af93a](https://github.com/AgusRdz/bonsai/commit/54af93ae629ccbb4ada320ac43f888e44a79f473))
+- Update existing bonsai MCP entry if command path changed
+([b671a70](https://github.com/AgusRdz/bonsai/commit/b671a702d5dd8bd5ead5dceeed8282d2a7b2f618))
 ## [0.56.1] - 2026-05-17
 
 ### Bug Fixes
