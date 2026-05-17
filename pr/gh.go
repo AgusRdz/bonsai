@@ -54,9 +54,16 @@ func (g *ghProvider) CreatePR(ctx context.Context, branch string) error {
 	if !g.CLIAvailable() {
 		return fmt.Errorf("gh CLI not found")
 	}
-	cmd := exec.CommandContext(ctx, "gh", "pr", "create", "--head", branch, "--fill")
-	cmd.Stdin = nil
-	return cmd.Run()
+	// --web opens the browser so the interactive gh form doesn't conflict with the TUI.
+	out, err := exec.CommandContext(ctx, "gh", "pr", "create", "--head", branch, "--web").CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return err
+	}
+	return nil
 }
 
 func (g *ghProvider) ListPRs(ctx context.Context) ([]PRStatus, error) {

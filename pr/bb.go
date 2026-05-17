@@ -54,10 +54,17 @@ func (b *bbProvider) CurrentPR(ctx context.Context, branch string) (*PRStatus, e
 
 func (b *bbProvider) CreatePR(ctx context.Context, branch string) error {
 	if !b.CLIAvailable() {
-		// Fall back to browser if CLI is unavailable
 		return fmt.Errorf("bb CLI not found - open Bitbucket in your browser to create a PR")
 	}
-	return exec.CommandContext(ctx, "bb", "pr", "create", "--source", branch).Run()
+	out, err := exec.CommandContext(ctx, "bb", "pr", "create", "--source", branch, "--web").CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return err
+	}
+	return nil
 }
 
 func (b *bbProvider) ListPRs(ctx context.Context) ([]PRStatus, error) {

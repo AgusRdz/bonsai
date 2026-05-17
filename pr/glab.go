@@ -53,7 +53,15 @@ func (g *glabProvider) CreatePR(ctx context.Context, branch string) error {
 	if !g.CLIAvailable() {
 		return fmt.Errorf("glab CLI not found")
 	}
-	return exec.CommandContext(ctx, "glab", "mr", "create", "--source-branch", branch, "--fill").Run()
+	out, err := exec.CommandContext(ctx, "glab", "mr", "create", "--source-branch", branch, "--web").CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return err
+	}
+	return nil
 }
 
 func (g *glabProvider) ListPRs(ctx context.Context) ([]PRStatus, error) {
