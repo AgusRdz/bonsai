@@ -2,3 +2,5 @@ bin/
 coverage.out
 private_key.pem
 .codeindex
+.mcp.json
+.cursor/mcp.json
