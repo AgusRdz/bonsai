@@ -2,6 +2,15 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.58.1] - 2026-05-17
+
+### Bug Fixes
+- PR panel stuck on loading when no PRs exist or fetch fails
+([1c0d11b](https://github.com/AgusRdz/bonsai/commit/1c0d11b1f622aef7f6893a0a15549373f8685dea))
+
+### Documentation
+- Document line-level staging in hunk panel
+([73958c6](https://github.com/AgusRdz/bonsai/commit/73958c6e6160d002eb6badc047fea8188a909f19))
 ## [0.58.0] - 2026-05-17
 
 ### Features
