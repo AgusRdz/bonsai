@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.56.3] - 2026-05-17
+
+### Bug Fixes
+- Write user-scope MCP to ~/.claude.json with correct stdio format
+([a2bd359](https://github.com/AgusRdz/bonsai/commit/a2bd359efd67319112c00af570480722db20a6df))
 ## [0.56.2] - 2026-05-17
 
 ### Bug Fixes
