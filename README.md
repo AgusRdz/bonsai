@@ -108,6 +108,37 @@ Press `i` to run `git init`, then optionally add a remote - or press `esc` to sk
 | `bonsai standup` | Show your commits today (add `--days N` or `-w` for a week) |
 | `bonsai repo --create <name>` | Create a new remote repository (GitHub / GitLab) |
 | `bonsai repo --open` | Open the current repo in the browser |
+| `bonsai mcp --install` | Detect AI tools and configure bonsai as an MCP server |
+| `bonsai mcp --uninstall` | Remove bonsai MCP server configuration from AI tools |
+| `bonsai mcp` | Start the MCP stdio server (used by AI tools internally) |
+| `bonsai context` | Full repo snapshot: status + diff + recent commits (AI output) |
+| `bonsai status` | Structured working-tree status (AI output) |
+| `bonsai diff` | Structured diff: staged, unstaged, untracked (AI output) |
+| `bonsai log` | Structured commit history (AI output) |
+| `bonsai show [--ref=<ref>]` | Structured commit detail (AI output) |
+| `bonsai blame --file=<path>` | Structured line-by-line blame (AI output) |
+| `bonsai branches` | Structured branch list (AI output) |
+| `bonsai stash-list` | Structured stash entries (AI output) |
+| `bonsai review [--base=<ref>]` | Structured diff against a base branch for code review (AI output) |
+
+### AI / MCP integration
+
+bonsai exposes its git analysis tools as an [MCP](https://modelcontextprotocol.io) server, making them available to any AI coding assistant that supports the protocol (Claude Code, Cursor, Windsurf, and others).
+
+```sh
+bonsai mcp --install    # detect installed AI tools and configure automatically
+bonsai mcp --uninstall  # remove configuration from all detected tools
+```
+
+Once installed, AI agents prefer bonsai tools over raw git commands for read-only analysis (diff, log, blame, review, etc.) because bonsai returns structured, AI-optimized output. Write operations (commit, push, pull, merge) still go through git directly.
+
+The `bonsai context`, `bonsai diff`, `bonsai review`, and related commands are the same tools exposed via MCP - you can also call them from the terminal to get structured JSON, Markdown, or XML output:
+
+```sh
+bonsai context --format=markdown      # full repo snapshot
+bonsai review --base=main --detailed  # code review diff
+bonsai diff --staged --detailed       # staged changes with patch hunks
+```
 
 ### Examples
 

@@ -59,6 +59,22 @@ Removes the binary. You can also delete the global config manually:
 rm -rf ~/.config/bonsai/
 ```
 
+## MCP setup (AI tools)
+
+To use bonsai as an MCP server with AI coding assistants (Claude Code, Cursor, Windsurf, etc.):
+
+```sh
+bonsai mcp --install
+```
+
+This runs an interactive wizard that detects installed AI tools and writes the configuration automatically. Run it once - updates to bonsai do not require reinstalling the MCP configuration.
+
+To remove the configuration:
+
+```sh
+bonsai mcp --uninstall
+```
+
 ## First run
 
 The first time you run `bonsai` inside a repo it will automatically open the setup wizard if no global config exists. You can also run it explicitly at any time:

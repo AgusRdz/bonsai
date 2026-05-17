@@ -342,3 +342,158 @@ Prints the current version.
 bonsai version
 # bonsai v0.29.0
 ```
+
+## bonsai mcp
+
+Manages the bonsai MCP server, which exposes git analysis tools to AI coding assistants.
+
+### mcp --install
+
+```sh
+bonsai mcp --install
+```
+
+Interactive wizard that detects installed AI tools (Claude Code, Claude Desktop, Cursor) and writes the bonsai MCP server configuration automatically. Supports project scope (`.mcp.json`) and user scope (`~/.claude.json`).
+
+### mcp --uninstall
+
+```sh
+bonsai mcp --uninstall
+```
+
+Removes the bonsai MCP server entry from all known configuration locations.
+
+### mcp (no flags)
+
+```sh
+bonsai mcp
+```
+
+Starts the MCP stdio server. This is called by AI tools internally - you do not need to run it manually.
+
+---
+
+## AI / structured output commands
+
+The following commands output structured data (JSON by default, Markdown or XML with `--format`) intended for AI agents and scripting. They are also the tools exposed via the MCP server.
+
+All accept `--format=json` (default), `--format=markdown`, or `--format=md` / `--format=xml`.
+
+### bonsai context
+
+Full repository snapshot combining status, diff, and recent commits in a single call.
+
+```sh
+bonsai context
+bonsai context --limit=20
+bonsai context --detailed          # include full patch hunks
+bonsai context --format=markdown
+```
+
+| Flag | Description |
+|------|-------------|
+| `--limit=N` | Number of recent commits (default 10) |
+| `--detailed` | Include patch hunks in the diff section |
+| `--format=<fmt>` | Output format: `json` (default), `markdown` / `md`, `xml` |
+
+### bonsai status
+
+Structured working-tree status: branch, upstream, staged/unstaged/untracked files, conflicts, stash count.
+
+```sh
+bonsai status
+bonsai status --format=markdown
+```
+
+### bonsai diff
+
+Structured diff showing staged, unstaged, and untracked changes.
+
+```sh
+bonsai diff
+bonsai diff --staged
+bonsai diff --staged --detailed    # include patch hunks
+bonsai diff --file=src/main.go
+```
+
+| Flag | Description |
+|------|-------------|
+| `--staged` | Include staged changes only |
+| `--unstaged` | Include unstaged changes only |
+| `--untracked` | Include untracked files only |
+| `--detailed` | Include patch hunks |
+| `--file=<path>` | Filter to a single file |
+
+### bonsai log
+
+Structured commit history with hash, subject, author, and date.
+
+```sh
+bonsai log
+bonsai log --limit=50
+bonsai log --since="1 week ago"
+```
+
+| Flag | Description |
+|------|-------------|
+| `--limit=N` | Maximum commits to return (default 20) |
+| `--since=<expr>` | Start date or expression, e.g. `yesterday`, `2026-05-01` |
+| `--until=<expr>` | End date |
+
+### bonsai show
+
+Structured detail for a single commit: metadata, changed files, and optionally patch hunks.
+
+```sh
+bonsai show
+bonsai show --ref=abc1234
+bonsai show --detailed
+```
+
+| Flag | Description |
+|------|-------------|
+| `--ref=<ref>` | Commit ref (default `HEAD`) |
+| `--detailed` | Include patch hunks |
+
+### bonsai blame
+
+Line-by-line blame for a file: each line annotated with commit hash, author, and date.
+
+```sh
+bonsai blame --file=src/main.go
+```
+
+| Flag | Description |
+|------|-------------|
+| `--file=<path>` | Required. File path to blame |
+
+### bonsai branches
+
+Structured list of all local branches with current marker and upstream tracking info.
+
+```sh
+bonsai branches
+```
+
+### bonsai stash-list
+
+Structured list of all stash entries.
+
+```sh
+bonsai stash-list
+```
+
+### bonsai review
+
+Diff and commit context comparing HEAD against a base branch, optimized for code review.
+
+```sh
+bonsai review
+bonsai review --base=main
+bonsai review --base=main --detailed
+```
+
+| Flag | Description |
+|------|-------------|
+| `--base=<ref>` | Base branch or ref to compare against (default: detected main branch) |
+| `--detailed` | Include patch hunks |
