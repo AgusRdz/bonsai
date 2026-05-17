@@ -2,6 +2,15 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.55.2] - 2026-05-17
+
+### Bug Fixes
+- Initialize textinput models before focus in init panel remote add
+([74c4c75](https://github.com/AgusRdz/bonsai/commit/74c4c7538349257d2f9f2bfb63dc5b524e5d9d51))
+
+### Documentation
+- Document init panel for non-git directories
+([bd18da2](https://github.com/AgusRdz/bonsai/commit/bd18da2869f492a6f32fa8a06e7da4f4fac4951e))
 ## [0.55.1] - 2026-05-17
 
 ### Features
