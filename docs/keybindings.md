@@ -145,19 +145,76 @@
 
 ## Diff panel
 
+For regular file diffs:
+
 | Key | Action |
 |-----|--------|
-| `↑` / `↓` | Scroll |
+| `↑` / `k` | Scroll up |
+| `↓` / `j` | Scroll down |
+| `e` | Blame for the file being diffed |
+| `esc` | Back |
+
+For PR diffs (opened with `d` from the PR panel):
+
+| Key | Action |
+|-----|--------|
+| `↑` / `k` | Move cursor up |
+| `↓` / `j` | Move cursor down |
+| `c` | Post an inline comment on the selected line |
 | `esc` | Back |
 
 ## Conflict panel
 
+Three-way merge editor (base / ours / theirs per hunk):
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Move between conflict hunks |
+| `o` | Accept ours |
+| `t` | Accept theirs |
+| `b` | Accept base (common ancestor) |
+| `r` | Remove conflict markers (keep both sides) |
+| `e` | Manual edit mode - type a custom resolution for this hunk |
+| `esc` | Back |
+
+## PR / MR panel
+
 | Key | Action |
 |-----|--------|
 | `↑` / `↓` | Scroll |
-| `o` | Accept ours |
-| `t` | Accept theirs |
-| `r` | Remove conflict markers (keep both) |
+| `enter` | Open PR in browser |
+| `d` | View full diff |
+| `a` | Approve |
+| `A` | Request changes (with reason) |
+| `c` | Post a general comment |
+| `n` | Create a new PR for the current branch |
+| `esc` | Back |
+
+## SSH panel (`` ` ``)
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Scroll |
+| `t` | Test SSH connection for selected key |
+| `esc` | Back |
+
+## LFS panel (`V`)
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Scroll |
+| `t` | Track a new file pattern |
+| `u` | Untrack selected pattern |
+| `p` | Pull LFS objects |
+| `P` | Push LFS objects |
+| `esc` | Back |
+
+## Multi-repo dashboard (`D`)
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Scroll |
+| `enter` | Open selected repo in bonsai |
 | `esc` | Back |
 
 ## Tag list panel
@@ -210,12 +267,23 @@
 
 ## Interactive rebase panel
 
+Step 1: enter a base ref (e.g. `HEAD~3`) and press `enter` to load commits.
+
+Step 2: edit the todo list, then press `enter` to execute.
+
 | Key | Action |
 |-----|--------|
-| `↑` / `↓` | Move selection |
-| `enter` | Cycle action for selected commit |
-| `ctrl+↑` / `ctrl+↓` | Reorder commits |
-| `r` | Start the rebase |
+| `↑` / `k` | Move cursor up |
+| `↓` / `j` | Move cursor down |
+| `K` | Move selected commit up (reorder) |
+| `J` | Move selected commit down (reorder) |
+| `p` | pick |
+| `r` | reword |
+| `e` | edit |
+| `s` | squash |
+| `f` | fixup |
+| `d` | drop |
+| `enter` | Execute rebase |
 | `esc` | Cancel |
 
 ## Amend panel

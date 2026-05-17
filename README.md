@@ -74,14 +74,22 @@ On first run bonsai opens the setup wizard automatically.
 | `bonsai doctor` | Check global and local git configuration health |
 | `bonsai doctor --verbose` | Same, with a one-line explanation per check |
 | `bonsai stats` | Repository statistics (commits, contributors, file types) |
-| `bonsai patch create --base=<ref>` | Create `.patch` files from commits (git format-patch) |
-| `bonsai patch apply <file>` | Apply a `.patch` file (git am) |
+| `bonsai patch --create --base=<ref>` | Create `.patch` files from commits (git format-patch) |
+| `bonsai patch --apply <file>` | Apply a `.patch` file (git am) |
 | `bonsai archive` | Export the repo as `tar.gz` (default) or `zip` |
-| `bonsai bundle create <file>` | Pack refs into a portable bundle |
-| `bonsai bundle verify <file>` | Verify a bundle file |
-| `bonsai ssh status` | Show SSH key, agent status, and remote connectivity |
-| `bonsai ssh keygen` | Generate a new `ed25519` SSH key |
-| `bonsai ssh show` | Print your SSH public key |
+| `bonsai bundle --create <file>` | Pack refs into a portable bundle |
+| `bonsai bundle --verify <file>` | Verify a bundle file |
+| `bonsai ssh --status` | Show SSH key, agent status, and remote connectivity |
+| `bonsai ssh --keygen` | Generate a new `ed25519` SSH key |
+| `bonsai ssh --show` | Print your SSH public key |
+| `bonsai lfs --status` | Show pending LFS objects |
+| `bonsai lfs --track <pattern>` | Track a file pattern via git lfs |
+| `bonsai lfs --untrack <pattern>` | Stop tracking a pattern |
+| `bonsai lfs --pull` | Download all LFS objects for the current checkout |
+| `bonsai lfs --install` | Install LFS hooks into this repository |
+| `bonsai standup` | Show your commits today (add `--days N` or `-w` for a week) |
+| `bonsai repo --create <name>` | Create a new remote repository (GitHub / GitLab) |
+| `bonsai repo --open` | Open the current repo in the browser |
 
 ### Examples
 
@@ -93,25 +101,28 @@ bonsai clone https://github.com/example/repo.git
 bonsai doctor --verbose
 
 # check SSH setup
-bonsai ssh status
+bonsai ssh --status
 
 # generate an SSH key if you do not have one
-bonsai ssh keygen
+bonsai ssh --keygen
 
 # repo statistics
 bonsai stats
 
 # export a patch set for email review
-bonsai patch create --base=main --output=patches/
+bonsai patch --create --base=main --output=patches/
 
 # apply patches from a contributor
-bonsai patch apply patches/0001-*.patch
+bonsai patch --apply patches/0001-*.patch
 
 # archive the current HEAD as a zip
 bonsai archive --format=zip --output=release.zip
 
 # bundle the whole repo for offline transfer
-bonsai bundle create repo.bundle
+bonsai bundle --create repo.bundle
+
+# show your commits this week
+bonsai standup -w
 ```
 
 ## TUI key bindings
@@ -144,15 +155,18 @@ Open bonsai and press `?` for the full in-app reference. Key highlights:
 | `B` | Branch list - switch, merge, rebase, delete, rename, delete remote |
 | `z` | Reset menu (soft / mixed / hard) |
 | `t` | Tag list - create, delete, push to remote |
-| `e` | Blame for the selected file |
 | `i` | Bisect panel |
-| `R` | Interactive rebase |
+| `R` | Interactive rebase - reorder/squash/fixup/drop commits |
 | `A` | Amend HEAD |
+| `U` | Undo last commit / merge / rebase |
 | `W` | Worktree list |
 | `O` | Remote management |
 | `M` | Submodule management |
 | `n` | Git notes for HEAD |
 | `X` | Clean untracked files |
+| `` ` `` | SSH key manager - list keys, test connections |
+| `V` | LFS panel - tracked files, pull/push/track/untrack |
+| `D` | Multi-repo dashboard |
 | `C` | Configuration manager (config, gitignore, profiles, education) |
 | `a` | Abort in-progress merge / rebase / cherry-pick |
 | `?` | Help panel |
@@ -191,13 +205,27 @@ Open bonsai and press `?` for the full in-app reference. Key highlights:
 | `D` | Delete remote tracking branch |
 | `esc` | Back |
 
+### PR / MR panel
+
+| Key | Action |
+|-----|--------|
+| `enter` | Open PR in browser |
+| `d` | View full PR diff (cursor-based, press `c` to comment on a line) |
+| `a` | Approve PR |
+| `A` | Request changes (with reason) |
+| `c` | Post a general comment |
+| `n` | Create a new PR for the current branch |
+| `esc` | Back |
+
 ### Conflict panel
 
 | Key | Action |
 |-----|--------|
 | `o` | Accept ours |
 | `t` | Accept theirs |
+| `b` | Accept base (common ancestor) |
 | `r` | Remove markers (keep both) |
+| `e` | Manual edit mode - type a custom resolution |
 | `esc` | Back |
 
 All keybindings for `commit`, `push`, `pull`, `stash`, `graph`, `undo`, and `quit` are remappable via `[keybindings]` in your config.
@@ -295,12 +323,14 @@ Summary: 0 errors, 1 warning, 16 passed
 ## SSH
 
 ```sh
-bonsai ssh status    # SSH key, agent status, connectivity to the repo's remote
-bonsai ssh keygen    # generate ~/.ssh/id_ed25519 (uses your git user.email)
-bonsai ssh show      # print your public key (ready to paste into GitHub/GitLab)
+bonsai ssh --status    # SSH key, agent status, connectivity to the repo's remote
+bonsai ssh --keygen    # generate ~/.ssh/id_ed25519 (uses your git user.email)
+bonsai ssh --show      # print your public key (ready to paste into GitHub/GitLab)
 ```
 
-`bonsai ssh status` detects the remote host from the current repo's remotes and tests SSH auth against it. Works with GitHub, GitLab, Bitbucket, Gitea/Forgejo, Azure DevOps, and any other SSH-based forge.
+`bonsai ssh --status` detects the remote host from the current repo's remotes and tests SSH auth against it. Works with GitHub, GitLab, Bitbucket, Gitea/Forgejo, Azure DevOps, and any other SSH-based forge.
+
+Press `` ` `` inside the TUI to open the SSH key manager panel.
 
 ## Stats
 

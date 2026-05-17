@@ -104,10 +104,10 @@ Output includes:
 
 Wraps `git format-patch` and `git am`.
 
-### patch create
+### patch --create
 
 ```sh
-bonsai patch create --base=<ref> [--output=<dir>]
+bonsai patch --create --base=<ref> [--output=<dir>]
 ```
 
 | Flag | Description |
@@ -117,23 +117,23 @@ bonsai patch create --base=<ref> [--output=<dir>]
 
 ```sh
 # Create patches for the last 3 commits
-bonsai patch create --base=HEAD~3
+bonsai patch --create --base=HEAD~3
 
 # Write to a patches/ directory
-bonsai patch create --base=main --output=patches/
+bonsai patch --create --base=main --output=patches/
 ```
 
-### patch apply
+### patch --apply
 
 ```sh
-bonsai patch apply <file> [<file>...]
+bonsai patch --apply <file> [<file>...]
 ```
 
 Applies one or more `.patch` files in order using `git am`.
 
 ```sh
-bonsai patch apply patches/0001-fix-auth.patch
-bonsai patch apply patches/*.patch
+bonsai patch --apply patches/0001-fix-auth.patch
+bonsai patch --apply patches/*.patch
 ```
 
 If conflicts occur, resolve them manually and run `git am --continue`, or run `git am --abort` to cancel.
@@ -164,32 +164,32 @@ bonsai archive --format=zip --ref=v1.2.0 --output=release-v1.2.0.zip
 
 Wraps `git bundle` for offline transfer of a repository.
 
-### bundle create
+### bundle --create
 
 ```sh
-bonsai bundle create <file> [<ref>...]
+bonsai bundle --create <file> [<ref>...]
 ```
 
 If no refs are given, bundles all branches (`--all`).
 
 ```sh
 # Bundle everything
-bonsai bundle create repo.bundle
+bonsai bundle --create repo.bundle
 
 # Bundle a specific branch
-bonsai bundle create feature.bundle refs/heads/feat/login
+bonsai bundle --create feature.bundle refs/heads/feat/login
 ```
 
-### bundle verify
+### bundle --verify
 
 ```sh
-bonsai bundle verify <file>
+bonsai bundle --verify <file>
 ```
 
 Verifies the bundle is valid and prints a summary of what it contains.
 
 ```sh
-bonsai bundle verify repo.bundle
+bonsai bundle --verify repo.bundle
 ```
 
 ## bonsai update
@@ -221,32 +221,118 @@ bonsai changelog | less
 
 Manage SSH keys and check connectivity.
 
-### ssh status
+### ssh --status
 
 ```sh
-bonsai ssh status
+bonsai ssh --status
 ```
 
 Prints:
 - Path of the active SSH key in `~/.ssh`
 - ssh-agent status and number of loaded keys
-- Authentication result against `git@github.com`
+- Authentication result against the detected remote host
 
-### ssh keygen
+### ssh --keygen
 
 ```sh
-bonsai ssh keygen
+bonsai ssh --keygen
 ```
 
 Generates a new `ed25519` key at `~/.ssh/id_ed25519`. Uses `user.email` from your global git config as the key comment. Prints the public key and the GitHub/GitLab URLs to add it. Does nothing if a key already exists.
 
-### ssh show
+### ssh --show
 
 ```sh
-bonsai ssh show
+bonsai ssh --show
 ```
 
 Prints the public key from the first SSH key found in `~/.ssh`.
+
+## bonsai lfs
+
+Manage Git LFS tracked files and objects.
+
+### lfs --status
+
+```sh
+bonsai lfs --status
+```
+
+Shows pending LFS objects. Equivalent to `git lfs status`.
+
+### lfs --track
+
+```sh
+bonsai lfs --track <pattern>
+```
+
+Adds a file pattern to `.gitattributes` to track via git lfs (e.g. `*.psd`, `*.zip`).
+
+### lfs --untrack
+
+```sh
+bonsai lfs --untrack <pattern>
+```
+
+Removes a pattern from `.gitattributes`.
+
+### lfs --pull
+
+```sh
+bonsai lfs --pull
+```
+
+Downloads all LFS objects for the current checkout.
+
+### lfs --install
+
+```sh
+bonsai lfs --install
+```
+
+Installs git lfs hooks into the current repository.
+
+## bonsai standup
+
+Shows your recent commits, defaulting to today.
+
+```sh
+bonsai standup
+bonsai standup --days 3
+bonsai standup -w               # last 7 days
+bonsai standup -a "Jane Doe"    # filter by author name
+```
+
+| Flag | Description |
+|------|-------------|
+| `--days N` | Show commits from the last N days (default: 1) |
+| `-w` | Shorthand for `--days 7` |
+| `-a <name>` | Filter by author name (defaults to `user.name` from git config) |
+
+## bonsai repo
+
+Create and open remote repositories.
+
+### repo --create
+
+```sh
+bonsai repo --create <name> [--private] [--internal]
+```
+
+Creates a new repository on the detected provider (GitHub via `gh`, GitLab via `glab`).
+
+```sh
+bonsai repo --create my-new-repo
+bonsai repo --create my-new-repo --private
+```
+
+### repo --open
+
+```sh
+bonsai repo --open
+```
+
+Opens the current repository in the browser.
 
 ## bonsai version
 
