@@ -2,6 +2,12 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.60.1] - 2026-05-17
+
+### Features
+- enter in PR list opens inline detail view (state, CI, labels, reviewers, assignees, URL); o opens browser
+([5b712b4](https://github.com/AgusRdz/bonsai/commit/5b712b4))
+
 ## [0.60.0] - 2026-05-17
 
 ### Features
