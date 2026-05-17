@@ -38,6 +38,13 @@ type LogEntry struct {
 	Date    string `json:"date"`
 }
 
+// LogParams controls what BuildLog returns.
+type LogParams struct {
+	Limit int    // 0 = 20
+	Since string // e.g. "yesterday", "1 week ago", "2026-05-01"
+	Until string // e.g. "2026-05-17"
+}
+
 type HunkOut struct {
 	Header string   `json:"header"`
 	Lines  []string `json:"lines"`
@@ -48,7 +55,31 @@ type FileDiff struct {
 	Status    string    `json:"status,omitempty"`
 	Additions int       `json:"additions"`
 	Deletions int       `json:"deletions"`
-	Hunks     []HunkOut `json:"hunks"`
+	Hunks     []HunkOut `json:"hunks,omitempty"`
+}
+
+// UntrackedEntry is a path-only entry for a file not tracked by git.
+type UntrackedEntry struct {
+	Path string `json:"path"`
+}
+
+// DiffOut is the structured output for `bonsai diff`.
+type DiffOut struct {
+	Staged    []FileDiff       `json:"staged"`
+	Unstaged  []FileDiff       `json:"unstaged"`
+	Untracked []UntrackedEntry `json:"untracked"`
+}
+
+// ShowOut is the structured output for `bonsai show`.
+type ShowOut struct {
+	Hash         string     `json:"hash"`
+	Subject      string     `json:"subject"`
+	Author       string     `json:"author"`
+	Date         string     `json:"date"`
+	Additions    int        `json:"additions"`
+	Deletions    int        `json:"deletions"`
+	FilesChanged int        `json:"files_changed"`
+	Diff         []FileDiff `json:"diff"`
 }
 
 type BlameEntry struct {
@@ -133,11 +164,9 @@ func BuildStatus(ctx context.Context, g *git.Runner) (*StatusOut, error) {
 	return out, nil
 }
 
-func BuildLog(ctx context.Context, g *git.Runner, limit int) ([]LogEntry, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	entries, err := g.LogStructured(ctx, limit)
+func BuildLog(ctx context.Context, g *git.Runner, p LogParams) ([]LogEntry, error) {
+	opts := git.LogStructuredOpts{Limit: p.Limit, Since: p.Since, Until: p.Until}
+	entries, err := g.LogStructuredWithOpts(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -148,27 +177,147 @@ func BuildLog(ctx context.Context, g *git.Runner, limit int) ([]LogEntry, error)
 	return out, nil
 }
 
-func BuildDiff(ctx context.Context, g *git.Runner, path string, staged bool) ([]FileDiff, error) {
-	if path != "" {
-		raw, err := g.Diff(ctx, path, staged)
+// BuildDiff returns diff output grouped by scope (staged/unstaged/untracked).
+// When no scope flag is true, all three scopes are included.
+// When detailed is false, only file counts are returned (no patch hunks).
+// path filters results to a single file; untracked is skipped when path is set.
+func BuildDiff(ctx context.Context, g *git.Runner, path string, showStaged, showUnstaged, showUntracked, detailed bool) (*DiffOut, error) {
+	if !showStaged && !showUnstaged && !showUntracked {
+		showStaged, showUnstaged, showUntracked = true, true, true
+	}
+
+	out := &DiffOut{
+		Staged:    []FileDiff{},
+		Unstaged:  []FileDiff{},
+		Untracked: []UntrackedEntry{},
+	}
+
+	if showStaged {
+		files, err := buildScopeDiff(ctx, g, path, true, detailed)
 		if err != nil {
 			return nil, err
 		}
-		fd := parseSingleFileDiff(raw)
-		if fd.Path == "" {
-			fd.Path = path
-		}
-		return []FileDiff{fd}, nil
+		out.Staged = files
 	}
-	raw, err := g.DiffAll(ctx, staged)
+
+	if showUnstaged {
+		files, err := buildScopeDiff(ctx, g, path, false, detailed)
+		if err != nil {
+			return nil, err
+		}
+		out.Unstaged = files
+	}
+
+	if showUntracked && path == "" {
+		paths, err := g.ListUntracked(ctx)
+		if err == nil {
+			for _, p := range paths {
+				out.Untracked = append(out.Untracked, UntrackedEntry{Path: p})
+			}
+		}
+	}
+
+	return out, nil
+}
+
+// buildScopeDiff returns FileDiff entries for staged or unstaged changes.
+func buildScopeDiff(ctx context.Context, g *git.Runner, path string, staged, detailed bool) ([]FileDiff, error) {
+	if detailed {
+		var (
+			raw string
+			err error
+		)
+		if path != "" {
+			raw, err = g.Diff(ctx, path, staged)
+		} else {
+			raw, err = g.DiffAll(ctx, staged)
+		}
+		if err != nil {
+			return []FileDiff{}, err
+		}
+		files := parseMultiFileDiff(raw)
+		if files == nil {
+			return []FileDiff{}, nil
+		}
+		ns, _ := g.DiffNameStatus(ctx, staged)
+		applyStatuses(files, ns)
+		return files, nil
+	}
+
+	numstats, err := g.DiffNumstat(ctx, staged)
+	if err != nil {
+		return []FileDiff{}, err
+	}
+	ns, _ := g.DiffNameStatus(ctx, staged)
+	var files []FileDiff
+	for _, n := range numstats {
+		if path != "" && n.Path != path {
+			continue
+		}
+		fd := FileDiff{Path: n.Path, Additions: n.Additions, Deletions: n.Deletions}
+		if s, ok := ns[n.Path]; ok {
+			fd.Status = s
+		}
+		files = append(files, fd)
+	}
+	if files == nil {
+		return []FileDiff{}, nil
+	}
+	return files, nil
+}
+
+// BuildShow returns metadata and optionally diff hunks for a single commit.
+// ref may be a hash, HEAD, or HEAD~N.
+func BuildShow(ctx context.Context, g *git.Runner, ref string, detailed bool) (*ShowOut, error) {
+	entry, err := g.ShowCommit(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	files := parseMultiFileDiff(raw)
-	if files == nil {
-		files = []FileDiff{}
+
+	out := &ShowOut{
+		Hash:    entry.Hash,
+		Subject: entry.Subject,
+		Author:  entry.Author,
+		Date:    entry.Date,
+		Diff:    []FileDiff{},
 	}
-	return files, nil
+
+	if detailed {
+		raw, err := g.ShowDiff(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		files := parseMultiFileDiff(raw)
+		if files != nil {
+			ns, _ := g.ShowNameStatus(ctx, ref)
+			applyStatuses(files, ns)
+			out.Diff = files
+		}
+	} else {
+		numstats, err := g.ShowNumstat(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+		ns, _ := g.ShowNameStatus(ctx, ref)
+		for _, n := range numstats {
+			fd := FileDiff{Path: n.Path, Additions: n.Additions, Deletions: n.Deletions}
+			if s, ok := ns[n.Path]; ok {
+				fd.Status = s
+			}
+			out.Diff = append(out.Diff, fd)
+		}
+		if out.Diff == nil {
+			out.Diff = []FileDiff{}
+		}
+	}
+
+	out.FilesChanged = len(out.Diff)
+	for _, fd := range out.Diff {
+		out.Additions += fd.Additions
+		out.Deletions += fd.Deletions
+	}
+
+	return out, nil
 }
 
 func BuildBlame(ctx context.Context, g *git.Runner, path string) ([]BlameEntry, error) {
@@ -207,7 +356,9 @@ func BuildStashList(ctx context.Context, g *git.Runner) ([]StashEntry, error) {
 	return out, nil
 }
 
-func BuildReview(ctx context.Context, g *git.Runner, base string) (*ReviewOut, error) {
+// BuildReview returns diff and commit context for code review.
+// When detailed is false, only file counts are returned (no patch hunks).
+func BuildReview(ctx context.Context, g *git.Runner, base string, detailed bool) (*ReviewOut, error) {
 	status, err := BuildStatus(ctx, g)
 	if err != nil {
 		return nil, err
@@ -222,17 +373,34 @@ func BuildReview(ctx context.Context, g *git.Runner, base string) (*ReviewOut, e
 	}
 
 	if base != "" {
-		raw, err := g.DiffRange(ctx, base)
-		if err != nil {
-			return nil, err
+		if detailed {
+			raw, err := g.DiffRange(ctx, base)
+			if err != nil {
+				return nil, err
+			}
+			out.Diff = parseMultiFileDiff(raw)
+			if out.Diff == nil {
+				out.Diff = []FileDiff{}
+			}
+			nameStatus, _ := g.DiffRangeNameStatus(ctx, base)
+			applyStatuses(out.Diff, nameStatus)
+		} else {
+			numstats, err := g.DiffRangeNumstat(ctx, base)
+			if err != nil {
+				return nil, err
+			}
+			nameStatus, _ := g.DiffRangeNameStatus(ctx, base)
+			for _, n := range numstats {
+				fd := FileDiff{Path: n.Path, Additions: n.Additions, Deletions: n.Deletions}
+				if s, ok := nameStatus[n.Path]; ok {
+					fd.Status = s
+				}
+				out.Diff = append(out.Diff, fd)
+			}
+			if out.Diff == nil {
+				out.Diff = []FileDiff{}
+			}
 		}
-		out.Diff = parseMultiFileDiff(raw)
-		if out.Diff == nil {
-			out.Diff = []FileDiff{}
-		}
-
-		nameStatus, _ := g.DiffRangeNameStatus(ctx, base)
-		applyStatuses(out.Diff, nameStatus)
 
 		commits, _ := g.CommitsInRange(ctx, base)
 		for _, c := range commits {
@@ -240,17 +408,34 @@ func BuildReview(ctx context.Context, g *git.Runner, base string) (*ReviewOut, e
 		}
 		out.CommitsCount = len(out.Commits)
 	} else {
-		raw, err := g.DiffAll(ctx, true)
-		if err != nil {
-			return nil, err
+		if detailed {
+			raw, err := g.DiffAll(ctx, true)
+			if err != nil {
+				return nil, err
+			}
+			out.Diff = parseMultiFileDiff(raw)
+			if out.Diff == nil {
+				out.Diff = []FileDiff{}
+			}
+			nameStatus, _ := g.DiffNameStatus(ctx, true)
+			applyStatuses(out.Diff, nameStatus)
+		} else {
+			numstats, err := g.DiffNumstat(ctx, true)
+			if err != nil {
+				return nil, err
+			}
+			nameStatus, _ := g.DiffNameStatus(ctx, true)
+			for _, n := range numstats {
+				fd := FileDiff{Path: n.Path, Additions: n.Additions, Deletions: n.Deletions}
+				if s, ok := nameStatus[n.Path]; ok {
+					fd.Status = s
+				}
+				out.Diff = append(out.Diff, fd)
+			}
+			if out.Diff == nil {
+				out.Diff = []FileDiff{}
+			}
 		}
-		out.Diff = parseMultiFileDiff(raw)
-		if out.Diff == nil {
-			out.Diff = []FileDiff{}
-		}
-
-		nameStatus, _ := g.DiffNameStatus(ctx, true)
-		applyStatuses(out.Diff, nameStatus)
 	}
 
 	out.FilesChanged = len(out.Diff)

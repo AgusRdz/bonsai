@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -328,5 +330,84 @@ func TestApplyStatuses_Empty(t *testing.T) {
 	applyStatuses(files, map[string]string{})
 	if files[0].Status != "" {
 		t.Errorf("expected empty status for empty map, got %q", files[0].Status)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FileDiff JSON serialisation — progressive disclosure
+// ---------------------------------------------------------------------------
+
+func TestFileDiffHunksOmittedWhenNil(t *testing.T) {
+	fd := FileDiff{Path: "foo.go", Additions: 1, Deletions: 0}
+	data, err := json.Marshal(fd)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), "hunks") {
+		t.Errorf("expected hunks to be omitted for nil slice, got %s", string(data))
+	}
+}
+
+func TestFileDiffHunksOmittedWhenEmpty(t *testing.T) {
+	fd := FileDiff{Path: "foo.go", Additions: 1, Deletions: 0, Hunks: []HunkOut{}}
+	data, err := json.Marshal(fd)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), "hunks") {
+		t.Errorf("expected hunks to be omitted for empty slice, got %s", string(data))
+	}
+}
+
+func TestFileDiffHunksIncludedWhenPopulated(t *testing.T) {
+	fd := FileDiff{
+		Path:      "foo.go",
+		Additions: 1,
+		Hunks:     []HunkOut{{Header: "@@ -1,1 +1,2 @@", Lines: []string{"+new"}}},
+	}
+	data, err := json.Marshal(fd)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(data), "hunks") {
+		t.Errorf("expected hunks to be present when populated, got %s", string(data))
+	}
+}
+
+func TestDiffOutStructure(t *testing.T) {
+	out := DiffOut{
+		Staged:    []FileDiff{},
+		Unstaged:  []FileDiff{},
+		Untracked: []UntrackedEntry{},
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	s := string(data)
+	for _, key := range []string{"staged", "unstaged", "untracked"} {
+		if !strings.Contains(s, `"`+key+`"`) {
+			t.Errorf("expected %q key in DiffOut JSON, got %s", key, s)
+		}
+	}
+}
+
+func TestShowOutStructure(t *testing.T) {
+	out := ShowOut{
+		Hash:    "abc1234",
+		Subject: "feat: add thing",
+		Author:  "Alice",
+		Date:    "2026-05-17",
+		Diff:    []FileDiff{},
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	s := string(data)
+	for _, key := range []string{"hash", "subject", "author", "date", "diff"} {
+		if !strings.Contains(s, `"`+key+`"`) {
+			t.Errorf("expected %q key in ShowOut JSON, got %s", key, s)
+		}
 	}
 }

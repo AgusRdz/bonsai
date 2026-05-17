@@ -87,6 +87,8 @@ func main() {
 		runAgentLog(os.Args[2:])
 	case "diff":
 		runAgentDiff(os.Args[2:])
+	case "show":
+		runAgentShow(os.Args[2:])
 	case "blame":
 		runAgentBlame(os.Args[2:])
 	case "branches":
@@ -211,12 +213,18 @@ Commands:
 
 Agent / structured output (JSON):
   status            repository status as JSON
-  log               recent commits as JSON (--limit=N, default 20)
-  diff              changed files with hunks as JSON (--file=path, --staged)
+  log               recent commits as JSON (--limit=N, --yesterday, --weeks=N,
+                    --from=YYYY-MM-DD, --to=YYYY-MM-DD)
+  diff              changed files as JSON; default: all scopes, counts only
+                    --staged / --unstaged / --untracked  show only that scope
+                    --detailed                           include patch hunks
+                    --file=<path>                        filter to one file
+  show [<ref>]      single commit as JSON (default: HEAD); --detailed for hunks
   blame --file=path line-by-line blame as JSON
   branches          branch list as JSON
   stash-list        stash entries as JSON
   review            diff and commit context as JSON (--base=<ref>)
+                    --detailed                           include patch hunks
 
 Options:
   -h, --help        show help
@@ -1022,17 +1030,29 @@ func runAgentStatus(args []string) {
 
 func runAgentLog(args []string) {
 	agentCheckFormat(args, "log")
-	limit := 20
+	params := agent.LogParams{Limit: 20}
 	for _, a := range args {
-		if strings.HasPrefix(a, "--limit=") {
+		switch {
+		case strings.HasPrefix(a, "--limit="):
 			if n, err := strconv.Atoi(strings.TrimPrefix(a, "--limit=")); err == nil && n > 0 {
-				limit = n
+				params.Limit = n
 			}
+		case a == "--yesterday":
+			params.Since = "yesterday"
+			params.Until = "today"
+		case strings.HasPrefix(a, "--weeks="):
+			if n, err := strconv.Atoi(strings.TrimPrefix(a, "--weeks=")); err == nil && n > 0 {
+				params.Since = fmt.Sprintf("%d weeks ago", n)
+			}
+		case strings.HasPrefix(a, "--from="):
+			params.Since = strings.TrimPrefix(a, "--from=")
+		case strings.HasPrefix(a, "--to="):
+			params.Until = strings.TrimPrefix(a, "--to=")
 		}
 	}
 	ctx := context.Background()
 	g := git.New()
-	out, err := agent.BuildLog(ctx, g, limit)
+	out, err := agent.BuildLog(ctx, g, params)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bonsai log:", err)
 		os.Exit(1)
@@ -1043,18 +1063,24 @@ func runAgentLog(args []string) {
 func runAgentDiff(args []string) {
 	agentCheckFormat(args, "diff")
 	var file string
-	staged := false
+	var showStaged, showUnstaged, showUntracked, detailed bool
 	for _, a := range args {
 		switch {
 		case strings.HasPrefix(a, "--file="):
 			file = strings.TrimPrefix(a, "--file=")
 		case a == "--staged":
-			staged = true
+			showStaged = true
+		case a == "--unstaged":
+			showUnstaged = true
+		case a == "--untracked":
+			showUntracked = true
+		case a == "--detailed":
+			detailed = true
 		}
 	}
 	ctx := context.Background()
 	g := git.New()
-	out, err := agent.BuildDiff(ctx, g, file, staged)
+	out, err := agent.BuildDiff(ctx, g, file, showStaged, showUnstaged, showUntracked, detailed)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bonsai diff:", err)
 		os.Exit(1)
@@ -1108,17 +1134,43 @@ func runAgentStashList(args []string) {
 	printJSON(out)
 }
 
-func runAgentReview(args []string) {
-	agentCheckFormat(args, "review")
-	var base string
+func runAgentShow(args []string) {
+	agentCheckFormat(args, "show")
+	ref := "HEAD"
+	detailed := false
 	for _, a := range args {
-		if strings.HasPrefix(a, "--base=") {
-			base = strings.TrimPrefix(a, "--base=")
+		switch {
+		case a == "--detailed":
+			detailed = true
+		case !strings.HasPrefix(a, "--"):
+			ref = a
 		}
 	}
 	ctx := context.Background()
 	g := git.New()
-	out, err := agent.BuildReview(ctx, g, base)
+	out, err := agent.BuildShow(ctx, g, ref, detailed)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai show:", err)
+		os.Exit(1)
+	}
+	printJSON(out)
+}
+
+func runAgentReview(args []string) {
+	agentCheckFormat(args, "review")
+	var base string
+	detailed := false
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, "--base="):
+			base = strings.TrimPrefix(a, "--base=")
+		case a == "--detailed":
+			detailed = true
+		}
+	}
+	ctx := context.Background()
+	g := git.New()
+	out, err := agent.BuildReview(ctx, g, base, detailed)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bonsai review:", err)
 		os.Exit(1)
