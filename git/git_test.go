@@ -101,24 +101,25 @@ func TestParseBranchesEmpty(t *testing.T) {
 
 func TestParseBranchLine(t *testing.T) {
 	cases := []struct {
-		input  string
-		branch string
-		ahead  int
-		behind int
+		input    string
+		branch   string
+		upstream string
+		ahead    int
+		behind   int
 	}{
-		{"main...origin/main [ahead 2, behind 1]", "main", 2, 1},
-		{"main...origin/main [ahead 3]", "main", 3, 0},
-		{"main...origin/main [behind 5]", "main", 0, 5},
-		{"main...origin/main", "main", 0, 0},
-		{"main", "main", 0, 0},
-		{"No commits yet on feat/new", "feat/new", 0, 0},
-		{"HEAD (no branch)", "HEAD", 0, 0},
+		{"main...origin/main [ahead 2, behind 1]", "main", "origin/main", 2, 1},
+		{"main...origin/main [ahead 3]", "main", "origin/main", 3, 0},
+		{"main...origin/main [behind 5]", "main", "origin/main", 0, 5},
+		{"main...origin/main", "main", "origin/main", 0, 0},
+		{"main", "main", "", 0, 0},
+		{"No commits yet on feat/new", "feat/new", "", 0, 0},
+		{"HEAD (no branch)", "HEAD", "", 0, 0},
 	}
 	for _, c := range cases {
-		branch, ahead, behind := parseBranchLine(c.input)
-		if branch != c.branch || ahead != c.ahead || behind != c.behind {
-			t.Errorf("parseBranchLine(%q) = (%q, %d, %d), want (%q, %d, %d)",
-				c.input, branch, ahead, behind, c.branch, c.ahead, c.behind)
+		branch, upstream, ahead, behind := parseBranchLine(c.input)
+		if branch != c.branch || upstream != c.upstream || ahead != c.ahead || behind != c.behind {
+			t.Errorf("parseBranchLine(%q) = (%q, %q, %d, %d), want (%q, %q, %d, %d)",
+				c.input, branch, upstream, ahead, behind, c.branch, c.upstream, c.ahead, c.behind)
 		}
 	}
 }

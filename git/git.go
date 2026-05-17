@@ -28,6 +28,7 @@ func (f FileEntry) UnstagedCode() byte { return f.Code[1] }
 // Status holds the result of parsing `git status`.
 type Status struct {
 	Branch     string
+	Upstream   string // remote tracking ref, e.g. "origin/main"; empty if unset
 	Staged     []FileEntry
 	Changed    []FileEntry
 	Untracked  []FileEntry
@@ -35,6 +36,14 @@ type Status struct {
 	Ahead      int         // local commits not on remote tracking branch
 	Behind     int         // remote commits not yet pulled
 	MergeState string      // "merge", "cherry-pick", "rebase", or ""
+}
+
+// StructuredLogEntry is one commit returned by LogStructured and CommitsInRange.
+type StructuredLogEntry struct {
+	Hash    string
+	Subject string
+	Author  string
+	Date    string // YYYY-MM-DD
 }
 
 // ConflictDesc returns a short human description for a conflict status code.
@@ -130,6 +139,7 @@ func (r *Runner) Status(ctx context.Context) (*Status, error) {
 	var ahead, behind int
 	body := raw
 
+	var upstream string
 	if strings.HasPrefix(raw, "## ") {
 		nl := strings.IndexByte(raw, '\n')
 		var header string
@@ -138,10 +148,11 @@ func (r *Runner) Status(ctx context.Context) (*Status, error) {
 		} else {
 			header, body = raw[3:nl], raw[nl+1:]
 		}
-		branch, ahead, behind = parseBranchLine(header)
+		branch, upstream, ahead, behind = parseBranchLine(header)
 	}
 
 	s := parseStatus(branch, body)
+	s.Upstream = upstream
 	s.Ahead = ahead
 	s.Behind = behind
 	s.MergeState = detectMergeState(ctx)
@@ -182,7 +193,7 @@ func detectMergeState(ctx context.Context) string {
 //	"main"
 //	"No commits yet on main"
 //	"HEAD (no branch)"
-func parseBranchLine(line string) (branch string, ahead, behind int) {
+func parseBranchLine(line string) (branch, upstream string, ahead, behind int) {
 	// Strip [ahead N, behind M] suffix first.
 	if idx := strings.Index(line, " ["); idx >= 0 {
 		bracket := line[idx+2:]
@@ -210,6 +221,7 @@ func parseBranchLine(line string) (branch string, ahead, behind int) {
 		// "main...origin/main" or just "main"
 		if idx := strings.Index(line, "..."); idx >= 0 {
 			branch = line[:idx]
+			upstream = line[idx+3:]
 		} else {
 			branch = line
 		}
@@ -2196,4 +2208,143 @@ func QuickStatus(ctx context.Context, repoPath string) DashboardEntry {
 	}
 
 	return entry
+}
+
+// ---------------------------------------------------------------------------
+// Structured output — agent / machine-readable methods
+// ---------------------------------------------------------------------------
+
+// LogStructured returns the n most recent commits as structured entries
+// with hash, subject, author, and date.
+func (r *Runner) LogStructured(ctx context.Context, n int) ([]StructuredLogEntry, error) {
+	if n <= 0 {
+		n = 20
+	}
+	args := []string{
+		"log",
+		fmt.Sprintf("--max-count=%d", n),
+		"--pretty=tformat:%h\x1f%s\x1f%an\x1f%as",
+	}
+	out, err := r.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	var entries []StructuredLogEntry
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\x1f", 4)
+		if len(parts) < 4 {
+			continue
+		}
+		entries = append(entries, StructuredLogEntry{
+			Hash:    parts[0],
+			Subject: parts[1],
+			Author:  parts[2],
+			Date:    parts[3],
+		})
+	}
+	return entries, nil
+}
+
+// CommitsInRange returns structured commits reachable from HEAD but not from base.
+func (r *Runner) CommitsInRange(ctx context.Context, base string) ([]StructuredLogEntry, error) {
+	args := []string{
+		"log",
+		"--pretty=tformat:%h\x1f%s\x1f%an\x1f%as",
+		base + "..HEAD",
+	}
+	out, err := r.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	var entries []StructuredLogEntry
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\x1f", 4)
+		if len(parts) < 4 {
+			continue
+		}
+		entries = append(entries, StructuredLogEntry{
+			Hash:    parts[0],
+			Subject: parts[1],
+			Author:  parts[2],
+			Date:    parts[3],
+		})
+	}
+	return entries, nil
+}
+
+// DiffAll returns the full unified diff for all staged (staged=true) or
+// unstaged (staged=false) changes across the working tree.
+func (r *Runner) DiffAll(ctx context.Context, staged bool) (string, error) {
+	args := []string{"diff"}
+	if staged {
+		args = append(args, "--staged")
+	}
+	out, err := r.run(ctx, args...)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// DiffRange returns the unified diff of all changes introduced between base
+// and HEAD (equivalent to git diff base..HEAD).
+func (r *Runner) DiffRange(ctx context.Context, base string) (string, error) {
+	out, err := r.run(ctx, "diff", base+"..HEAD")
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// DiffNameStatus returns a map of path -> single-character status code for
+// staged (staged=true) or unstaged (staged=false) changed files.
+func (r *Runner) DiffNameStatus(ctx context.Context, staged bool) (map[string]string, error) {
+	args := []string{"diff", "--name-status"}
+	if staged {
+		args = append(args, "--staged")
+	}
+	out, err := r.run(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	return parseDiffNameStatus(string(out)), nil
+}
+
+// DiffRangeNameStatus returns a map of path -> single-character status code
+// for all files changed between base and HEAD.
+func (r *Runner) DiffRangeNameStatus(ctx context.Context, base string) (map[string]string, error) {
+	out, err := r.run(ctx, "diff", "--name-status", base+"..HEAD")
+	if err != nil {
+		return nil, err
+	}
+	return parseDiffNameStatus(string(out)), nil
+}
+
+// parseDiffNameStatus converts `git diff --name-status` output into a
+// path -> status map. For renames and copies the destination path is used.
+func parseDiffNameStatus(output string) map[string]string {
+	result := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		status := string(parts[0][0])
+		path := parts[1]
+		if len(parts) == 3 && (parts[0][0] == 'R' || parts[0][0] == 'C') {
+			path = parts[2]
+		}
+		result[path] = status
+	}
+	return result
 }

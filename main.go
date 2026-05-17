@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
+	"github.com/AgusRdz/bonsai/agent"
 	"github.com/AgusRdz/bonsai/config"
 	"github.com/AgusRdz/bonsai/doctor"
 	"github.com/AgusRdz/bonsai/git"
@@ -78,6 +81,22 @@ func main() {
 		runStandup(os.Args[2:])
 	case "repo":
 		runRepo(os.Args[2:])
+	case "status":
+		runAgentStatus(os.Args[2:])
+	case "log":
+		runAgentLog(os.Args[2:])
+	case "diff":
+		runAgentDiff(os.Args[2:])
+	case "blame":
+		runAgentBlame(os.Args[2:])
+	case "branches":
+		runAgentBranches(os.Args[2:])
+	case "stash-list":
+		runAgentStashList(os.Args[2:])
+	case "context":
+		runAgentContext(os.Args[2:])
+	case "review-context":
+		runAgentReviewContext(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai: unknown command %q\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "Run 'bonsai help' for available commands.")
@@ -191,6 +210,16 @@ Commands:
   lfs --untrack <pat> stop tracking a pattern
   lfs --pull        download all lfs objects for the current checkout
   lfs --install     install lfs hooks into this repository
+
+Agent / structured output (JSON):
+  status            repository status as JSON
+  log               recent commits as JSON (--limit=N, default 20)
+  diff              changed files with hunks as JSON (--file=path, --staged)
+  blame --file=path line-by-line blame as JSON
+  branches          branch list as JSON
+  stash-list        stash entries as JSON
+  context           full repo snapshot as JSON (status + log + branches)
+  review-context    diff and commit context as JSON (--base=<ref>)
 
 Options:
   -h, --help        show help
@@ -955,6 +984,161 @@ func runLFS(args []string) {
 		fmt.Fprintln(os.Stderr, "usage: bonsai lfs [--status|--track <pat>|--untrack <pat>|--pull|--install]")
 		os.Exit(1)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// bonsai agent / structured output commands
+// ---------------------------------------------------------------------------
+
+func printJSON(v any) {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai: json:", err)
+		os.Exit(1)
+	}
+	fmt.Println(string(data))
+}
+
+func agentCheckFormat(args []string, cmd string) {
+	for _, a := range args {
+		if strings.HasPrefix(a, "--format=") {
+			f := strings.TrimPrefix(a, "--format=")
+			if f != "json" {
+				fmt.Fprintf(os.Stderr, "bonsai %s: unsupported format %q (only json is supported)\n", cmd, f)
+				os.Exit(1)
+			}
+		}
+	}
+}
+
+func runAgentStatus(args []string) {
+	agentCheckFormat(args, "status")
+	ctx := context.Background()
+	g := git.New()
+	out, err := agent.BuildStatus(ctx, g)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai status:", err)
+		os.Exit(1)
+	}
+	printJSON(out)
+}
+
+func runAgentLog(args []string) {
+	agentCheckFormat(args, "log")
+	limit := 20
+	for _, a := range args {
+		if strings.HasPrefix(a, "--limit=") {
+			if n, err := strconv.Atoi(strings.TrimPrefix(a, "--limit=")); err == nil && n > 0 {
+				limit = n
+			}
+		}
+	}
+	ctx := context.Background()
+	g := git.New()
+	out, err := agent.BuildLog(ctx, g, limit)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai log:", err)
+		os.Exit(1)
+	}
+	printJSON(out)
+}
+
+func runAgentDiff(args []string) {
+	agentCheckFormat(args, "diff")
+	var file string
+	staged := false
+	for _, a := range args {
+		switch {
+		case strings.HasPrefix(a, "--file="):
+			file = strings.TrimPrefix(a, "--file=")
+		case a == "--staged":
+			staged = true
+		}
+	}
+	ctx := context.Background()
+	g := git.New()
+	out, err := agent.BuildDiff(ctx, g, file, staged)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai diff:", err)
+		os.Exit(1)
+	}
+	printJSON(out)
+}
+
+func runAgentBlame(args []string) {
+	agentCheckFormat(args, "blame")
+	var file string
+	for _, a := range args {
+		if strings.HasPrefix(a, "--file=") {
+			file = strings.TrimPrefix(a, "--file=")
+		}
+	}
+	if file == "" {
+		fmt.Fprintln(os.Stderr, "usage: bonsai blame --file=<path>")
+		os.Exit(1)
+	}
+	ctx := context.Background()
+	g := git.New()
+	out, err := agent.BuildBlame(ctx, g, file)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai blame:", err)
+		os.Exit(1)
+	}
+	printJSON(out)
+}
+
+func runAgentBranches(args []string) {
+	agentCheckFormat(args, "branches")
+	ctx := context.Background()
+	g := git.New()
+	out, err := agent.BuildBranches(ctx, g)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai branches:", err)
+		os.Exit(1)
+	}
+	printJSON(out)
+}
+
+func runAgentStashList(args []string) {
+	agentCheckFormat(args, "stash-list")
+	ctx := context.Background()
+	g := git.New()
+	out, err := agent.BuildStashList(ctx, g)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai stash-list:", err)
+		os.Exit(1)
+	}
+	printJSON(out)
+}
+
+func runAgentContext(args []string) {
+	agentCheckFormat(args, "context")
+	ctx := context.Background()
+	g := git.New()
+	out, err := agent.BuildContext(ctx, g)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai context:", err)
+		os.Exit(1)
+	}
+	printJSON(out)
+}
+
+func runAgentReviewContext(args []string) {
+	agentCheckFormat(args, "review-context")
+	var base string
+	for _, a := range args {
+		if strings.HasPrefix(a, "--base=") {
+			base = strings.TrimPrefix(a, "--base=")
+		}
+	}
+	ctx := context.Background()
+	g := git.New()
+	out, err := agent.BuildReviewContext(ctx, g, base)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai review-context:", err)
+		os.Exit(1)
+	}
+	printJSON(out)
 }
 
 func runSSHShow() {
