@@ -57,17 +57,35 @@
 | Key | Action |
 |-----|--------|
 | `z` | Reset menu (soft / mixed / hard) |
-| `t` | Tag list |
 | `e` | Blame for the selected file |
 | `i` | Bisect panel |
 | `R` | Interactive rebase |
 | `A` | Amend HEAD |
+| `U` | Undo last commit / merge / rebase |
+| `u` | Untrack selected staged file (`git rm --cached`) |
 | `W` | Worktree list |
 | `O` | Remote management |
 | `M` | Submodule management |
+| `t` | Tag list |
 | `n` | Notes for HEAD commit |
 | `X` | Clean untracked files |
 | `a` | Abort in-progress merge / rebase / cherry-pick |
+| `F` | Finish current gitflow branch (merge into main/develop; gitflow mode only) |
+
+### Pull requests and issues
+
+| Key | Action |
+|-----|--------|
+| `K` | PR / MR panel (GitHub, GitLab, Bitbucket) |
+| `I` | Issues panel |
+
+### Tools
+
+| Key | Action |
+|-----|--------|
+| `` ` `` | SSH key manager |
+| `V` | LFS panel |
+| `D` | Multi-repo dashboard |
 
 ### Configuration
 

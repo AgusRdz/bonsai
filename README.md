@@ -209,14 +209,18 @@ Open bonsai and press `?` for the full in-app reference. Key highlights:
 | `R` | Interactive rebase - reorder/squash/fixup/drop commits |
 | `A` | Amend HEAD |
 | `U` | Undo last commit / merge / rebase |
+| `u` | Untrack selected staged file (`git rm --cached`) |
 | `W` | Worktree list |
 | `O` | Remote management |
 | `M` | Submodule management |
 | `n` | Git notes for HEAD |
 | `X` | Clean untracked files |
+| `K` | PR / MR panel (GitHub, GitLab, Bitbucket) |
+| `I` | Issues panel |
 | `` ` `` | SSH key manager - list keys, test connections |
 | `V` | LFS panel - tracked files, pull/push/track/untrack |
 | `D` | Multi-repo dashboard |
+| `F` | Finish gitflow branch (gitflow mode only) |
 | `C` | Configuration manager (config, gitignore, profiles, education) |
 | `a` | Abort in-progress merge / rebase / cherry-pick |
 | `?` | Help panel |

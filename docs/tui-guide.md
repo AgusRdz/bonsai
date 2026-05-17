@@ -203,6 +203,14 @@ Press `m` from the PR list or from the detail panel to open the merge picker. Ch
 
 ## Advanced operations
 
+### Undo
+
+Press `U` to undo the last undoable operation (commit, merge, rebase). This only works immediately after the action - bonsai remembers one step. For a full reset menu, press `z`.
+
+### Untrack a file
+
+Select a staged file and press `u` to remove it from the git index (`git rm --cached`) while keeping it on disk. Useful when you accidentally staged a file that should be in `.gitignore`.
+
 ### Reset
 
 Press `z` to open the reset menu. Choose between soft (keep staged), mixed (keep unstaged), or hard (discard all changes).
@@ -271,6 +279,39 @@ Press `C` to open the configuration manager:
 - **Local .gitignore** - view and edit the project ignore file
 - **Recommendations** - best-practice settings with one-key apply
 - **Profiles (includeIf)** - manage conditional config includes
+
+### SSH key manager
+
+Press `` ` `` to open the SSH key manager. It lists your local SSH keys and lets you test connectivity to the repo's remote host.
+
+| Key | Action |
+|-----|--------|
+| `t` | Test SSH connection for the selected key |
+| `esc` | Back |
+
+### LFS
+
+Press `V` to open the LFS panel. Shows tracked patterns and pending objects.
+
+| Key | Action |
+|-----|--------|
+| `t` | Track a new file pattern |
+| `u` | Untrack the selected pattern |
+| `p` | Pull LFS objects |
+| `P` | Push LFS objects |
+| `esc` | Back |
+
+### Multi-repo dashboard
+
+Press `D` to open the multi-repo dashboard. Lists all repos registered in your bonsai config. Press `enter` to open a repo in bonsai, `esc` to close.
+
+### Issues
+
+Press `I` to open the issues panel (GitHub / GitLab). Lists open issues. Press `enter` on an issue to create a linked branch.
+
+### Gitflow finish
+
+In gitflow mode, press `F` on a feature, bugfix, release, or hotfix branch to finish it - merges into the appropriate targets (main/develop) following the gitflow convention.
 
 ### Aborting in-progress operations
 
