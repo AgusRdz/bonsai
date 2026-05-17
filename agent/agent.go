@@ -70,22 +70,13 @@ type StashEntry struct {
 	Description string `json:"description"`
 }
 
-type ContextOut struct {
-	Repo      string        `json:"repo"`
-	Branch    string        `json:"branch"`
-	Upstream  string        `json:"upstream,omitempty"`
-	Status    *StatusOut    `json:"status"`
-	RecentLog []LogEntry    `json:"recent_log"`
-	Branches  []BranchEntry `json:"branches"`
-}
-
 type ReviewLines struct {
 	Added        int `json:"added"`
 	Removed      int `json:"removed"`
 	TotalChanged int `json:"total_changed"`
 }
 
-type ReviewContextOut struct {
+type ReviewOut struct {
 	Base         string      `json:"base,omitempty"`
 	Head         string      `json:"head"`
 	Lines        ReviewLines `json:"lines"`
@@ -216,41 +207,13 @@ func BuildStashList(ctx context.Context, g *git.Runner) ([]StashEntry, error) {
 	return out, nil
 }
 
-func BuildContext(ctx context.Context, g *git.Runner) (*ContextOut, error) {
-	repo, _ := os.Getwd()
-
+func BuildReview(ctx context.Context, g *git.Runner, base string) (*ReviewOut, error) {
 	status, err := BuildStatus(ctx, g)
 	if err != nil {
 		return nil, err
 	}
 
-	log, _ := BuildLog(ctx, g, 20)
-	if log == nil {
-		log = []LogEntry{}
-	}
-
-	branches, _ := BuildBranches(ctx, g)
-	if branches == nil {
-		branches = []BranchEntry{}
-	}
-
-	return &ContextOut{
-		Repo:      repo,
-		Branch:    status.Branch,
-		Upstream:  status.Upstream,
-		Status:    status,
-		RecentLog: log,
-		Branches:  branches,
-	}, nil
-}
-
-func BuildReviewContext(ctx context.Context, g *git.Runner, base string) (*ReviewContextOut, error) {
-	status, err := BuildStatus(ctx, g)
-	if err != nil {
-		return nil, err
-	}
-
-	out := &ReviewContextOut{
+	out := &ReviewOut{
 		Base:    base,
 		Head:    status.Branch,
 		Status:  status,

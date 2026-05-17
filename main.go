@@ -93,10 +93,8 @@ func main() {
 		runAgentBranches(os.Args[2:])
 	case "stash-list":
 		runAgentStashList(os.Args[2:])
-	case "context":
-		runAgentContext(os.Args[2:])
-	case "review-context":
-		runAgentReviewContext(os.Args[2:])
+	case "review":
+		runAgentReview(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai: unknown command %q\n", os.Args[1])
 		fmt.Fprintln(os.Stderr, "Run 'bonsai help' for available commands.")
@@ -218,8 +216,7 @@ Agent / structured output (JSON):
   blame --file=path line-by-line blame as JSON
   branches          branch list as JSON
   stash-list        stash entries as JSON
-  context           full repo snapshot as JSON (status + log + branches)
-  review-context    diff and commit context as JSON (--base=<ref>)
+  review            diff and commit context as JSON (--base=<ref>)
 
 Options:
   -h, --help        show help
@@ -1111,20 +1108,8 @@ func runAgentStashList(args []string) {
 	printJSON(out)
 }
 
-func runAgentContext(args []string) {
-	agentCheckFormat(args, "context")
-	ctx := context.Background()
-	g := git.New()
-	out, err := agent.BuildContext(ctx, g)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "bonsai context:", err)
-		os.Exit(1)
-	}
-	printJSON(out)
-}
-
-func runAgentReviewContext(args []string) {
-	agentCheckFormat(args, "review-context")
+func runAgentReview(args []string) {
+	agentCheckFormat(args, "review")
 	var base string
 	for _, a := range args {
 		if strings.HasPrefix(a, "--base=") {
@@ -1133,9 +1118,9 @@ func runAgentReviewContext(args []string) {
 	}
 	ctx := context.Background()
 	g := git.New()
-	out, err := agent.BuildReviewContext(ctx, g, base)
+	out, err := agent.BuildReview(ctx, g, base)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "bonsai review-context:", err)
+		fmt.Fprintln(os.Stderr, "bonsai review:", err)
 		os.Exit(1)
 	}
 	printJSON(out)
