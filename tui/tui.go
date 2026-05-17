@@ -465,6 +465,8 @@ type model struct {
 
 	// pr integration
 	prProvider        pr.Provider
+	prListLoading     bool
+	prListErr         error
 	prStatus          *pr.PRStatus
 	prListItems       []pr.PRStatus
 	prListCursor      int
@@ -2081,9 +2083,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case prListMsg:
-		if msg.err == nil {
+		if msg.err != nil {
+			m.prListErr = msg.err
+		} else if msg.items == nil {
+			m.prListItems = []pr.PRStatus{}
+		} else {
 			m.prListItems = msg.items
 		}
+		m.prListLoading = false
 
 	case errMsg:
 		m.err = msg.err
@@ -2874,6 +2881,8 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "K":
 		if m.prProvider != nil {
 			m.prListItems = nil
+			m.prListErr = nil
+			m.prListLoading = true
 			m.prListCursor = 0
 			m.panel = panelPR
 			return m, m.fetchPRList()
@@ -8423,8 +8432,12 @@ func (m model) prView() string {
 	var b strings.Builder
 	b.WriteString("\n  " + title + "\n\n")
 
-	if len(m.prListItems) == 0 {
+	if m.prListErr != nil {
+		b.WriteString(styleConflict.Render("  error: "+m.prListErr.Error()) + "\n\n")
+	} else if m.prListLoading {
 		b.WriteString(styleDim.Render("  loading...") + "\n\n")
+	} else if len(m.prListItems) == 0 {
+		b.WriteString(styleDim.Render("  no pull requests") + "\n\n")
 	} else {
 		for i, item := range m.prListItems {
 			cursor := "  "
