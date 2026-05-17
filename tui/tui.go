@@ -1841,6 +1841,21 @@ func (m model) doFetchRemotes() tea.Cmd {
 	}
 }
 
+// sanitizeRemoteURL strips a leading "git remote add <name>" prefix so users
+// can safely paste the full command into the URL field.
+// Returns the cleaned URL and, if extracted from the command, the remote name.
+func sanitizeRemoteURL(raw string) (url, extractedName string) {
+	s := strings.TrimSpace(raw)
+	// Match: git remote add <name> <url>
+	if after, ok := strings.CutPrefix(s, "git remote add "); ok {
+		parts := strings.SplitN(strings.TrimSpace(after), " ", 2)
+		if len(parts) == 2 {
+			return strings.TrimSpace(parts[1]), strings.TrimSpace(parts[0])
+		}
+	}
+	return s, ""
+}
+
 func (m model) doRemoteAdd(name, url string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -4396,7 +4411,10 @@ func (m model) updateRemoteAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.remoteAddStep = 1
 		} else {
 			name := strings.TrimSpace(m.remoteAddInputs[0].Value())
-			url := strings.TrimSpace(m.remoteAddInputs[1].Value())
+			url, extractedName := sanitizeRemoteURL(m.remoteAddInputs[1].Value())
+			if name == "" && extractedName != "" {
+				name = extractedName
+			}
 			if name == "" || url == "" {
 				break
 			}
