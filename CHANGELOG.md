@@ -2,6 +2,75 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.56.0] - 2026-05-17
+
+### Features
+- Add bonsai mcp uninstall and fix install feedback
+([34d5be2](https://github.com/AgusRdz/bonsai/commit/34d5be21de3e74bb03b6f0f59c618027d6149f25))
+## [0.55.16] - 2026-05-17
+
+### Features
+- Add bonsai mcp install command
+([f8c5faf](https://github.com/AgusRdz/bonsai/commit/f8c5faf8001ac47f5de99f14dadad446c1901338))
+## [0.55.15] - 2026-05-17
+
+### Features
+- Add MCP stdio server (bonsai mcp)
+([954059f](https://github.com/AgusRdz/bonsai/commit/954059fa3ec588c3ba73afadadc129910572c026))
+## [0.55.14] - 2026-05-17
+
+### Features
+- Add bonsai context command for single-call repo snapshot
+([4af8c02](https://github.com/AgusRdz/bonsai/commit/4af8c02a1419db197ec597a7bcde707d947712d5))
+## [0.55.13] - 2026-05-17
+
+### Features
+- Accept --format=md as alias for --format=markdown
+([b837336](https://github.com/AgusRdz/bonsai/commit/b837336c2ad7333e79d2d711b60f84740b6f323b))
+## [0.55.12] - 2026-05-17
+
+### Features
+- Add markdown and xml output formatters for agent commands
+([cca68f9](https://github.com/AgusRdz/bonsai/commit/cca68f92ce0f45806009c0573344a89b028b6ff7))
+## [0.55.11] - 2026-05-17
+
+### Bug Fixes
+- Two-step agent config - ask use/no then format choice
+([2619933](https://github.com/AgusRdz/bonsai/commit/261993350ebd2cc8716f81843f22b7092c428875))
+## [0.55.10] - 2026-05-17
+
+### Bug Fixes
+- Use global config as baseline for --local first run
+([76f3201](https://github.com/AgusRdz/bonsai/commit/76f3201adaa34e6a28e96e43eeca00f30c5dd07a))
+## [0.55.9] - 2026-05-17
+
+### Features
+- Progressive disclosure for diff/review/show; add bonsai show command
+([b5c039d](https://github.com/AgusRdz/bonsai/commit/b5c039d7338073bee90a5625ba26dfa2b4e20266))
+## [0.55.8] - 2026-05-17
+
+### Features
+- Add numstat, show, and log-opts methods for agent progressive disclosure
+([15e2998](https://github.com/AgusRdz/bonsai/commit/15e2998df1575ea2b45a1ca9772898c2f3759090))
+## [0.55.7] - 2026-05-17
+
+### Features
+- Add [agent] section with default_format and setup wizard prompt
+([01b57a2](https://github.com/AgusRdz/bonsai/commit/01b57a20a0a7309b3e351c759b49a405116d35fb))
+## [0.55.6] - 2026-05-17
+
+### Refactoring
+- Remove context command, rename review-context to review
+([17b95d0](https://github.com/AgusRdz/bonsai/commit/17b95d06b994059660cd416462b381b4b9a7858c))
+## [0.55.5] - 2026-05-17
+
+### Bug Fixes
+- Sanitize remote URL input in remote add panel
+([4e2b8d0](https://github.com/AgusRdz/bonsai/commit/4e2b8d0d32cd370f737a3523a48570aefb5bee61))
+
+### Features
+- Add structured JSON output commands for agent consumption
+([016ba31](https://github.com/AgusRdz/bonsai/commit/016ba31cacdf0f1a166b64d745f6d6ed3ca136b9))
 ## [0.55.3] - 2026-05-17
 
 ### Features
