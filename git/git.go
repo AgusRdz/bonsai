@@ -1550,6 +1550,12 @@ func parseRemoteList(output string) []RemoteEntry {
 	return result
 }
 
+// InitRepo runs git init in the current directory.
+func (r *Runner) InitRepo(ctx context.Context) error {
+	_, err := r.run(ctx, "init")
+	return err
+}
+
 // RemoteAdd adds a new remote.
 func (r *Runner) RemoteAdd(ctx context.Context, name, url string) error {
 	_, err := r.run(ctx, "remote", "add", name, url)

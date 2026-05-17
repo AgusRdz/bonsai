@@ -82,6 +82,7 @@ const (
 	panelSSH
 	panelLFS
 	panelDashboard
+	panelInit
 )
 
 type branchMode int
@@ -395,6 +396,9 @@ type model struct {
 	remoteAddStep      int
 	remoteRenameInput  textinput.Model
 	remoteRenameTarget string // name of remote being renamed
+
+	// init panel
+	initFromNoRepo bool // true when panelInit was opened from a non-repo state
 
 	// submodules
 	submodules      []git.SubmoduleEntry
@@ -2051,6 +2055,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errMsg:
 		m.err = msg.err
 		m.ready = true
+		if strings.Contains(msg.err.Error(), "not a git repository") {
+			m.initFromNoRepo = true
+			m.panel = panelInit
+		}
 
 	case logPageMsg:
 		if msg.append {
@@ -2367,6 +2375,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// After a successful git init, clear the error and offer to add a remote.
+		if msg.cmd == "git init" && msg.err == nil {
+			m.err = nil
+			m.initFromNoRepo = false
+			m.remoteAddInputs[0].SetValue("origin")
+			m.remoteAddInputs[0].Blur()
+			m.remoteAddInputs[1].SetValue("")
+			m.remoteAddInputs[1].Focus()
+			m.remoteAddStep = 1
+			m.panel = panelRemoteAdd
+			return m, m.fetchStatus()
+		}
+
 		var baseCmds []tea.Cmd
 		baseCmds = append(baseCmds, m.fetchStatus())
 
@@ -2666,6 +2687,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelDashboard {
 			return m.updateDashboardPanel(msg)
+		}
+		if m.panel == panelInit {
+			return m.updateInitPanel(msg)
 		}
 		return m.updateMainPanel(msg)
 	}
@@ -4349,6 +4373,10 @@ func (m model) updateRemoteListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ---------------------------------------------------------------------------
 
 func (m model) updateRemoteAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	backPanel := panelRemoteList
+	if m.initFromNoRepo {
+		backPanel = panelMain
+	}
 	switch msg.String() {
 	case "enter":
 		if m.remoteAddStep == 0 {
@@ -4365,7 +4393,8 @@ func (m model) updateRemoteAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if name == "" || url == "" {
 				break
 			}
-			m.panel = panelRemoteList
+			m.initFromNoRepo = false
+			m.panel = backPanel
 			return m, tea.Batch(m.doRemoteAdd(name, url), m.doFetchRemotes())
 		}
 	case "esc":
@@ -4374,7 +4403,8 @@ func (m model) updateRemoteAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.remoteAddInputs[0].Focus()
 			m.remoteAddStep = 0
 		} else {
-			m.panel = panelRemoteList
+			m.initFromNoRepo = false
+			m.panel = backPanel
 		}
 	case "ctrl+c":
 		return m, tea.Quit
@@ -5279,6 +5309,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelDashboard {
 		return m.dashboardView()
+	}
+	if m.panel == panelInit {
+		return m.initView()
 	}
 	return m.mainView()
 }
@@ -7170,7 +7203,11 @@ func (m model) remoteAddView() string {
 	b.WriteString("\n  " + title + "\n\n")
 	b.WriteString("  name:\n  " + m.remoteAddInputs[0].View() + "\n\n")
 	b.WriteString("  url:\n  " + m.remoteAddInputs[1].View() + "\n\n")
-	b.WriteString(styleDim.Render("  [enter] next/confirm  [esc] back") + "\n")
+	hint := "  [enter] next/confirm  [esc] back"
+	if m.initFromNoRepo {
+		hint = "  [enter] confirm  [esc] skip"
+	}
+	b.WriteString(styleDim.Render(hint) + "\n")
 	return b.String()
 }
 
@@ -8713,6 +8750,36 @@ func (m model) updateDashboardPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+// ---------------------------------------------------------------------------
+// init panel - shown when bonsai is opened outside a git repository
+// ---------------------------------------------------------------------------
+
+func (m model) updateInitPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "i":
+		return m, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+			defer cancel()
+			err := m.git.InitRepo(ctx)
+			return actionDoneMsg{cmd: "git init", err: err, info: "initialized empty git repository"}
+		}
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) initView() string {
+	cwd, _ := os.Getwd()
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleTitle.Render("No git repository found") + "\n\n")
+	b.WriteString("  " + styleDim.Render(cwd) + "\n\n")
+	b.WriteString("  " + styleChanged.Render("this directory is not a git repository") + "\n\n")
+	b.WriteString("  " + styleDim.Render("[i] initialize here   [q] quit") + "\n")
+	return b.String()
 }
 
 func (m model) dashboardView() string {
