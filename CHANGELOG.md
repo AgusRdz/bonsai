@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.55.1] - 2026-05-17
+
+### Features
+- Init panel when bonsai is opened outside a git repository
+([dc4cb32](https://github.com/AgusRdz/bonsai/commit/dc4cb32b945a2f15c7b77a97c93c131a6933f9e7))
 ## [0.55.0] - 2026-05-17
 
 ### Documentation
