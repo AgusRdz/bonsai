@@ -14,20 +14,10 @@ import (
 
 var errAlreadyConfigured = errors.New("already configured")
 
-// mcpConfig is the standard MCP server config block shared by all tools.
-var mcpConfig = map[string]any{
-	"mcpServers": map[string]any{
-		"bonsai": map[string]any{
-			"command": "bonsai",
-			"args":    []string{"mcp"},
-		},
-	},
-}
-
 // Install runs the interactive MCP install wizard.
 func Install() error {
-	// Verify bonsai is in PATH first.
-	if _, err := exec.LookPath("bonsai"); err != nil {
+	bonsaiCmd, err := exec.LookPath("bonsai")
+	if err != nil {
 		return fmt.Errorf("bonsai is not in PATH - install it first")
 	}
 
@@ -36,12 +26,12 @@ func Install() error {
 	fmt.Println(strings.Repeat("-", 54))
 	fmt.Println()
 
-	targets := detectTargets()
+	targets := detectTargets(bonsaiCmd)
 
 	if len(targets) == 0 {
 		fmt.Println("No supported AI tools detected on this system.")
 		fmt.Println()
-		printManualConfig()
+		printManualConfig(bonsaiCmd)
 		return nil
 	}
 
@@ -65,7 +55,7 @@ func Install() error {
 	n := 0
 	_, _ = fmt.Sscanf(choice, "%d", &n)
 	if n == len(targets)+1 {
-		printManualConfig()
+		printManualConfig(bonsaiCmd)
 		return nil
 	}
 	if n >= 1 && n <= len(targets) {
@@ -104,19 +94,19 @@ type installTarget struct {
 	note    string
 }
 
-func detectTargets() []installTarget {
+func detectTargets(bonsaiCmd string) []installTarget {
 	var targets []installTarget
 
 	// Claude Code (project scope) - available if `claude` CLI is in PATH.
 	if _, err := exec.LookPath("claude"); err == nil {
 		targets = append(targets, installTarget{
 			label:   "Claude Code  (project scope - writes .mcp.json in current directory)",
-			install: installClaudeCodeProject,
+			install: func() error { return writeMCPJSON(".mcp.json", bonsaiCmd) },
 			note:    "Restart Claude Code in this directory to pick it up.",
 		})
 		targets = append(targets, installTarget{
 			label:   "Claude Code  (user scope - available in all projects)",
-			install: installClaudeCodeUser,
+			install: func() error { return installClaudeCodeUser(bonsaiCmd) },
 			note:    "Restart Claude Code to pick it up.",
 		})
 	}
@@ -126,7 +116,7 @@ func detectTargets() []installTarget {
 		if _, err := os.Stat(filepath.Dir(p)); err == nil {
 			targets = append(targets, installTarget{
 				label:   "Claude Desktop",
-				install: func() error { return installClaudeDesktop(p) },
+				install: func() error { return mergeIntoConfig(p, bonsaiCmd) },
 				note:    "Restart Claude Desktop to pick it up.",
 			})
 		}
@@ -136,7 +126,7 @@ func detectTargets() []installTarget {
 	if cursorDetected() {
 		targets = append(targets, installTarget{
 			label:   "Cursor  (project scope - writes .cursor/mcp.json in current directory)",
-			install: installCursor,
+			install: func() error { return installCursor(bonsaiCmd) },
 			note:    "Restart Cursor in this directory to pick it up.",
 		})
 	}
@@ -170,7 +160,6 @@ func cursorDetected() bool {
 	if err != nil {
 		return false
 	}
-	// Check common Cursor install locations.
 	candidates := []string{
 		filepath.Join(home, ".cursor"),
 		filepath.Join(home, "Library", "Application Support", "Cursor"),
@@ -188,31 +177,19 @@ func cursorDetected() bool {
 // Installers
 // ---------------------------------------------------------------------------
 
-// installClaudeCodeProject writes .mcp.json in the current directory.
-func installClaudeCodeProject() error {
-	return writeMCPJSON(".mcp.json")
-}
-
-// installClaudeCodeUser merges bonsai into ~/.claude/settings.json.
-func installClaudeCodeUser() error {
+func installClaudeCodeUser(bonsaiCmd string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
-	return mergeIntoConfig(filepath.Join(home, ".claude", "settings.json"))
+	return mergeIntoConfig(filepath.Join(home, ".claude", "settings.json"), bonsaiCmd)
 }
 
-// installClaudeDesktop merges bonsai into claude_desktop_config.json.
-func installClaudeDesktop(path string) error {
-	return mergeIntoConfig(path)
-}
-
-// installCursor writes .cursor/mcp.json in the current directory.
-func installCursor() error {
+func installCursor(bonsaiCmd string) error {
 	if err := os.MkdirAll(".cursor", 0755); err != nil {
 		return err
 	}
-	return writeMCPJSON(filepath.Join(".cursor", "mcp.json"))
+	return writeMCPJSON(filepath.Join(".cursor", "mcp.json"), bonsaiCmd)
 }
 
 // ---------------------------------------------------------------------------
@@ -221,7 +198,7 @@ func installCursor() error {
 
 // writeMCPJSON writes a fresh MCP config file.
 // If the file already exists and contains a bonsai entry, it is left unchanged.
-func writeMCPJSON(path string) error {
+func writeMCPJSON(path, bonsaiCmd string) error {
 	existing := readJSONMap(path)
 	if existing != nil {
 		if servers, ok := existing["mcpServers"].(map[string]any); ok {
@@ -243,7 +220,7 @@ func writeMCPJSON(path string) error {
 		servers = map[string]any{}
 	}
 	servers["bonsai"] = map[string]any{
-		"command": "bonsai",
+		"command": bonsaiCmd,
 		"args":    []string{"mcp"},
 	}
 	cfg["mcpServers"] = servers
@@ -256,7 +233,7 @@ func writeMCPJSON(path string) error {
 }
 
 // mergeIntoConfig merges the bonsai entry into an existing JSON config file.
-func mergeIntoConfig(path string) error {
+func mergeIntoConfig(path, bonsaiCmd string) error {
 	cfg := readJSONMap(path)
 	if cfg == nil {
 		cfg = map[string]any{}
@@ -270,7 +247,7 @@ func mergeIntoConfig(path string) error {
 		return errAlreadyConfigured
 	}
 	servers["bonsai"] = map[string]any{
-		"command": "bonsai",
+		"command": bonsaiCmd,
 		"args":    []string{"mcp"},
 	}
 	cfg["mcpServers"] = servers
@@ -363,15 +340,23 @@ func removeFromFile(path string) bool {
 	return os.WriteFile(path, append(data, '\n'), 0644) == nil
 }
 
-func printManualConfig() {
-	data, _ := json.MarshalIndent(mcpConfig, "", "  ")
+func printManualConfig(bonsaiCmd string) {
+	cfg := map[string]any{
+		"mcpServers": map[string]any{
+			"bonsai": map[string]any{
+				"command": bonsaiCmd,
+				"args":    []string{"mcp"},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(cfg, "", "  ")
 	fmt.Println("Add this to your AI tool's MCP config file:")
 	fmt.Println()
 	fmt.Println(string(data))
 	fmt.Println()
 	fmt.Println("Common config file locations:")
 	fmt.Println("  Claude Code (project)  .mcp.json  in your project root")
-	fmt.Println("  Claude Code (user)     run: claude mcp add --scope user bonsai bonsai mcp")
+	fmt.Println("  Claude Code (user)     ~/.claude/settings.json")
 	fmt.Println("  Claude Desktop (mac)   ~/Library/Application Support/Claude/claude_desktop_config.json")
 	fmt.Println("  Cursor (project)       .cursor/mcp.json  in your project root")
 	fmt.Println("  Windsurf               ~/.windsurf/mcp.json")
