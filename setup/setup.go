@@ -248,14 +248,28 @@ func wizard(local bool, existing *config.Config) (*config.Config, error) {
 	if !local {
 		fmt.Println()
 		fmt.Println("AI coding assistants (Claude, Copilot, Cursor, etc.)")
-		fmt.Println("bonsai can output structured JSON so agents consume less tokens")
-		agentDefault := "n"
-		if existing != nil && existing.Agent.DefaultFormat == "json" {
-			agentDefault = "y"
+		usesAgentDefault := "n"
+		if existing != nil && existing.Agent.DefaultFormat != "" {
+			usesAgentDefault = "y"
 		}
-		agentChoice := ask(sc, "set JSON as default output for agent commands? [y/n]", agentDefault)
-		if agentChoice == "y" || agentChoice == "yes" {
-			cfg.Agent.DefaultFormat = "json"
+		usesAgent := ask(sc, "do you use AI agents? [y/n]", usesAgentDefault)
+		if usesAgent == "y" || usesAgent == "yes" {
+			fmt.Println()
+			fmt.Println("output format for agent commands:")
+			fmt.Println("  1) json      universal, most AI tools parse it natively")
+			fmt.Println("  2) markdown  readable in chat interfaces (Claude, ChatGPT)")
+			fmt.Println("  3) xml       for tools that prefer structured XML")
+			fmtDefault := "1"
+			if existing != nil {
+				fmtDefault = agentFormatToNumber(existing.Agent.DefaultFormat)
+			}
+			fmtChoice := ask(sc, "choice", fmtDefault)
+			fmtMap := map[string]string{"1": "json", "2": "markdown", "3": "xml"}
+			if v, ok := fmtMap[fmtChoice]; ok {
+				cfg.Agent.DefaultFormat = v
+			} else {
+				cfg.Agent.DefaultFormat = fmtMap[fmtDefault]
+			}
 		}
 	}
 
@@ -379,6 +393,19 @@ func gitflowDefaults() []branchDef {
 		{name: "bugfix", prefix: "fix/", example: "PROJ-456-crash-on-login"},
 		{name: "release", prefix: "release/", example: "1.2.0"},
 		{name: "hotfix", prefix: "hotfix/", example: "critical-fix"},
+	}
+}
+
+func agentFormatToNumber(format string) string {
+	switch format {
+	case "json":
+		return "1"
+	case "markdown":
+		return "2"
+	case "xml":
+		return "3"
+	default:
+		return "1"
 	}
 }
 
