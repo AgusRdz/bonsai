@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.64.3] - 2026-05-18
+
+### Bug Fixes
+- Show Windows-appropriate ssh-agent fix in bonsai doctor
+([0f05c8e](https://github.com/AgusRdz/bonsai/commit/0f05c8e3d83d7a45ffd8f9e114c96208a8a3ca0a))
 ## [0.64.2] - 2026-05-18
 
 ### Bug Fixes
