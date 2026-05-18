@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.64.12] - 2026-05-18
+
+### Bug Fixes
+- Print git version after TUI exits instead of before it starts
+([bfe9f16](https://github.com/AgusRdz/bonsai/commit/bfe9f16b373fcf4d8f9c363e1fcf6a4840dd0bc8))
 ## [0.64.11] - 2026-05-18
 
 ### Features
