@@ -189,6 +189,15 @@ func checkUserName() Check {
 			Explain: explainUserName,
 		}
 	}
+	if env := os.Getenv("GIT_AUTHOR_NAME"); env != "" && env != gitConfig("user.name") {
+		return Check{
+			Level:   Warn,
+			Label:   "user.name",
+			Message: fmt.Sprintf("%s (overridden by GIT_AUTHOR_NAME env var)", name),
+			Fix:     "unset GIT_AUTHOR_NAME or remove it from your shell profile",
+			Explain: explainUserName,
+		}
+	}
 	return Check{Level: OK, Label: "user.name", Message: name, Explain: explainUserName}
 }
 
@@ -211,6 +220,15 @@ func checkUserEmail() Check {
 			Label:   "user.email",
 			Message: fmt.Sprintf("%s (does not look like a valid email)", email),
 			Fix:     `run: git config --global user.email "you@example.com"`,
+			Explain: explainUserEmail,
+		}
+	}
+	if env := os.Getenv("GIT_AUTHOR_EMAIL"); env != "" && env != gitConfig("user.email") {
+		return Check{
+			Level:   Warn,
+			Label:   "user.email",
+			Message: fmt.Sprintf("%s (overridden by GIT_AUTHOR_EMAIL env var)", email),
+			Fix:     "unset GIT_AUTHOR_EMAIL or remove it from your shell profile",
 			Explain: explainUserEmail,
 		}
 	}
