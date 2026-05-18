@@ -346,6 +346,7 @@ type model struct {
 	lastInfo            string // human-readable result of last action
 	pushing             bool
 	pulling             bool
+	committing          bool
 	blameLines          []git.BlameLine
 	blameScroll         int
 	blameTitle          string
@@ -2065,7 +2066,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		// Silently refresh status on the main panel so external file edits
 		// appear without the user needing to restart bonsai.
-		if m.panel == panelMain && !m.pushing && !m.pulling {
+		if m.panel == panelMain && !m.pushing && !m.pulling && !m.committing {
 			return m, tea.Batch(m.fetchStatus(), autoRefreshCmd())
 		}
 		return m, autoRefreshCmd()
@@ -2437,6 +2438,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case actionDoneMsg:
 		m.pushing = false
 		m.pulling = false
+		m.committing = false
 		m.lastCmd = msg.cmd
 		m.lastInfo = msg.info
 		// Enhance protected-branch push errors with an actionable message.
@@ -3351,6 +3353,7 @@ func (m model) updateCommitPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.panel = panelMain
+		m.committing = true
 		return m, m.doCommit(message)
 
 	case "esc":
@@ -8320,6 +8323,9 @@ func buildCommandBarItems(enabled []bool) []string {
 }
 
 func (m model) commandBar() string {
+	if m.committing {
+		return styleDim.Render("  committing...") + "\n"
+	}
 	if m.pushing {
 		return styleDim.Render("  pushing...") + "\n"
 	}
