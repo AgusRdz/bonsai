@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.66.0] - 2026-05-18
+
+### Features
+- Show date, ahead/behind, gone, and merged status in branch list
+([c057d90](https://github.com/AgusRdz/bonsai/commit/c057d90f0aad71072609b8aaa6f1ea55ac0f3a39))
 ## [0.65.2] - 2026-05-18
 
 ### Performance
