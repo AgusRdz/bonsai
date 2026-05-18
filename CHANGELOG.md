@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.64.4] - 2026-05-18
+
+### Bug Fixes
+- Use Windows service query for ssh-agent check in bonsai doctor
+([dccb509](https://github.com/AgusRdz/bonsai/commit/dccb5099ac7ffca384f70a12c826fe0072774ef0))
 ## [0.64.3] - 2026-05-18
 
 ### Bug Fixes
