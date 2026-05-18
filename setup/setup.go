@@ -273,6 +273,67 @@ func wizard(local bool, existing *config.Config) (*config.Config, error) {
 		}
 	}
 
+	// --- overview ---
+	fmt.Println()
+	fmt.Println("overview panel (shown when working tree is clean):")
+	fmt.Println("  shows open PRs and recent commits - requires a PR provider (gh/glab/bb)")
+	overviewDefault := "y"
+	if local {
+		overviewDefault = "inherit"
+	}
+	if existing != nil && existing.Overview.Enabled != nil {
+		if *existing.Overview.Enabled {
+			overviewDefault = "y"
+		} else {
+			overviewDefault = "n"
+		}
+	}
+	overviewChoices := "[y/n]"
+	if local {
+		overviewChoices = "[y/n/inherit]"
+	}
+	overviewAnswer := ask(sc, "enable overview "+overviewChoices, overviewDefault)
+	switch overviewAnswer {
+	case "y", "yes":
+		t := true
+		cfg.Overview.Enabled = &t
+	case "n", "no":
+		f := false
+		cfg.Overview.Enabled = &f
+		// "inherit" or empty: leave nil so global config takes precedence
+	}
+
+	// --- PR merge method ---
+	fmt.Println()
+	fmt.Println("default PR merge method:")
+	fmt.Println("  1) always ask  show the picker every time")
+	fmt.Println("  2) merge       keep all commits, add a merge commit")
+	fmt.Println("  3) squash      squash into one commit on base branch")
+	fmt.Println("  4) rebase      rebase commits onto base branch")
+	if local {
+		fmt.Println("  5) inherit     use global setting")
+	}
+	mergeDefault := "1"
+	if local {
+		mergeDefault = "5"
+	}
+	if existing != nil {
+		mergeDefault = mergeMethodToNumber(existing.PR.MergeMethod, local)
+	}
+	mergeChoice := ask(sc, "choice", mergeDefault)
+	mergeMap := map[string]string{
+		"1": "",
+		"2": "merge",
+		"3": "squash",
+		"4": "rebase",
+		"5": "",
+	}
+	if v, ok := mergeMap[mergeChoice]; ok {
+		cfg.PR.MergeMethod = v
+	} else {
+		cfg.PR.MergeMethod = mergeMap[mergeDefault]
+	}
+
 	// Fill required fields that weren't set so config.Write produces valid TOML.
 	if !local {
 		if cfg.Modes.Default == "" {
@@ -405,6 +466,22 @@ func agentFormatToNumber(format string) string {
 	case "xml":
 		return "3"
 	default:
+		return "1"
+	}
+}
+
+func mergeMethodToNumber(method string, local bool) string {
+	switch method {
+	case "merge":
+		return "2"
+	case "squash":
+		return "3"
+	case "rebase":
+		return "4"
+	default: // "" = always ask
+		if local {
+			return "5"
+		}
 		return "1"
 	}
 }
