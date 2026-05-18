@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.65.2] - 2026-05-18
+
+### Performance
+- Reduce token usage in agent markdown output
+([2695142](https://github.com/AgusRdz/bonsai/commit/26951420a0e660024e5719f67ba4c6609440d8a3))
 ## [0.65.1] - 2026-05-18
 
 ### Features
