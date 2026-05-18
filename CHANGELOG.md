@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.65.1] - 2026-05-18
+
+### Features
+- Add --test flag to bonsai mcp --doctor for live end-to-end verification
+([a745bfc](https://github.com/AgusRdz/bonsai/commit/a745bfcf4d98180190acbf3c5348a19040e8ee47))
 ## [0.65.0] - 2026-05-18
 
 ### Features
