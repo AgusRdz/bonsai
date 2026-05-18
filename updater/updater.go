@@ -320,7 +320,8 @@ func CleanupStaleUpdate() {
 	if err != nil {
 		return
 	}
-	os.Remove(exe + ".tmp") // best-effort: remove a download that was interrupted
+	os.Remove(exe + ".tmp") // aborted download
+	os.Remove(exe + ".old") // legacy: left by pre-v0.66.1 updates on Windows
 }
 
 func hashFile(path string) (string, error) {
