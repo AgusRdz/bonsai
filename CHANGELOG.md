@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.64.7] - 2026-05-18
+
+### Bug Fixes
+- Resolve git config without --global so includeIf rules are honoured
+([b8ede62](https://github.com/AgusRdz/bonsai/commit/b8ede62748ba08ada4cd1ec67b0eb362f23707f6))
 ## [0.64.6] - 2026-05-18
 
 ### Bug Fixes
