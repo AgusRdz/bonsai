@@ -299,22 +299,13 @@ func parseChecksum(checksums, binaryName string) (string, error) {
 
 func replaceBinary(destPath, srcPath string) error {
 	if runtime.GOOS == "windows" {
-		// Windows allows renaming a running executable (Vista+) but not deleting it.
-		// We rename the current binary to .old, install the new one, then leave .old
-		// for cleanup on next startup via CleanupStaleUpdate.
-		oldPath := destPath + ".old"
-		os.Remove(oldPath) // best-effort: remove leftover from a previous update
-		if err := os.Rename(destPath, oldPath); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("could not move current binary: %w", err)
-		}
+		// On Windows you cannot rename a running executable away from its path,
+		// but MoveFileExW(MOVEFILE_REPLACE_EXISTING) — what os.Rename uses when
+		// the destination already exists — can atomically swap the directory entry
+		// without opening or moving the running file. Just rename new → old path.
 		if err := os.Rename(srcPath, destPath); err != nil {
-			if restoreErr := os.Rename(oldPath, destPath); restoreErr != nil {
-				fmt.Fprintf(os.Stderr, "bonsai: failed to restore backup: %v\n", restoreErr)
-				fmt.Fprintf(os.Stderr, "bonsai: manually rename %s to %s to recover\n", oldPath, destPath)
-			}
-			return err
+			return fmt.Errorf("could not replace binary: %w", err)
 		}
-		// .old stays until the process releases the handle; cleaned up by CleanupStaleUpdate
 		return nil
 	}
 	// Linux/macOS: os.Rename atomically replaces the path entry.
@@ -322,17 +313,14 @@ func replaceBinary(destPath, srcPath string) error {
 	return os.Rename(srcPath, destPath)
 }
 
-// CleanupStaleUpdate removes the .old binary left behind by a previous update on Windows.
+// CleanupStaleUpdate removes leftover temp files from a previous update attempt.
 // Call this at startup before doing anything else.
 func CleanupStaleUpdate() {
-	if runtime.GOOS != "windows" {
-		return
-	}
 	exe, err := os.Executable()
 	if err != nil {
 		return
 	}
-	os.Remove(exe + ".old") // silently ignore — may still be held if restarted immediately
+	os.Remove(exe + ".tmp") // best-effort: remove a download that was interrupted
 }
 
 func hashFile(path string) (string, error) {
