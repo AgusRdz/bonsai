@@ -2075,6 +2075,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.status != nil {
 			prevBranch = m.status.Branch
 		}
+		initialLoad := !m.ready
 		m.status = msg
 		m.files = buildFileList(msg)
 		if m.cursor >= len(m.files) {
@@ -2082,10 +2083,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.ready = true
 		m.err = nil
-		if msg.Branch != prevBranch {
+		branchChanged := msg.Branch != prevBranch
+		if branchChanged {
 			m.convPanelShown = false
 			m.overviewCursor = 0
 			m.overviewLogEntries = nil
+			m.prStatus = nil
 		}
 		if !m.convPanelShown && m.cfg.Conventions.Validation.Mode != "off" && len(m.cfg.Conventions.Branches) > 0 {
 			result := conventions.Validate(msg.Branch, m.cfg.Conventions)
@@ -2105,10 +2108,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.convViolation = nil
 			}
 		}
-		// Kick off a background PR fetch whenever status refreshes.
+		// Fetch PR status only on initial load or branch change, not every tick.
 		var cmds []tea.Cmd
-		if prCmd := m.fetchPRStatus(); prCmd != nil {
-			cmds = append(cmds, prCmd)
+		if initialLoad || branchChanged {
+			if prCmd := m.fetchPRStatus(); prCmd != nil {
+				cmds = append(cmds, prCmd)
+			}
 		}
 		// When working tree is clean, pre-fetch PRs and log for the overview.
 		if len(m.files) == 0 && config.OverviewEnabled(m.cfg) {
@@ -2132,6 +2137,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prListMsg:
 		if msg.err != nil {
 			m.prListErr = msg.err
+			m.prListItems = []pr.PRStatus{} // prevent nil-guard retrying on every tick
 		} else if msg.items == nil {
 			m.prListItems = []pr.PRStatus{}
 		} else {
