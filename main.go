@@ -221,6 +221,7 @@ MCP server:
   mcp --uninstall        remove bonsai MCP server configuration from AI tools
   mcp --doctor           check MCP config and explain where tools are accessible
   mcp --doctor --scan    also scan local skill files for missing bonsai tools
+  mcp --doctor --test    also run a live end-to-end test of the MCP server
   mcp                    start the MCP stdio server (used by AI tools internally)
 
 Agent / structured output:
@@ -1079,13 +1080,16 @@ func runMCP(args []string) {
 			}
 			return
 		case "--doctor":
-			scan := false
+			scan, test := false, false
 			for _, a := range args[1:] {
-				if a == "--scan" {
+				switch a {
+				case "--scan":
 					scan = true
+				case "--test":
+					test = true
 				}
 			}
-			mcp.Doctor(scan)
+			mcp.Doctor(scan, test)
 			return
 		}
 	}

@@ -2,11 +2,14 @@ package mcp
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 var allBonsaiMCPTools = []string{
@@ -22,8 +25,9 @@ var allBonsaiMCPTools = []string{
 }
 
 // Doctor checks MCP configuration status and explains where tools are accessible.
-// Pass scan=true to also walk local plugin directories for skill files that need updating.
-func Doctor(scan bool) {
+// scan=true walks local plugin directories for skill files that need updating.
+// test=true spawns the MCP server and verifies it responds correctly end-to-end.
+func Doctor(scan, test bool) {
 	stat, err := os.Stdout.Stat()
 	tty := err == nil && (stat.Mode()&os.ModeCharDevice) != 0
 
@@ -187,12 +191,140 @@ func Doctor(scan bool) {
 		}
 	}
 
+	// --- Live test ---
+	if test {
+		fmt.Println(bold("Live test"))
+		if binErr != nil {
+			fmt.Printf("  %s  skipped — bonsai binary not found\n", yellow("⚠"))
+		} else {
+			runMCPSelfTest(bonsaiExe, green, yellow, dim, pad)
+		}
+		fmt.Println()
+	}
+
 	// --- Summary ---
 	fmt.Printf("Summary: bonsai MCP configured in %d/%d applicable target(s)\n", configured, applicable)
 	if configured == 0 && applicable > 0 {
 		fmt.Println()
 		fmt.Println("  Run 'bonsai mcp --install' to configure.")
 	}
+}
+
+// runMCPSelfTest spawns bonsai mcp, sends real JSON-RPC requests, and reports results.
+func runMCPSelfTest(
+	bonsaiExe string,
+	green, yellow, dim func(string) string,
+	pad func(string, int) string,
+) {
+	cmd := exec.Command(bonsaiExe, "mcp")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		fmt.Printf("  %s  could not create stdin pipe: %v\n", yellow("⚠"), err)
+		return
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		fmt.Printf("  %s  could not create stdout pipe: %v\n", yellow("⚠"), err)
+		return
+	}
+	cmd.Stderr = io.Discard
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("  %s  could not start bonsai mcp: %v\n", yellow("⚠"), err)
+		return
+	}
+	defer func() {
+		stdin.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+
+	enc := json.NewEncoder(stdin)
+	dec := json.NewDecoder(stdout)
+
+	send := func(id int, method string, params any) (map[string]any, error) {
+		req := map[string]any{"jsonrpc": "2.0", "id": id, "method": method}
+		if params != nil {
+			req["params"] = params
+		}
+		if err := enc.Encode(req); err != nil {
+			return nil, err
+		}
+
+		done := make(chan struct{})
+		var resp map[string]any
+		var decErr error
+		go func() {
+			decErr = dec.Decode(&resp)
+			close(done)
+		}()
+		select {
+		case <-done:
+			return resp, decErr
+		case <-time.After(5 * time.Second):
+			return nil, fmt.Errorf("timeout")
+		}
+	}
+
+	check := func(label string, resp map[string]any, err error, validate func(map[string]any) string) {
+		l := pad(label, 28)
+		if err != nil {
+			fmt.Printf("  %s  %s  %v\n", yellow("⚠"), l, err)
+			return
+		}
+		if errField, ok := resp["error"]; ok {
+			fmt.Printf("  %s  %s  server error: %v\n", yellow("⚠"), l, errField)
+			return
+		}
+		result, _ := resp["result"].(map[string]any)
+		if result == nil {
+			fmt.Printf("  %s  %s  empty result\n", yellow("⚠"), l)
+			return
+		}
+		if note := validate(result); note != "" {
+			fmt.Printf("  %s  %s  %s\n", green("✓"), l, dim(note))
+		} else {
+			fmt.Printf("  %s  %s\n", green("✓"), l)
+		}
+	}
+
+	// initialize
+	resp, err := send(1, "initialize", map[string]any{
+		"protocolVersion": "2024-11-05",
+		"clientInfo":      map[string]any{"name": "bonsai-doctor", "version": "0"},
+	})
+	check("initialize", resp, err, func(r map[string]any) string {
+		if info, ok := r["serverInfo"].(map[string]any); ok {
+			if v, ok := info["version"].(string); ok {
+				return "server version " + v
+			}
+		}
+		return ""
+	})
+
+	// tools/list
+	resp, err = send(2, "tools/list", nil)
+	check("tools/list", resp, err, func(r map[string]any) string {
+		tools, _ := r["tools"].([]any)
+		return fmt.Sprintf("%d tools registered", len(tools))
+	})
+
+	// git_status (smoke test — works inside or outside a git repo)
+	resp, err = send(3, "tools/call", map[string]any{
+		"name":      "git_status",
+		"arguments": map[string]any{},
+	})
+	check("tools/call git_status", resp, err, func(r map[string]any) string {
+		content, _ := r["content"].([]any)
+		if len(content) > 0 {
+			if item, ok := content[0].(map[string]any); ok {
+				if text, ok := item["text"].(string); ok && len(text) > 0 {
+					lines := strings.Count(text, "\n") + 1
+					return fmt.Sprintf("returned %d lines", lines)
+				}
+			}
+		}
+		return "returned content"
+	})
 }
 
 // isBonsaiInConfig reports whether a JSON config file has a bonsai mcpServers entry.
