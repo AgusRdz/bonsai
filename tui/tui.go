@@ -2111,7 +2111,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, prCmd)
 		}
 		// When working tree is clean, pre-fetch PRs and log for the overview.
-		if len(m.files) == 0 {
+		if len(m.files) == 0 && config.OverviewEnabled(m.cfg) {
 			if m.prProvider != nil && m.prListItems == nil {
 				m.prListLoading = true
 				cmds = append(cmds, m.fetchPRList())
@@ -2868,7 +2868,7 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "up", "k":
-		if len(m.files) == 0 {
+		if len(m.files) == 0 && config.OverviewEnabled(m.cfg) {
 			if m.overviewCursor > 0 {
 				m.overviewCursor--
 			}
@@ -2877,7 +2877,7 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "down", "j":
-		if len(m.files) == 0 {
+		if len(m.files) == 0 && config.OverviewEnabled(m.cfg) {
 			if m.overviewCursor < len(m.prListItems)-1 {
 				m.overviewCursor++
 			}
@@ -2900,7 +2900,7 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case " ", "enter":
 		if len(m.files) == 0 {
-			if len(m.prListItems) > 0 {
+			if config.OverviewEnabled(m.cfg) && len(m.prListItems) > 0 {
 				m.prListCursor = m.overviewCursor
 				m.panel = panelPRDetail
 			}
@@ -5589,7 +5589,9 @@ func (m model) mainView() string {
 
 		if len(m.files) == 0 {
 			b.WriteString("  " + styleDim.Render("nothing to commit, working tree clean") + "\n\n")
-			m.renderOverview(&b)
+			if config.OverviewEnabled(m.cfg) {
+				m.renderOverview(&b)
+			}
 		}
 		b.WriteString("\n")
 	}
@@ -9142,9 +9144,24 @@ func (m model) updatePRDetailPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.prReviewInput = ti
 		m.panel = panelPRReview
 	case "m":
-		if _, ok := m.prProvider.(pr.PRMerger); !ok {
+		merger, ok := m.prProvider.(pr.PRMerger)
+		if !ok {
 			m.actionErr = fmt.Errorf("this provider does not support merging PRs")
 			break
+		}
+		if method := m.cfg.PR.MergeMethod; method != "" {
+			num := item.Number
+			return m, func() tea.Msg {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				err := merger.MergePR(ctx, num, method)
+				cmd := fmt.Sprintf("pr merge #%d --%s", num, method)
+				info := ""
+				if err == nil {
+					info = fmt.Sprintf("merged PR #%d (%s)", num, method)
+				}
+				return prMergeResultMsg{cmd: cmd, info: info, err: err}
+			}
 		}
 		m.prMergeNumber = item.Number
 		m.prMergeCursor = 0
@@ -9207,7 +9224,11 @@ func (m model) prDetailView() string {
 		content += strings.Repeat("\n", pad)
 	}
 
-	hints := "  [o] open browser  [d] diff  [a] approve  [A] req changes  [c] comment  [m] merge  [y] copy URL  [esc] back"
+	mergeHint := "[m] merge"
+	if m.cfg.PR.MergeMethod != "" {
+		mergeHint = fmt.Sprintf("[m] merge (%s)", m.cfg.PR.MergeMethod)
+	}
+	hints := fmt.Sprintf("  [o] open browser  [d] diff  [a] approve  [A] req changes  [c] comment  %s  [y] copy URL  [esc] back", mergeHint)
 	return content + styleDim.Render(hints) + "\n"
 }
 

@@ -29,6 +29,23 @@ type Config struct {
 	Signing     SigningConfig     `toml:"signing"`
 	Dashboard   DashboardConfig   `toml:"dashboard"`
 	Agent       AgentConfig       `toml:"agent"`
+	Overview    OverviewConfig    `toml:"overview"`
+	PR          PRConfig          `toml:"pr"`
+}
+
+// OverviewConfig controls the clean-tree overview panel.
+type OverviewConfig struct {
+	// Enabled shows open PRs and recent commits when the working tree is clean.
+	// Defaults to true when a PR provider is configured.
+	Enabled *bool `toml:"enabled"`
+}
+
+// PRConfig holds pull-request workflow preferences.
+type PRConfig struct {
+	// MergeMethod sets the default merge strategy: "merge", "squash", or "rebase".
+	// When set, the merge picker is skipped and this method is used directly.
+	// Leave empty to always show the picker.
+	MergeMethod string `toml:"merge_method"`
 }
 
 // AgentConfig controls structured JSON output for AI agent consumption.
@@ -247,7 +264,20 @@ func validate(cfg *Config) error {
 	if !validValidation[cfg.Conventions.Validation.Mode] {
 		return fmt.Errorf("config: conventions.validation.mode must be strict, warn, or off (got %q)", cfg.Conventions.Validation.Mode)
 	}
+	validMerge := map[string]bool{"": true, "merge": true, "squash": true, "rebase": true}
+	if !validMerge[cfg.PR.MergeMethod] {
+		return fmt.Errorf("config: pr.merge_method must be merge, squash, or rebase (got %q)", cfg.PR.MergeMethod)
+	}
 	return nil
+}
+
+// OverviewEnabled returns true when the clean-tree overview should be shown.
+// Defaults to true (opt-out).
+func OverviewEnabled(cfg *Config) bool {
+	if cfg == nil || cfg.Overview.Enabled == nil {
+		return true
+	}
+	return *cfg.Overview.Enabled
 }
 
 // ResolveEditor returns the editor command to use, checking cfg.Editor.Command,
