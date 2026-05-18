@@ -217,9 +217,11 @@ Commands:
   lfs --install     install lfs hooks into this repository
 
 MCP server:
-  mcp --install     detect AI tools and configure bonsai as an MCP server
-  mcp --uninstall   remove bonsai MCP server configuration from AI tools
-  mcp               start the MCP stdio server (used by AI tools internally)
+  mcp --install          detect AI tools and configure bonsai as an MCP server
+  mcp --uninstall        remove bonsai MCP server configuration from AI tools
+  mcp --doctor           check MCP config and explain where tools are accessible
+  mcp --doctor --scan    also scan local skill files for missing bonsai tools
+  mcp                    start the MCP stdio server (used by AI tools internally)
 
 Agent / structured output:
   context           full repo snapshot: status + diff + recent commits
@@ -1075,6 +1077,15 @@ func runMCP(args []string) {
 				fmt.Fprintln(os.Stderr, "bonsai mcp --uninstall:", err)
 				os.Exit(1)
 			}
+			return
+		case "--doctor":
+			scan := false
+			for _, a := range args[1:] {
+				if a == "--scan" {
+					scan = true
+				}
+			}
+			mcp.Doctor(scan)
 			return
 		}
 	}

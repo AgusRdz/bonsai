@@ -365,7 +365,7 @@ func printManualConfig(bonsaiCmd string) {
 	fmt.Println()
 	fmt.Println("Common config file locations:")
 	fmt.Println("  Claude Code (project)  .mcp.json  in your project root")
-	fmt.Println("  Claude Code (user)     ~/.claude/settings.json")
+	fmt.Println("  Claude Code (user)     ~/.claude.json")
 	fmt.Println("  Claude Desktop (mac)   ~/Library/Application Support/Claude/claude_desktop_config.json")
 	fmt.Println("  Cursor (project)       .cursor/mcp.json  in your project root")
 	fmt.Println("  Windsurf               ~/.windsurf/mcp.json")
