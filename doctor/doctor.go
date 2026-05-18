@@ -663,17 +663,16 @@ func checkSSHKey() Check {
 const explainSSHAgent = "ssh-agent holds your decrypted key in memory so you do not have to type your passphrase on every push. Without it, git prompts for your passphrase each time."
 
 func checkSSHAgent() Check {
+	if runtime.GOOS == "windows" {
+		return checkSSHAgentWindows()
+	}
 	sock := os.Getenv("SSH_AUTH_SOCK")
 	if sock == "" {
-		fix := "run: eval $(ssh-agent -s) && ssh-add"
-		if runtime.GOOS == "windows" {
-			fix = "run (PowerShell admin): Set-Service ssh-agent -StartupType Automatic; Start-Service ssh-agent; ssh-add"
-		}
 		return Check{
 			Level:   Warn,
 			Label:   "ssh-agent",
 			Message: "SSH_AUTH_SOCK not set - ssh-agent may not be running",
-			Fix:     fix,
+			Fix:     "run: eval $(ssh-agent -s) && ssh-add",
 			Explain: explainSSHAgent,
 		}
 	}
@@ -690,20 +689,59 @@ func checkSSHAgent() Check {
 				Explain: explainSSHAgent,
 			}
 		}
-		fix := "run: eval $(ssh-agent -s) && ssh-add"
-		if runtime.GOOS == "windows" {
-			fix = "run (PowerShell admin): Set-Service ssh-agent -StartupType Automatic; Start-Service ssh-agent; ssh-add"
-		}
 		return Check{
 			Level:   Warn,
 			Label:   "ssh-agent",
 			Message: "agent socket found but not responding",
-			Fix:     fix,
+			Fix:     "run: eval $(ssh-agent -s) && ssh-add",
 			Explain: explainSSHAgent,
 		}
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	return Check{Level: OK, Label: "ssh-agent", Message: fmt.Sprintf("%d key(s) loaded", len(lines)), Explain: explainSSHAgent}
+}
+
+// checkSSHAgentWindows checks the OpenSSH Authentication Agent Windows service
+// and gives targeted advice based on its actual state.
+func checkSSHAgentWindows() Check {
+	out, err := exec.Command("sc", "query", "ssh-agent").CombinedOutput()
+	if err != nil {
+		// Service not found — OpenSSH client may not be installed.
+		return Check{
+			Level:   Warn,
+			Label:   "ssh-agent",
+			Message: "OpenSSH Authentication Agent service not found",
+			Fix:     "install via: Settings > Apps > Optional Features > Add a feature > OpenSSH Client",
+			Explain: explainSSHAgent,
+		}
+	}
+	status := strings.ToUpper(string(out))
+	if strings.Contains(status, "RUNNING") {
+		// Service is up — check whether ssh-add can reach it.
+		addOut, addErr := exec.Command("ssh-add", "-l").CombinedOutput()
+		if addErr != nil {
+			msg := strings.TrimSpace(string(addOut))
+			if strings.Contains(msg, "no identities") {
+				return Check{
+					Level:   Warn,
+					Label:   "ssh-agent",
+					Message: "agent running but no keys loaded",
+					Fix:     "run: ssh-add ~/.ssh/id_ed25519",
+					Explain: explainSSHAgent,
+				}
+			}
+		}
+		lines := strings.Split(strings.TrimSpace(string(addOut)), "\n")
+		return Check{Level: OK, Label: "ssh-agent", Message: fmt.Sprintf("%d key(s) loaded", len(lines)), Explain: explainSSHAgent}
+	}
+	// Service exists but is not running — needs an admin PowerShell once.
+	return Check{
+		Level:   Warn,
+		Label:   "ssh-agent",
+		Message: "OpenSSH Authentication Agent service is not running",
+		Fix:     "in an elevated PowerShell: Set-Service ssh-agent -StartupType Automatic; Start-Service ssh-agent\nthen run: ssh-add",
+		Explain: explainSSHAgent,
+	}
 }
 
 // ParseSSHHost extracts the hostname from a git remote URL when it uses the
