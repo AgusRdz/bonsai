@@ -2,60 +2,76 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.64.2] - 2026-05-18
+
+### Bug Fixes
+- Stop polling remote PR status on every auto-refresh tick
+([52c4169](https://github.com/AgusRdz/bonsai/commit/52c41694c6f80cda0360d764e989df1797882208))
+## [0.64.1] - 2026-05-18
+
+### Bug Fixes
+- Panic in PR detail panel when list becomes empty after merge
+([844ce23](https://github.com/AgusRdz/bonsai/commit/844ce23c2dc766c115abde9dd992cacad15bce19))
+## [0.64.0] - 2026-05-18
+
+### Features
+- Add overview and PR merge method questions to setup wizard
+([0b64c72](https://github.com/AgusRdz/bonsai/commit/0b64c72ab0b89c6d224e29a4b0f2f61e2cf3c534))
+## [0.63.0] - 2026-05-18
+
+### Features
+- Add overview.enabled and pr.merge_method config options
+([1831132](https://github.com/AgusRdz/bonsai/commit/18311327cc947174f82c8c3bf57aa308efcca6fc))
+## [0.62.0] - 2026-05-18
+
+### Features
+- Show open PRs and recent commits when working tree is clean
+([c6e7bc5](https://github.com/AgusRdz/bonsai/commit/c6e7bc51ae5816588abb64199fb0dae39281746d))
+## [0.61.0] - 2026-05-17
+
+### Bug Fixes
+- Move PR review/merge actions from list to detail panel only
+([7ffb693](https://github.com/AgusRdz/bonsai/commit/7ffb69312e5803825063618751e1e28ca6eb32f9))
 ## [0.60.5] - 2026-05-17
 
 ### Bug Fixes
-- PR create: auto-push branch with --set-upstream before calling gh pr create when no upstream is configured
-([e2f6137](https://github.com/AgusRdz/bonsai/commit/e2f6137))
-- PR create form: restore cursor focus on title field after async prefill arrives
-([e2f6137](https://github.com/AgusRdz/bonsai/commit/e2f6137))
-
+- Push branch before PR create if no upstream; restore focus after prefill
+([e2f6137](https://github.com/AgusRdz/bonsai/commit/e2f6137c3fd1ffbcc088912231bc614b1e2ef6f1))
 ## [0.60.4] - 2026-05-17
 
 ### Documentation
-- Add missing keybindings to all docs: K (PR panel), I (issues), U (undo), u (untrack), F (gitflow finish), SSH/LFS/Dashboard panels
-([dd0a3b5](https://github.com/AgusRdz/bonsai/commit/dd0a3b5))
-
+- Add missing keybindings (K, I, U, u, F, SSH, LFS, Dashboard) to all docs
+([dd0a3b5](https://github.com/AgusRdz/bonsai/commit/dd0a3b5437f0c9afb560567f3de2f3b27c00a8c2))
 ## [0.60.3] - 2026-05-17
 
 ### Bug Fixes
-- PR list no longer stuck on loading after merge or create
-([970b4b0](https://github.com/AgusRdz/bonsai/commit/970b4b0))
-
+- Refresh PR list after merge and create so loading state clears
+([970b4b0](https://github.com/AgusRdz/bonsai/commit/970b4b09fd9511ec253912daada6ba19cb122922))
 ## [0.60.2] - 2026-05-17
 
 ### Documentation
-- Update PR panel keybindings and add Pull requests section to tui-guide
-([51f2cb2](https://github.com/AgusRdz/bonsai/commit/51f2cb2))
-
+- Update PR panel keybindings and add PR section to tui-guide
+([51f2cb2](https://github.com/AgusRdz/bonsai/commit/51f2cb223a898a8fd566208521cfb268f74922ac))
 ## [0.60.1] - 2026-05-17
 
 ### Features
-- enter in PR list opens inline detail view (state, CI, labels, reviewers, assignees, URL); o opens browser
-([5b712b4](https://github.com/AgusRdz/bonsai/commit/5b712b4))
-
+- Enter opens PR detail panel; o opens browser
+([5b712b4](https://github.com/AgusRdz/bonsai/commit/5b712b46634296a0594b1fed17f3fce99bf0b60a))
 ## [0.60.0] - 2026-05-17
 
 ### Features
-- PR merge picker in PR panel: press m to choose merge / squash / rebase; deletes source branch automatically
-([9933507](https://github.com/AgusRdz/bonsai/commit/9933507))
-
+- Add PR merge picker in PR panel (merge / squash / rebase)
+([9933507](https://github.com/AgusRdz/bonsai/commit/993350767403820a01c58a675f6f97b045054aa2))
 ## [0.59.0] - 2026-05-17
 
 ### Features
-- Full PR creation form in TUI: title (pre-filled from HEAD commit), description textarea, and base branch input; Tab cycles fields, ctrl+s submits
-([9332c32](https://github.com/AgusRdz/bonsai/commit/9332c32))
-
-### Bug Fixes
-- Approve (a) in PR panel now shows the real error from gh/glab/bb instead of "exit status 1"
-([9332c32](https://github.com/AgusRdz/bonsai/commit/9332c32))
-
+- Full PR creation form in TUI with title, description, and base branch
+([9332c32](https://github.com/AgusRdz/bonsai/commit/9332c324cfbc9f276c67f9f3b716f4309c04b443))
 ## [0.58.2] - 2026-05-17
 
 ### Bug Fixes
 - Open browser for PR creation instead of running interactive gh/glab/bb CLI
-([1aafa05](https://github.com/AgusRdz/bonsai/commit/1aafa05))
-
+([1aafa05](https://github.com/AgusRdz/bonsai/commit/1aafa056a93a3f419cedd8f4bd6cbc0d80e9dceb))
 ## [0.58.1] - 2026-05-17
 
 ### Bug Fixes

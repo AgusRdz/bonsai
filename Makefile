@@ -97,7 +97,7 @@ release-patch:
 	$(GIT_CLIFF) --tag $$NEXT --output CHANGELOG.md && \
 	git add CHANGELOG.md && \
 	git commit -m "chore: update changelog for $$NEXT" && \
-	git tag $$NEXT && \
+	git tag -a $$NEXT -m $$NEXT && \
 	{ git push origin HEAD $$NEXT && echo "released $$NEXT"; } || { git tag -d $$NEXT; git reset --soft HEAD~1; echo "push failed — tag and commit rolled back"; exit 1; }
 
 release-minor:
@@ -106,7 +106,7 @@ release-minor:
 	$(GIT_CLIFF) --tag $$NEXT --output CHANGELOG.md && \
 	git add CHANGELOG.md && \
 	git commit -m "chore: update changelog for $$NEXT" && \
-	git tag $$NEXT && \
+	git tag -a $$NEXT -m $$NEXT && \
 	{ git push origin HEAD $$NEXT && echo "released $$NEXT"; } || { git tag -d $$NEXT; git reset --soft HEAD~1; echo "push failed — tag and commit rolled back"; exit 1; }
 
 release-major:
@@ -115,5 +115,5 @@ release-major:
 	$(GIT_CLIFF) --tag $$NEXT --output CHANGELOG.md && \
 	git add CHANGELOG.md && \
 	git commit -m "chore: update changelog for $$NEXT" && \
-	git tag $$NEXT && \
+	git tag -a $$NEXT -m $$NEXT && \
 	{ git push origin HEAD $$NEXT && echo "released $$NEXT"; } || { git tag -d $$NEXT; git reset --soft HEAD~1; echo "push failed — tag and commit rolled back"; exit 1; }
