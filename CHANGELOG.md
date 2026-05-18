@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.66.2] - 2026-05-18
+
+### Bug Fixes
+- Clean up legacy .old files left by pre-v0.66.1 updater on Windows
+([8eb4039](https://github.com/AgusRdz/bonsai/commit/8eb4039707e3da44de8d5cb691bfd6a8e155ca35))
 ## [0.66.1] - 2026-05-18
 
 ### Bug Fixes
