@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.64.10] - 2026-05-18
+
+### Bug Fixes
+- Use 30s timeout for commits to avoid killing slow pre-commit hooks
+([1075a64](https://github.com/AgusRdz/bonsai/commit/1075a647ec45c560c1b89f1387ed2508eb2602dc))
 ## [0.64.9] - 2026-05-18
 
 ### Bug Fixes
