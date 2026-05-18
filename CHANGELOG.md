@@ -7,6 +7,8 @@ All notable changes to bonsai are documented here.
 ### Bug Fixes
 - Stop polling remote PR status on every auto-refresh tick
 ([52c4169](https://github.com/AgusRdz/bonsai/commit/52c41694c6f80cda0360d764e989df1797882208))
+- Use annotated tags in release targets for gpgsign compatibility
+([ff60dea](https://github.com/AgusRdz/bonsai/commit/ff60dea76184681010ecbab4c208c3d8204d5fe6))
 ## [0.64.1] - 2026-05-18
 
 ### Bug Fixes
