@@ -485,6 +485,10 @@ type model struct {
 	prCreateBaseInput  textinput.Model
 	prCreateField      int // 0=title 1=body 2=base
 
+	// overview (shown when working tree is clean)
+	overviewCursor     int
+	overviewLogEntries []git.LogEntry
+
 	// pr merge picker
 	prMergeNumber int
 	prMergeCursor int // 0=merge 1=squash 2=rebase
@@ -654,6 +658,8 @@ type prMergeResultMsg struct {
 	info string
 	err  error
 }
+
+type overviewLogMsg []git.LogEntry
 
 type tickMsg time.Time
 
@@ -2078,6 +2084,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		if msg.Branch != prevBranch {
 			m.convPanelShown = false
+			m.overviewCursor = 0
+			m.overviewLogEntries = nil
 		}
 		if !m.convPanelShown && m.cfg.Conventions.Validation.Mode != "off" && len(m.cfg.Conventions.Branches) > 0 {
 			result := conventions.Validate(msg.Branch, m.cfg.Conventions)
@@ -2098,8 +2106,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// Kick off a background PR fetch whenever status refreshes.
+		var cmds []tea.Cmd
 		if prCmd := m.fetchPRStatus(); prCmd != nil {
-			return m, prCmd
+			cmds = append(cmds, prCmd)
+		}
+		// When working tree is clean, pre-fetch PRs and log for the overview.
+		if len(m.files) == 0 {
+			if m.prProvider != nil && m.prListItems == nil {
+				m.prListLoading = true
+				cmds = append(cmds, m.fetchPRList())
+			}
+			if m.overviewLogEntries == nil {
+				cmds = append(cmds, m.fetchOverviewLog())
+			}
+		}
+		if len(cmds) > 0 {
+			return m, tea.Batch(cmds...)
 		}
 
 	case prStatusMsg:
@@ -2146,6 +2168,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.initFromNoRepo = true
 			m.panel = panelInit
 		}
+
+	case overviewLogMsg:
+		m.overviewLogEntries = []git.LogEntry(msg)
 
 	case logPageMsg:
 		if msg.append {
@@ -2843,12 +2868,20 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "up", "k":
-		if m.cursor > 0 {
+		if len(m.files) == 0 {
+			if m.overviewCursor > 0 {
+				m.overviewCursor--
+			}
+		} else if m.cursor > 0 {
 			m.cursor--
 		}
 
 	case "down", "j":
-		if m.cursor < len(m.files)-1 {
+		if len(m.files) == 0 {
+			if m.overviewCursor < len(m.prListItems)-1 {
+				m.overviewCursor++
+			}
+		} else if m.cursor < len(m.files)-1 {
 			m.cursor++
 		}
 
@@ -2867,6 +2900,10 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case " ", "enter":
 		if len(m.files) == 0 {
+			if len(m.prListItems) > 0 {
+				m.prListCursor = m.overviewCursor
+				m.panel = panelPRDetail
+			}
 			break
 		}
 		f := m.files[m.cursor]
@@ -5551,7 +5588,8 @@ func (m model) mainView() string {
 		m.renderSection(&b, "Untracked", m.status.Untracked, catUntracked, styleUntracked)
 
 		if len(m.files) == 0 {
-			b.WriteString("  " + styleDim.Render("nothing to commit, working tree clean") + "\n")
+			b.WriteString("  " + styleDim.Render("nothing to commit, working tree clean") + "\n\n")
+			m.renderOverview(&b)
 		}
 		b.WriteString("\n")
 	}
@@ -5633,6 +5671,51 @@ func (m model) renderSection(b *strings.Builder, title string, entries []git.Fil
 		b.WriteString(cursor + "  " + style.Render(fileCode(f, cat)+"  "+f.Path) + "\n")
 	}
 	b.WriteString("\n")
+}
+
+func (m model) renderOverview(b *strings.Builder) {
+	if m.prProvider == nil {
+		return
+	}
+	if m.prListLoading {
+		b.WriteString("  " + styleDim.Render("Open PRs") + "\n")
+		b.WriteString("  " + styleDim.Render("  loading...") + "\n\n")
+	} else if len(m.prListItems) > 0 {
+		b.WriteString("  " + styleSection.Render(fmt.Sprintf("Open PRs (%d)", len(m.prListItems))) + "\n")
+		for i, item := range m.prListItems {
+			cursor := "  "
+			if i == m.overviewCursor {
+				cursor = styleSelected.Render(">>")
+			}
+			ci := ""
+			switch item.CI {
+			case "success":
+				ci = styleStaged.Render(" ✓")
+			case "failure":
+				ci = styleConflict.Render(" ✗")
+			case "pending":
+				ci = styleChanged.Render(" ●")
+			}
+			state := ""
+			if item.Draft {
+				state = styleDim.Render(" [draft]")
+			}
+			line := fmt.Sprintf("#%d  %s", item.Number, item.Title)
+			b.WriteString(cursor + "  " + styleDim.Render(line) + ci + state + "\n")
+		}
+		b.WriteString("\n")
+	}
+	if len(m.overviewLogEntries) > 0 {
+		b.WriteString("  " + styleSection.Render("Recent commits") + "\n")
+		for _, e := range m.overviewLogEntries {
+			hash := e.Hash
+			if len(hash) > 7 {
+				hash = hash[:7]
+			}
+			b.WriteString("     " + styleDim.Render(hash+"  "+e.Line) + "\n")
+		}
+		b.WriteString("\n")
+	}
 }
 
 func (m model) commitView() string {
@@ -8155,6 +8238,9 @@ func contextTip(m model) string {
 			return fmt.Sprintf("tip: %d commit(s) ready - press [p] to push to remote", s.Ahead)
 		}
 	default:
+		if m.prProvider != nil && len(m.prListItems) > 0 {
+			return "tip: [↑↓] select PR  [enter] open detail  [K] full list  [l] log"
+		}
 		return "tip: working tree is clean - edit a file to get started"
 	}
 }
@@ -9427,6 +9513,20 @@ func (m model) fetchPRStatus() tea.Cmd {
 		defer cancel()
 		s, err := prov.CurrentPR(ctx, branch)
 		return prStatusMsg{status: s, err: err}
+	}
+}
+
+// fetchOverviewLog fetches the 5 most recent commits for the clean-tree overview.
+func (m model) fetchOverviewLog() tea.Cmd {
+	g := m.git
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		entries, err := g.Log(ctx, 5)
+		if err != nil {
+			return overviewLogMsg(nil)
+		}
+		return overviewLogMsg(entries)
 	}
 }
 
