@@ -363,10 +363,17 @@ func checkEditor() Check {
 	if v := gitConfig("core.editor"); v != "" {
 		return Check{Level: OK, Label: "core.editor", Message: "using " + v, Explain: explainEditor}
 	}
+	fix := `run: git config --global core.editor "nano"`
+	if runtime.GOOS == "windows" {
+		fix = `run: git config --global core.editor "code --wait"`
+	} else if runtime.GOOS == "darwin" {
+		fix = `run: git config --global core.editor "nano"  # or: code --wait, vim, etc.`
+	}
 	return Check{
 		Level:   Warn,
 		Label:   "core.editor",
 		Message: "using vi (set VISUAL, EDITOR, or core.editor)",
+		Fix:     fix,
 		Explain: explainEditor,
 	}
 }
