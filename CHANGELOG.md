@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.64.6] - 2026-05-18
+
+### Bug Fixes
+- Suggest plain ssh-add (no path) to handle multiple keys correctly
+([49419ed](https://github.com/AgusRdz/bonsai/commit/49419eda00779b415ed59e90a877b0dbc6573f7a))
 ## [0.64.5] - 2026-05-18
 
 ### Bug Fixes
