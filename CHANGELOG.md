@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.65.0] - 2026-05-18
+
+### Features
+- Add bonsai mcp --doctor to diagnose MCP config and agent compatibility
+([a73da6a](https://github.com/AgusRdz/bonsai/commit/a73da6aec46f2b57c46d3eb30c6bfeff84cc493c))
 ## [0.64.13] - 2026-05-18
 
 ### Bug Fixes
