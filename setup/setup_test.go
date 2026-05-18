@@ -1,6 +1,10 @@
 package setup
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/AgusRdz/bonsai/config"
+)
 
 func TestBuildExample(t *testing.T) {
 	if got := buildExample("feat/", "login-oauth"); got != "feat/login-oauth" {
@@ -64,6 +68,43 @@ func TestGithubflowDefaults(t *testing.T) {
 		if d.prefix == "" {
 			t.Errorf("branch type %q has empty prefix", d.name)
 		}
+	}
+}
+
+func TestBuildExampleWithTicket(t *testing.T) {
+	cases := []struct {
+		prefix, key, suffix, want string
+	}{
+		{"feat/", "RES", "login-oauth", "feat/RES-123-login-oauth"},
+		{"fix/", "PROJ", "crash", "fix/PROJ-123-crash"},
+		{"feat/", "", "login-oauth", "feat/login-oauth"},
+		{"chore/", "", "update-deps", "chore/update-deps"},
+	}
+	for _, c := range cases {
+		if got := buildExampleWithTicket(c.prefix, c.key, c.suffix); got != c.want {
+			t.Errorf("buildExampleWithTicket(%q,%q,%q) = %q, want %q", c.prefix, c.key, c.suffix, got, c.want)
+		}
+	}
+}
+
+func TestBuildPatternWithTicket(t *testing.T) {
+	if got := buildPatternWithTicket("feat/", "RES"); got != "feat/RES-{number}-{description}" {
+		t.Errorf("got %q", got)
+	}
+	if got := buildPatternWithTicket("feat/", ""); got != "feat/{description}" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestInferTicketKey(t *testing.T) {
+	branches := map[string]config.BranchRule{
+		"feature": {Prefix: "feat/", Example: "feat/RES-123-login-oauth"},
+	}
+	if got := inferTicketKey(branches); got != "RES" {
+		t.Errorf("inferTicketKey = %q, want RES", got)
+	}
+	if got := inferTicketKey(map[string]config.BranchRule{}); got != "" {
+		t.Errorf("inferTicketKey(empty) = %q, want empty", got)
 	}
 }
 

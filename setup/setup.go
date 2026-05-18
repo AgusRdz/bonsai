@@ -103,9 +103,28 @@ func wizard(local bool, existing *config.Config) (*config.Config, error) {
 		cfg.Flow.Type = flowMap[flowDefault]
 	}
 
+	// --- ticket IDs ---
+	fmt.Println()
+	fmt.Println("ticket IDs in branch names:")
+	fmt.Println("  if your team includes a ticket reference, e.g.")
+	fmt.Println("    feat/RES-123-login-oauth")
+	fmt.Println("    fix/PROJ-456-crash-on-login")
+	fmt.Println("  enter your project key (e.g. RES, PROJ, APP).")
+	fmt.Println("  leave empty to skip.")
+	ticketKey := ""
+	if existing != nil {
+		ticketKey = inferTicketKey(existing.Conventions.Branches)
+	}
+	ticketKey = ask(sc, "project key (e.g. RES, PROJ)", ticketKey)
+
 	// --- branch prefixes ---
 	fmt.Println()
-	fmt.Println("branch prefixes (press enter to keep the shown default):")
+	if ticketKey != "" {
+		fmt.Printf("branch types — your format: {prefix}%s-{number}-{description}\n", ticketKey)
+	} else {
+		fmt.Println("branch types — your format: {prefix}{description}")
+	}
+	fmt.Println("press enter to keep the shown default:")
 	cfg.Conventions.Branches = make(map[string]config.BranchRule)
 
 	var types []branchDef
@@ -131,45 +150,98 @@ func wizard(local bool, existing *config.Config) (*config.Config, error) {
 					prefix = rule.Prefix
 				}
 			}
-			val := ask(sc, fmt.Sprintf("  %-8s prefix", t.name), prefix)
+			fmt.Printf("  %-10s → e.g. %s\n", t.name, buildExampleWithTicket(prefix, ticketKey, t.example))
+			val := ask(sc, fmt.Sprintf("  %-10s prefix", t.name), prefix)
 			if val != "" {
 				cfg.Conventions.Branches[t.name] = config.BranchRule{
 					Prefix:  val,
-					Example: buildExample(val, t.example),
+					Pattern: buildPatternWithTicket(val, ticketKey),
+					Example: buildExampleWithTicket(val, ticketKey, t.example),
 				}
 			}
 		}
 
-		// custom types - include any existing branches not in the default set
+		// --- common extra types (conventional commits style) ---
 		fmt.Println()
-		fmt.Println("additional branch types? (e.g. chore, docs - leave empty to skip)")
-		if existing != nil {
-			knownTypes := make(map[string]bool)
-			for _, t := range types {
-				knownTypes[t.name] = true
+		fmt.Println("extra branch types (conventional commits):")
+		fmt.Println("  enable the ones your team uses [y/n]:")
+		commonExtras := []branchDef{
+			{name: "chore", prefix: "chore/", example: "update-deps"},
+			{name: "refactor", prefix: "refactor/", example: "extract-auth-service"},
+			{name: "test", prefix: "test/", example: "add-login-tests"},
+			{name: "docs", prefix: "docs/", example: "update-readme"},
+			{name: "ci", prefix: "ci/", example: "add-ci-pipeline"},
+		}
+		knownTypes := make(map[string]bool)
+		for _, t := range types {
+			knownTypes[t.name] = true
+		}
+		for _, t := range commonExtras {
+			if knownTypes[t.name] {
+				continue
 			}
-			for name, rule := range existing.Conventions.Branches {
-				if knownTypes[name] {
-					continue
+			defaultAnswer := "n"
+			defaultPrefix := t.prefix
+			if existing != nil {
+				if rule, ok := existing.Conventions.Branches[t.name]; ok && rule.Prefix != "" {
+					defaultAnswer = "y"
+					defaultPrefix = rule.Prefix
 				}
-				prefix := ask(sc, fmt.Sprintf("  %-8s prefix", name), rule.Prefix)
+			}
+			fmt.Printf("  %-10s → e.g. %s\n", t.name, buildExampleWithTicket(defaultPrefix, ticketKey, t.example))
+			answer := ask(sc, fmt.Sprintf("  enable %-10s [y/n]", t.name), defaultAnswer)
+			if answer == "y" || answer == "yes" {
+				prefix := ask(sc, fmt.Sprintf("    prefix"), defaultPrefix)
 				if prefix != "" {
-					cfg.Conventions.Branches[name] = config.BranchRule{
+					cfg.Conventions.Branches[t.name] = config.BranchRule{
 						Prefix:  prefix,
-						Example: buildExample(prefix, "description"),
+						Pattern: buildPatternWithTicket(prefix, ticketKey),
+						Example: buildExampleWithTicket(prefix, ticketKey, t.example),
 					}
 				}
 			}
 		}
+
+		// existing custom types not in the standard or common set
+		if existing != nil {
+			allKnown := make(map[string]bool)
+			for _, t := range types {
+				allKnown[t.name] = true
+			}
+			for _, t := range commonExtras {
+				allKnown[t.name] = true
+			}
+			for name, rule := range existing.Conventions.Branches {
+				if allKnown[name] {
+					continue
+				}
+				fmt.Printf("  %-10s → e.g. %s\n", name, buildExampleWithTicket(rule.Prefix, ticketKey, "description"))
+				prefix := ask(sc, fmt.Sprintf("  %-10s prefix", name), rule.Prefix)
+				if prefix != "" {
+					cfg.Conventions.Branches[name] = config.BranchRule{
+						Prefix:  prefix,
+						Pattern: buildPatternWithTicket(prefix, ticketKey),
+						Example: buildExampleWithTicket(prefix, ticketKey, "description"),
+					}
+				}
+			}
+		}
+
+		// free-form custom types
+		fmt.Println()
+		fmt.Println("  any other custom types? (leave name empty to finish)")
 		for {
 			name := ask(sc, "  type name", "")
 			if name == "" {
 				break
 			}
-			prefix := ask(sc, fmt.Sprintf("  %s prefix", name), name+"/")
+			defaultPrefix := name + "/"
+			fmt.Printf("    → e.g. %s\n", buildExampleWithTicket(defaultPrefix, ticketKey, "description"))
+			prefix := ask(sc, fmt.Sprintf("  %s prefix", name), defaultPrefix)
 			cfg.Conventions.Branches[name] = config.BranchRule{
 				Prefix:  prefix,
-				Example: buildExample(prefix, "description"),
+				Pattern: buildPatternWithTicket(prefix, ticketKey),
+				Example: buildExampleWithTicket(prefix, ticketKey, "description"),
 			}
 		}
 	}
@@ -491,4 +563,47 @@ func githubflowDefaults() []branchDef {
 		{name: "feature", prefix: "feat/", example: "login-oauth"},
 		{name: "bugfix", prefix: "fix/", example: "crash-on-login"},
 	}
+}
+
+// buildExampleWithTicket returns a full branch name example incorporating a
+// ticket key if one is configured (e.g. "feat/RES-123-login-oauth").
+func buildExampleWithTicket(prefix, ticketKey, suffix string) string {
+	if ticketKey != "" {
+		return prefix + ticketKey + "-123-" + suffix
+	}
+	return prefix + suffix
+}
+
+// buildPatternWithTicket returns the pattern string for a branch rule.
+func buildPatternWithTicket(prefix, ticketKey string) string {
+	if ticketKey != "" {
+		return prefix + ticketKey + "-{number}-{description}"
+	}
+	return prefix + "{description}"
+}
+
+// inferTicketKey guesses the project key from existing branch examples.
+// It looks for a pattern like "PREFIX/KEY-NNN-" in stored examples.
+func inferTicketKey(branches map[string]config.BranchRule) string {
+	for _, rule := range branches {
+		if rule.Example == "" {
+			continue
+		}
+		// strip prefix
+		rest := rule.Example
+		if i := strings.Index(rest, "/"); i >= 0 {
+			rest = rest[i+1:]
+		}
+		// rest should be KEY-NNN-description; find first "-"
+		dash := strings.Index(rest, "-")
+		if dash <= 0 {
+			continue
+		}
+		key := rest[:dash]
+		// sanity: all uppercase letters
+		if key == strings.ToUpper(key) && len(key) >= 2 {
+			return key
+		}
+	}
+	return ""
 }
