@@ -94,6 +94,10 @@ type BranchEntry struct {
 	Name     string `json:"name"`
 	Current  bool   `json:"current"`
 	Upstream string `json:"upstream,omitempty"`
+	Date     string `json:"date,omitempty"`
+	Ahead    int    `json:"ahead,omitempty"`
+	Behind   int    `json:"behind,omitempty"`
+	Gone     bool   `json:"gone,omitempty"`
 }
 
 type StashEntry struct {
@@ -347,7 +351,7 @@ func BuildBranches(ctx context.Context, g *git.Runner) ([]BranchEntry, error) {
 	}
 	out := make([]BranchEntry, 0, len(branches))
 	for _, b := range branches {
-		out = append(out, BranchEntry{Name: b.Name, Current: b.Current, Upstream: b.Upstream})
+		out = append(out, BranchEntry{Name: b.Name, Current: b.Current, Upstream: b.Upstream, Date: b.Date, Ahead: b.Ahead, Behind: b.Behind, Gone: b.Gone})
 	}
 	return out, nil
 }

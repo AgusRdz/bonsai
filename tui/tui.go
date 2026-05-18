@@ -477,6 +477,7 @@ type model struct {
 	prListItems       []pr.PRStatus
 	prListCursor      int
 	protectedBranches map[string]bool // branch names known to be protected on remote
+	mergedBranches    map[string]bool // branch names merged into the default branch
 	prReviewInput     textinput.Model
 	prReviewMode      string // "approve" | "changes" | "comment"
 	prReviewNumber    int
@@ -540,6 +541,7 @@ type actionDoneMsg struct {
 }
 type branchListMsg []git.Branch
 type protectedBranchesMsg map[string]bool
+type mergedBranchesMsg map[string]bool
 type issueListMsg struct {
 	items []pr.Issue
 	err   error
@@ -2209,10 +2211,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.panel = panelBranchList
-		return m, m.doLoadProtectedBranches()
+		return m, tea.Batch(m.doLoadProtectedBranches(), m.doLoadMergedBranches())
 
 	case protectedBranchesMsg:
 		m.protectedBranches = map[string]bool(msg)
+
+	case mergedBranchesMsg:
+		m.mergedBranches = map[string]bool(msg)
 
 	case issueListMsg:
 		if msg.err != nil {
@@ -5927,8 +5932,28 @@ func (m model) branchListView() string {
 			} else {
 				name = br.Name
 			}
-			if br.Upstream != "" {
-				name += "  " + styleDim.Render("<- "+br.Upstream)
+			if br.Date != "" {
+				name += "  " + styleDim.Render(br.Date)
+			}
+			if br.Gone {
+				name += "  " + styleChanged.Render("gone")
+			} else if br.Ahead > 0 || br.Behind > 0 {
+				track := ""
+				if br.Ahead > 0 {
+					track += styleAdded.Render(fmt.Sprintf("↑%d", br.Ahead))
+				}
+				if br.Behind > 0 {
+					if track != "" {
+						track += " "
+					}
+					track += styleChanged.Render(fmt.Sprintf("↓%d", br.Behind))
+				}
+				name += "  " + track
+			} else if br.Upstream != "" {
+				name += "  " + styleDim.Render("↑↓ synced")
+			}
+			if m.mergedBranches[br.Name] && !br.Current {
+				name += "  " + styleDim.Render("merged")
 			}
 			if m.protectedBranches[br.Name] {
 				name += "  " + styleChanged.Render("(protected)")
@@ -9635,6 +9660,34 @@ func (m model) doLoadProtectedBranches() tea.Cmd {
 			result[n] = true
 		}
 		return protectedBranchesMsg(result)
+	}
+}
+
+func (m model) doLoadMergedBranches() tea.Cmd {
+	g := m.git
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		// find the default branch to check merged-into
+		target := "main"
+		branches, err := g.Branches(ctx)
+		if err == nil {
+			for _, b := range branches {
+				if b.Name == "main" || b.Name == "master" {
+					target = b.Name
+					break
+				}
+			}
+		}
+		names, err := g.MergedBranches(ctx, target)
+		if err != nil {
+			return nil
+		}
+		result := make(map[string]bool, len(names))
+		for _, n := range names {
+			result[n] = true
+		}
+		return mergedBranchesMsg(result)
 	}
 }
 

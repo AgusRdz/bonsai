@@ -91,6 +91,10 @@ type Branch struct {
 	Name     string
 	Current  bool
 	Upstream string // remote tracking ref, e.g. "origin/feat/login"; empty if not set
+	Date     string // last commit date, e.g. "2026-05-18"
+	Ahead    int    // commits ahead of upstream
+	Behind   int    // commits behind upstream
+	Gone     bool   // upstream ref was deleted
 }
 
 // StashEntry is one entry from `git stash list`.
@@ -436,7 +440,7 @@ func (r *Runner) ShowStat(ctx context.Context, hash string) (*CommitDetail, erro
 
 // Branches returns all local branches.
 func (r *Runner) Branches(ctx context.Context) ([]Branch, error) {
-	out, err := r.run(ctx, "branch", "--format=%(refname:short)\t%(HEAD)\t%(upstream:short)")
+	out, err := r.run(ctx, "branch", "--format=%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(authordate:short)\t%(upstream:track)")
 	if err != nil {
 		return nil, err
 	}
@@ -1465,9 +1469,57 @@ func parseBranches(output string) []Branch {
 		if len(parts) > 2 {
 			upstream = strings.TrimSpace(parts[2])
 		}
-		branches = append(branches, Branch{Name: name, Current: current, Upstream: upstream})
+		date := ""
+		if len(parts) > 3 {
+			date = strings.TrimSpace(parts[3])
+		}
+		ahead, behind, gone := 0, 0, false
+		if len(parts) > 4 {
+			ahead, behind, gone = parseTrack(parts[4])
+		}
+		branches = append(branches, Branch{
+			Name: name, Current: current, Upstream: upstream,
+			Date: date, Ahead: ahead, Behind: behind, Gone: gone,
+		})
 	}
 	return branches
+}
+
+// parseTrack parses the %(upstream:track) token, e.g. "[ahead 2, behind 1]".
+func parseTrack(s string) (ahead, behind int, gone bool) {
+	s = strings.Trim(strings.TrimSpace(s), "[]")
+	if s == "" {
+		return
+	}
+	if s == "gone" {
+		gone = true
+		return
+	}
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		switch {
+		case strings.HasPrefix(part, "ahead "):
+			ahead, _ = strconv.Atoi(strings.TrimPrefix(part, "ahead "))
+		case strings.HasPrefix(part, "behind "):
+			behind, _ = strconv.Atoi(strings.TrimPrefix(part, "behind "))
+		}
+	}
+	return
+}
+
+// MergedBranches returns names of local branches fully merged into target.
+func (r *Runner) MergedBranches(ctx context.Context, target string) ([]string, error) {
+	out, err := r.run(ctx, "branch", "--merged", target, "--format=%(refname:short)")
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names, nil
 }
 
 // ---------------------------------------------------------------------------
