@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.64.11] - 2026-05-18
+
+### Features
+- Warn in bonsai doctor when GIT_AUTHOR_NAME/EMAIL env vars override config
+([10275a2](https://github.com/AgusRdz/bonsai/commit/10275a2f8a3c82d74a83835536552308386a9353))
 ## [0.64.10] - 2026-05-18
 
 ### Bug Fixes
