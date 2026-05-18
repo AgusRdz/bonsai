@@ -59,6 +59,15 @@ func mdPlural(n int, singular, plural string) string {
 	return plural
 }
 
+// compactCommits writes one line per commit: hash  date  author  subject.
+// Cheaper than a markdown table for agent consumers.
+func compactCommits(entries []LogEntry, b *strings.Builder) {
+	for _, e := range entries {
+		fmt.Fprintf(b, "`%s`  %s  %s  %s\n", e.Hash, e.Date, e.Author, e.Subject)
+	}
+	b.WriteByte('\n')
+}
+
 // ---------------------------------------------------------------------------
 // Type formatters
 // ---------------------------------------------------------------------------
@@ -79,25 +88,29 @@ func statusMarkdown(s *StatusOut) string {
 		fmt.Fprintf(&b, "> **In progress:** %s\n\n", s.MergeState)
 	}
 
-	fmt.Fprintf(&b, "## Staged (%d)\n\n", len(s.Staged))
-	rows := make([][]string, len(s.Staged))
-	for i, f := range s.Staged {
-		rows[i] = []string{f.Status, "`" + f.Path + "`"}
+	if len(s.Staged) > 0 {
+		fmt.Fprintf(&b, "## Staged (%d)\n\n", len(s.Staged))
+		rows := make([][]string, len(s.Staged))
+		for i, f := range s.Staged {
+			rows[i] = []string{f.Status, "`" + f.Path + "`"}
+		}
+		b.WriteString(mdTable([]string{"Status", "File"}, rows))
+		b.WriteByte('\n')
 	}
-	b.WriteString(mdTable([]string{"Status", "File"}, rows))
-	b.WriteByte('\n')
 
-	fmt.Fprintf(&b, "## Unstaged (%d)\n\n", len(s.Unstaged))
-	rows = make([][]string, len(s.Unstaged))
-	for i, f := range s.Unstaged {
-		rows[i] = []string{f.Status, "`" + f.Path + "`"}
+	if len(s.Unstaged) > 0 {
+		fmt.Fprintf(&b, "## Unstaged (%d)\n\n", len(s.Unstaged))
+		rows := make([][]string, len(s.Unstaged))
+		for i, f := range s.Unstaged {
+			rows[i] = []string{f.Status, "`" + f.Path + "`"}
+		}
+		b.WriteString(mdTable([]string{"Status", "File"}, rows))
+		b.WriteByte('\n')
 	}
-	b.WriteString(mdTable([]string{"Status", "File"}, rows))
-	b.WriteByte('\n')
 
 	if len(s.Conflicts) > 0 {
 		fmt.Fprintf(&b, "## Conflicts (%d)\n\n", len(s.Conflicts))
-		rows = make([][]string, len(s.Conflicts))
+		rows := make([][]string, len(s.Conflicts))
 		for i, f := range s.Conflicts {
 			rows[i] = []string{f.Status, "`" + f.Path + "`"}
 		}
@@ -122,12 +135,8 @@ func statusMarkdown(s *StatusOut) string {
 
 func logMarkdown(entries []LogEntry) string {
 	var b strings.Builder
-	b.WriteString("# Commits\n\n")
-	rows := make([][]string, len(entries))
-	for i, e := range entries {
-		rows[i] = []string{"`" + e.Hash + "`", e.Date, e.Author, e.Subject}
-	}
-	b.WriteString(mdTable([]string{"Hash", "Date", "Author", "Subject"}, rows))
+	fmt.Fprintf(&b, "# Commits (%d)\n\n", len(entries))
+	compactCommits(entries, &b)
 	return b.String()
 }
 
@@ -135,11 +144,15 @@ func diffMarkdown(d *DiffOut) string {
 	var b strings.Builder
 	b.WriteString("# Diff\n\n")
 
-	fmt.Fprintf(&b, "## Staged (%d %s)\n\n", len(d.Staged), mdPlural(len(d.Staged), "file", "files"))
-	b.WriteString(diffFilesMarkdown(d.Staged))
+	if len(d.Staged) > 0 {
+		fmt.Fprintf(&b, "## Staged (%d)\n\n", len(d.Staged))
+		b.WriteString(diffFilesMarkdown(d.Staged))
+	}
 
-	fmt.Fprintf(&b, "## Unstaged (%d %s)\n\n", len(d.Unstaged), mdPlural(len(d.Unstaged), "file", "files"))
-	b.WriteString(diffFilesMarkdown(d.Unstaged))
+	if len(d.Unstaged) > 0 {
+		fmt.Fprintf(&b, "## Unstaged (%d)\n\n", len(d.Unstaged))
+		b.WriteString(diffFilesMarkdown(d.Unstaged))
+	}
 
 	if len(d.Untracked) > 0 {
 		fmt.Fprintf(&b, "## Untracked (%d)\n\n", len(d.Untracked))
@@ -310,11 +323,7 @@ func contextMarkdown(c *ContextOut) string {
 	// Recent commits
 	if len(c.Log) > 0 {
 		fmt.Fprintf(&b, "## Recent Commits (%d)\n\n", len(c.Log))
-		rows := make([][]string, len(c.Log))
-		for i, e := range c.Log {
-			rows[i] = []string{"`" + e.Hash + "`", e.Date, e.Author, e.Subject}
-		}
-		b.WriteString(mdTable([]string{"Hash", "Date", "Author", "Subject"}, rows))
+		compactCommits(c.Log, &b)
 	}
 
 	return b.String()
@@ -328,37 +337,16 @@ func reviewMarkdown(r *ReviewOut) string {
 	}
 	fmt.Fprintf(&b, "# Review: %s → %s\n\n", base, r.Head)
 
-	fmt.Fprintf(&b, "**Changes:** +%d -%d in %d %s",
+	fmt.Fprintf(&b, "**Changes:** +%d -%d in %d %s\n\n",
 		r.Lines.Added, r.Lines.Removed, r.FilesChanged, mdPlural(r.FilesChanged, "file", "files"))
-	if r.CommitsCount > 0 {
-		fmt.Fprintf(&b, ", %d %s", r.CommitsCount, mdPlural(r.CommitsCount, "commit", "commits"))
-	}
-	b.WriteString("\n\n")
 
 	if len(r.Commits) > 0 {
-		b.WriteString("## Commits\n\n")
-		rows := make([][]string, len(r.Commits))
-		for i, c := range r.Commits {
-			rows[i] = []string{"`" + c.Hash + "`", c.Date, c.Author, c.Subject}
-		}
-		b.WriteString(mdTable([]string{"Hash", "Date", "Author", "Subject"}, rows))
-		b.WriteByte('\n')
+		fmt.Fprintf(&b, "## Commits (%d)\n\n", len(r.Commits))
+		compactCommits(r.Commits, &b)
 	}
 
 	fmt.Fprintf(&b, "## Files Changed (%d)\n\n", len(r.Diff))
 	b.WriteString(diffFilesMarkdown(r.Diff))
-
-	if r.Status != nil {
-		b.WriteString("## Current Status\n\n")
-		fmt.Fprintf(&b, "Branch `%s`", r.Status.Branch)
-		if r.Status.Upstream != "" {
-			fmt.Fprintf(&b, " → `%s`", r.Status.Upstream)
-		}
-		if r.Status.Ahead > 0 || r.Status.Behind > 0 {
-			fmt.Fprintf(&b, " ↑%d ↓%d", r.Status.Ahead, r.Status.Behind)
-		}
-		b.WriteByte('\n')
-	}
 
 	return b.String()
 }
