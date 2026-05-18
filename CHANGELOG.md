@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.66.1] - 2026-05-18
+
+### Bug Fixes
+- Fix Windows self-update by replacing binary directly instead of rename-to-old
+([b7ed721](https://github.com/AgusRdz/bonsai/commit/b7ed7210a3923202aa35ec0684913c7a58b8762c))
 ## [0.66.0] - 2026-05-18
 
 ### Features
