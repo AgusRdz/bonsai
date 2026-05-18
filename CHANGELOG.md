@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.64.9] - 2026-05-18
+
+### Bug Fixes
+- Show committing... state and block tick refresh until commit completes
+([7cb63f4](https://github.com/AgusRdz/bonsai/commit/7cb63f48c27c27c033d73b53eb1ecff4c909a2c4))
 ## [0.64.8] - 2026-05-18
 
 ### Bug Fixes
