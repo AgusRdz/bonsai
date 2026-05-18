@@ -159,11 +159,28 @@ func checkGitVersion() Check {
 	}
 }
 
+// authorIdent returns the (name, email) git will actually use for a commit,
+// resolving env vars → local config → includeIf → global in the correct order.
+func authorIdent() (name, email string) {
+	// "git var GIT_AUTHOR_IDENT" returns "Name <email> timestamp tz"
+	out, err := gitOutput("var", "GIT_AUTHOR_IDENT")
+	if err != nil || out == "" {
+		return gitConfig("user.name"), gitConfig("user.email")
+	}
+	// parse: everything before the last '<' is the name
+	lt := strings.LastIndex(out, "<")
+	gt := strings.LastIndex(out, ">")
+	if lt < 0 || gt < 0 || gt <= lt {
+		return gitConfig("user.name"), gitConfig("user.email")
+	}
+	return strings.TrimSpace(out[:lt]), out[lt+1 : gt]
+}
+
 const explainUserName = "Every commit records an author name. Without it git falls back to your OS username, which often looks unprofessional in shared repos."
 
 func checkUserName() Check {
-	val := gitConfig("user.name")
-	if val == "" {
+	name, _ := authorIdent()
+	if name == "" {
 		return Check{
 			Level:   Fail,
 			Label:   "user.name",
@@ -172,14 +189,14 @@ func checkUserName() Check {
 			Explain: explainUserName,
 		}
 	}
-	return Check{Level: OK, Label: "user.name", Message: val, Explain: explainUserName}
+	return Check{Level: OK, Label: "user.name", Message: name, Explain: explainUserName}
 }
 
 const explainUserEmail = "Commits are linked to you via email on GitHub/GitLab. Use the same address as your forge account so contributions are credited correctly."
 
 func checkUserEmail() Check {
-	val := gitConfig("user.email")
-	if val == "" {
+	_, email := authorIdent()
+	if email == "" {
 		return Check{
 			Level:   Fail,
 			Label:   "user.email",
@@ -188,16 +205,16 @@ func checkUserEmail() Check {
 			Explain: explainUserEmail,
 		}
 	}
-	if !strings.Contains(val, "@") {
+	if !strings.Contains(email, "@") {
 		return Check{
 			Level:   Warn,
 			Label:   "user.email",
-			Message: fmt.Sprintf("%s (does not look like a valid email)", val),
+			Message: fmt.Sprintf("%s (does not look like a valid email)", email),
 			Fix:     `run: git config --global user.email "you@example.com"`,
 			Explain: explainUserEmail,
 		}
 	}
-	return Check{Level: OK, Label: "user.email", Message: val, Explain: explainUserEmail}
+	return Check{Level: OK, Label: "user.email", Message: email, Explain: explainUserEmail}
 }
 
 const explainCredentialHelper = "Without a credential helper git asks for your password on every push/pull. A keychain helper stores it securely so you only authenticate once."
