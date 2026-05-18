@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.64.5] - 2026-05-18
+
+### Bug Fixes
+- Use actual detected key path in ssh-agent fix suggestions
+([65c2ee7](https://github.com/AgusRdz/bonsai/commit/65c2ee73857917de18509a9db82dff954330fd40))
 ## [0.64.4] - 2026-05-18
 
 ### Bug Fixes
