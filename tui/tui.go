@@ -2156,8 +2156,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastCmd = msg.cmd
 		m.lastInfo = msg.info
 		m.actionErr = msg.err
-		if msg.err == nil && m.prListCursor > 0 {
-			m.prListCursor--
+		if msg.err == nil {
+			if m.prListCursor > 0 {
+				m.prListCursor--
+			}
+			m.panel = panelPR
 		}
 		return m, m.fetchPRList()
 
@@ -9061,6 +9064,10 @@ func (m model) dashboardView() string {
 }
 
 func (m model) updatePRDetailPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if len(m.prListItems) == 0 || m.prListCursor >= len(m.prListItems) {
+		m.panel = panelPR
+		return m, nil
+	}
 	item := m.prListItems[m.prListCursor]
 	switch msg.String() {
 	case "esc":
