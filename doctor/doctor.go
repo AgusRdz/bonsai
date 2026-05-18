@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -664,11 +665,15 @@ const explainSSHAgent = "ssh-agent holds your decrypted key in memory so you do 
 func checkSSHAgent() Check {
 	sock := os.Getenv("SSH_AUTH_SOCK")
 	if sock == "" {
+		fix := "run: eval $(ssh-agent -s) && ssh-add"
+		if runtime.GOOS == "windows" {
+			fix = "run (PowerShell admin): Set-Service ssh-agent -StartupType Automatic; Start-Service ssh-agent; ssh-add"
+		}
 		return Check{
 			Level:   Warn,
 			Label:   "ssh-agent",
 			Message: "SSH_AUTH_SOCK not set - ssh-agent may not be running",
-			Fix:     "run: eval $(ssh-agent -s) && ssh-add",
+			Fix:     fix,
 			Explain: explainSSHAgent,
 		}
 	}
@@ -685,11 +690,15 @@ func checkSSHAgent() Check {
 				Explain: explainSSHAgent,
 			}
 		}
+		fix := "run: eval $(ssh-agent -s) && ssh-add"
+		if runtime.GOOS == "windows" {
+			fix = "run (PowerShell admin): Set-Service ssh-agent -StartupType Automatic; Start-Service ssh-agent; ssh-add"
+		}
 		return Check{
 			Level:   Warn,
 			Label:   "ssh-agent",
 			Message: "agent socket found but not responding",
-			Fix:     "run: eval $(ssh-agent -s) && ssh-add",
+			Fix:     fix,
 			Explain: explainSSHAgent,
 		}
 	}
