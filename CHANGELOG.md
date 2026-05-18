@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.64.8] - 2026-05-18
+
+### Bug Fixes
+- Use git var GIT_AUTHOR_IDENT for identity checks in bonsai doctor
+([53e3188](https://github.com/AgusRdz/bonsai/commit/53e3188deb429aec559ed4f10d5c78c0176a6bd1))
 ## [0.64.7] - 2026-05-18
 
 ### Bug Fixes
