@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.67.0] - 2026-05-18
+
+### Features
+- Improve setup wizard with ticket ID support and curated extra branch types
+([32349b2](https://github.com/AgusRdz/bonsai/commit/32349b2b3c38e49d5e229977ee8e48a848f7dfac))
 ## [0.66.2] - 2026-05-18
 
 ### Bug Fixes
