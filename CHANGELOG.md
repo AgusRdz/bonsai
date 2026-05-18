@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.64.13] - 2026-05-18
+
+### Bug Fixes
+- Add platform-aware fix suggestion to core.editor check in bonsai doctor
+([030a65c](https://github.com/AgusRdz/bonsai/commit/030a65cf79e58028c23526d5853c1e30632e8bb4))
 ## [0.64.12] - 2026-05-18
 
 ### Bug Fixes
