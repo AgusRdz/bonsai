@@ -26,6 +26,7 @@ import (
 )
 
 const gitTimeout = 5 * time.Second
+const commitTimeout = 30 * time.Second
 const pushTimeout = 60 * time.Second
 const autoRefreshInterval = 2 * time.Second
 
@@ -710,7 +711,7 @@ func (m model) doCommit(msg string) tea.Cmd {
 	sign := m.cfg.Signing.Enabled
 	key := m.cfg.Signing.Key
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), commitTimeout)
 		defer cancel()
 		var err error
 		if sign {
