@@ -61,10 +61,11 @@ func gitOutput(args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// gitConfig reads a single git config key (global scope) and returns its value.
+// gitConfig reads a single git config key using git's full resolution order
+// (system → global → local → includeIf), so conditional includes are honoured.
 // Returns "" when the key is not set (exit code 1).
 func gitConfig(key string) string {
-	out, err := exec.Command("git", "config", "--global", "--get", key).Output()
+	out, err := exec.Command("git", "config", "--get", key).Output()
 	if err != nil {
 		return ""
 	}
