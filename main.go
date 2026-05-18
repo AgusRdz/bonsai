@@ -38,8 +38,8 @@ func main() {
 	gitcheck.EnsureInstalled()
 
 	if len(os.Args) < 2 {
-		gitcheck.SuggestUpdate()
 		runTUI()
+		gitcheck.SuggestUpdate()
 		return
 	}
 
