@@ -663,9 +663,8 @@ func checkSSHKey() Check {
 const explainSSHAgent = "ssh-agent holds your decrypted key in memory so you do not have to type your passphrase on every push. Without it, git prompts for your passphrase each time."
 
 func checkSSHAgent() Check {
-	keyPath := sshKeyPath()
 	if runtime.GOOS == "windows" {
-		return checkSSHAgentWindows(keyPath)
+		return checkSSHAgentWindows()
 	}
 	sock := os.Getenv("SSH_AUTH_SOCK")
 	if sock == "" {
@@ -685,7 +684,7 @@ func checkSSHAgent() Check {
 				Level:   Warn,
 				Label:   "ssh-agent",
 				Message: "agent running but no keys loaded",
-				Fix:     "run: ssh-add " + keyPath,
+				Fix:     "run: ssh-add",
 				Explain: explainSSHAgent,
 			}
 		}
@@ -701,16 +700,9 @@ func checkSSHAgent() Check {
 	return Check{Level: OK, Label: "ssh-agent", Message: fmt.Sprintf("%d key(s) loaded", len(lines)), Explain: explainSSHAgent}
 }
 
-func sshKeyPath() string {
-	if key := FindSSHKey(); key != nil {
-		return key.PrivateKey
-	}
-	return "~/.ssh/id_ed25519"
-}
-
 // checkSSHAgentWindows checks the OpenSSH Authentication Agent Windows service
 // and gives targeted advice based on its actual state.
-func checkSSHAgentWindows(keyPath string) Check {
+func checkSSHAgentWindows() Check {
 	out, err := exec.Command("sc", "query", "ssh-agent").CombinedOutput()
 	if err != nil {
 		// Service not found — OpenSSH client may not be installed.
@@ -733,7 +725,7 @@ func checkSSHAgentWindows(keyPath string) Check {
 					Level:   Warn,
 					Label:   "ssh-agent",
 					Message: "agent running but no keys loaded",
-					Fix:     "run: ssh-add " + keyPath,
+					Fix:     "run: ssh-add",
 					Explain: explainSSHAgent,
 				}
 			}
