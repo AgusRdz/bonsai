@@ -1156,8 +1156,8 @@ func (m model) doFetchDiff(path string, staged bool) tea.Cmd {
 	}
 }
 
-// doStageFromDiff stages or unstages path, then signals the diff viewer to
-// refresh with the new state. stage=true means git add, false means git restore.
+// doStageFromDiff stages or unstages path, then closes the diff viewer.
+// stage=true means git add, false means git restore.
 func (m model) doStageFromDiff(path string, stage bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -1172,6 +1172,7 @@ func (m model) doStageFromDiff(path string, stage bool) tea.Cmd {
 			actionDoneMsg: actionDoneMsg{cmd: m.git.LastCmd(), err: err},
 			path:          path,
 			staged:        stage,
+			close:         true,
 		}
 	}
 }
