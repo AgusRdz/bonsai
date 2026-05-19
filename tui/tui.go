@@ -322,6 +322,7 @@ type model struct {
 	stashFilesCursor    int
 	confirmPrompt       string
 	confirmCmd          tea.Cmd
+	confirmOrigin       panel // panel to return to on cancel; zero = panelMain
 	flowOptions         []flowOption
 	flowPickCursor      int
 	commitDetail        *git.CommitDetail
@@ -4245,7 +4246,10 @@ func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "x":
 		if m.diffOrigin == panelMain && m.diffFilePath != "" && !m.diffFileStaged {
-			return m, m.doDiscardFromDiff(m.diffFilePath)
+			m.confirmPrompt = fmt.Sprintf("discard all changes to %s? this cannot be undone", m.diffFilePath)
+			m.confirmCmd = m.doDiscardFromDiff(m.diffFilePath)
+			m.confirmOrigin = panelDiff
+			m.panel = panelConfirm
 		}
 	case "e":
 		path := strings.TrimSuffix(m.diffTitle, "  (staged)")
@@ -5385,11 +5389,14 @@ func (m model) updateConfirmPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "y", "Y":
 		cmd := m.confirmCmd
 		m.confirmCmd = nil
+		m.confirmOrigin = panelMain
 		m.panel = panelMain
 		return m, cmd
 	case "n", "N", "esc", m.cfg.Keybindings.Quit:
 		m.confirmCmd = nil
-		m.panel = panelMain
+		origin := m.confirmOrigin
+		m.confirmOrigin = panelMain
+		m.panel = origin
 	case "ctrl+c":
 		return m, tea.Quit
 	}
