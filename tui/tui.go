@@ -8782,7 +8782,32 @@ func (m model) commandBar() string {
 	}
 	parts = append(parts, "[?] all shortcuts")
 	parts = append(parts, fmt.Sprintf("[%s] quit", kb.Quit))
-	return styleDim.Render("  "+strings.Join(parts, "  ")) + "\n"
+
+	const sep = "  "
+	const indent = "  "
+	if m.width <= 0 {
+		return styleDim.Render(indent+strings.Join(parts, sep)) + "\n"
+	}
+	var lines []string
+	var row []string
+	rowLen := len(indent)
+	for _, p := range parts {
+		need := len(p)
+		if len(row) > 0 {
+			need += len(sep)
+		}
+		if len(row) > 0 && rowLen+need > m.width {
+			lines = append(lines, styleDim.Render(indent+strings.Join(row, sep)))
+			row = nil
+			rowLen = len(indent)
+		}
+		row = append(row, p)
+		rowLen += need
+	}
+	if len(row) > 0 {
+		lines = append(lines, styleDim.Render(indent+strings.Join(row, sep)))
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 // --- helpers ---
