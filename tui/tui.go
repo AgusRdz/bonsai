@@ -101,6 +101,7 @@ const (
 type fileItem struct {
 	entry    git.FileEntry
 	category int // catStaged | catChanged | catUntracked
+	selected bool
 }
 
 type rebaseTodo struct {
@@ -1182,6 +1183,69 @@ func (m model) doGitRmCached(path string) tea.Cmd {
 			info = path + " untracked (file kept on disk)"
 		}
 		return actionDoneMsg{cmd: "git rm --cached " + path, err: err, info: info}
+	}
+}
+
+func (m model) doAddMany(paths []string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.Add(ctx, paths...)
+		info := ""
+		if err == nil {
+			info = fmt.Sprintf("staged %d files", len(paths))
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
+	}
+}
+
+func (m model) doRestoreMany(paths []string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.Restore(ctx, paths...)
+		info := ""
+		if err == nil {
+			info = fmt.Sprintf("unstaged %d files", len(paths))
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
+	}
+}
+
+func (m model) doDiscardMany(paths []string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.Discard(ctx, paths...)
+		info := ""
+		if err == nil {
+			info = fmt.Sprintf("discarded %d files", len(paths))
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
+	}
+}
+
+func (m model) doDeleteFromDiskMany(paths []string) tea.Cmd {
+	return func() tea.Msg {
+		for _, p := range paths {
+			if err := os.RemoveAll(strings.TrimSuffix(p, "/")); err != nil {
+				return actionDoneMsg{cmd: "rm " + p, err: err}
+			}
+		}
+		return actionDoneMsg{cmd: "rm", info: fmt.Sprintf("deleted %d files from disk", len(paths))}
+	}
+}
+
+func (m model) doGitRmCachedMany(paths []string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		for _, p := range paths {
+			if err := m.git.RmCached(ctx, p); err != nil {
+				return actionDoneMsg{cmd: "git rm --cached", err: err}
+			}
+		}
+		return actionDoneMsg{cmd: "git rm --cached", info: fmt.Sprintf("untracked %d files (files kept on disk)", len(paths))}
 	}
 }
 
@@ -2972,6 +3036,33 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return actionDoneMsg{cmd: "git add .", err: err, info: "staged all changes"}
 		}
 
+	case "tab":
+		if len(m.files) == 0 {
+			break
+		}
+		f := m.files[m.cursor]
+		if f.category != catConflict {
+			m.files[m.cursor].selected = !f.selected
+		}
+		if m.cursor < len(m.files)-1 {
+			m.cursor++
+		}
+
+	case "esc":
+		// clear multi-selection if active, otherwise no-op on main panel
+		hasSelection := false
+		for _, f := range m.files {
+			if f.selected {
+				hasSelection = true
+				break
+			}
+		}
+		if hasSelection {
+			for i := range m.files {
+				m.files[i].selected = false
+			}
+		}
+
 	case " ", "enter":
 		if len(m.files) == 0 {
 			if config.OverviewEnabled(m.cfg) && len(m.prListItems) > 0 {
@@ -2979,6 +3070,37 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.panel = panelPRDetail
 			}
 			break
+		}
+		// batch mode: if any files are selected, act on all of them
+		var selected []fileItem
+		for _, f := range m.files {
+			if f.selected {
+				selected = append(selected, f)
+			}
+		}
+		if len(selected) > 0 {
+			var toAdd, toRestore []string
+			for _, f := range selected {
+				if f.category == catConflict {
+					continue
+				}
+				if f.category == catStaged {
+					toRestore = append(toRestore, f.entry.Path)
+				} else {
+					toAdd = append(toAdd, f.entry.Path)
+				}
+			}
+			for i := range m.files {
+				m.files[i].selected = false
+			}
+			var cmds []tea.Cmd
+			if len(toAdd) > 0 {
+				cmds = append(cmds, m.doAddMany(toAdd))
+			}
+			if len(toRestore) > 0 {
+				cmds = append(cmds, m.doRestoreMany(toRestore))
+			}
+			return m, tea.Batch(cmds...)
 		}
 		f := m.files[m.cursor]
 		if f.category == catConflict {
@@ -3184,6 +3306,62 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.files) == 0 {
 			break
 		}
+		// batch mode
+		var xSelected []fileItem
+		for _, f := range m.files {
+			if f.selected {
+				xSelected = append(xSelected, f)
+			}
+		}
+		if len(xSelected) > 0 {
+			var toDiscard, toDelete []string
+			for _, f := range xSelected {
+				switch f.category {
+				case catChanged:
+					toDiscard = append(toDiscard, f.entry.Path)
+				case catUntracked:
+					toDelete = append(toDelete, f.entry.Path)
+				}
+			}
+			if len(toDiscard)+len(toDelete) == 0 {
+				m.actionErr = fmt.Errorf("select changed or untracked files to discard/delete")
+				break
+			}
+			desc := ""
+			if len(toDiscard) > 0 && len(toDelete) > 0 {
+				desc = fmt.Sprintf("discard %d changed and delete %d untracked files? this cannot be undone", len(toDiscard), len(toDelete))
+			} else if len(toDiscard) > 0 {
+				desc = fmt.Sprintf("discard changes to %d files? this cannot be undone", len(toDiscard))
+			} else {
+				desc = fmt.Sprintf("delete %d files from disk? this cannot be undone", len(toDelete))
+			}
+			for i := range m.files {
+				m.files[i].selected = false
+			}
+			toDiscardCopy := toDiscard
+			toDeleteCopy := toDelete
+			m.confirmPrompt = desc
+			m.confirmCmd = func() tea.Msg {
+				if len(toDiscardCopy) > 0 {
+					ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+					err := m.git.Discard(ctx, toDiscardCopy...)
+					cancel()
+					if err != nil {
+						return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+					}
+				}
+				for _, p := range toDeleteCopy {
+					if err := os.RemoveAll(strings.TrimSuffix(p, "/")); err != nil {
+						return actionDoneMsg{cmd: "rm " + p, err: err}
+					}
+				}
+				n := len(toDiscardCopy) + len(toDeleteCopy)
+				return actionDoneMsg{cmd: "discard/delete", info: fmt.Sprintf("discarded/deleted %d files", n)}
+			}
+			m.panel = panelConfirm
+			m.actionErr = nil
+			break
+		}
 		f := m.files[m.cursor]
 		switch f.category {
 		case catChanged:
@@ -3207,6 +3385,33 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "u":
 		if len(m.files) == 0 {
+			break
+		}
+		// batch mode
+		var uSelected []fileItem
+		for _, f := range m.files {
+			if f.selected {
+				uSelected = append(uSelected, f)
+			}
+		}
+		if len(uSelected) > 0 {
+			var toUntrack []string
+			for _, f := range uSelected {
+				if f.category == catStaged {
+					toUntrack = append(toUntrack, f.entry.Path)
+				}
+			}
+			if len(toUntrack) == 0 {
+				m.actionErr = fmt.Errorf("select staged files to untrack (git rm --cached)")
+				break
+			}
+			for i := range m.files {
+				m.files[i].selected = false
+			}
+			m.confirmPrompt = fmt.Sprintf("untrack %d files? removes from git index, files stay on disk", len(toUntrack))
+			m.confirmCmd = m.doGitRmCachedMany(toUntrack)
+			m.panel = panelConfirm
+			m.actionErr = nil
 			break
 		}
 		f := m.files[m.cursor]
@@ -5843,13 +6048,29 @@ func (m model) renderSection(b *strings.Builder, title string, entries []git.Fil
 		offset++
 	}
 
+	inSelMode := false
+	for _, f := range m.files {
+		if f.selected {
+			inSelMode = true
+			break
+		}
+	}
+
 	b.WriteString("  " + styleSection.Render(fmt.Sprintf("%s (%d)", title, len(entries))) + "\n")
 	for i, f := range entries {
 		cursor := "  "
 		if m.cursor == offset+i {
 			cursor = styleSelected.Render("> ")
 		}
-		b.WriteString(cursor + "  " + style.Render(fileCode(f, cat)+"  "+f.Path) + "\n")
+		check := ""
+		if inSelMode {
+			if offset+i < len(m.files) && m.files[offset+i].selected {
+				check = styleSelected.Render("[x] ")
+			} else {
+				check = styleDim.Render("[ ] ")
+			}
+		}
+		b.WriteString(cursor + "  " + check + style.Render(fileCode(f, cat)+"  "+f.Path) + "\n")
 	}
 	b.WriteString("\n")
 }
@@ -6161,14 +6382,15 @@ func (m model) helpView() string {
 
 	section("Files")
 	row("↑↓ / k/j", "navigate file list")
-	row("space", "stage / unstage selected file")
+	row("tab", "toggle file selection (multi-select); esc to clear selection")
+	row("space", "stage / unstage — acts on all selected files, or cursor file if none selected")
 	row("+", "stage all changes (git add .)")
 	row("h", "stage by section - pick which parts of a file to stage (useful for splitting a commit)")
 	row("d", "diff selected file (staged or unstaged)")
 	row("H", "file history - every commit that touched this file")
 	row("e", "blame - who last changed each line")
-	row("x", "discard changes (changed), or delete from disk (untracked) - with confirmation")
-	row("u", "untrack staged file: git rm --cached (removes from index, keeps on disk)")
+	row("x", "discard/delete — acts on all selected files, or cursor file if none selected")
+	row("u", "untrack (git rm --cached) — acts on all selected staged files, or cursor file if none selected")
 	row("o", "restore file to HEAD or a specific ref")
 	b.WriteString("\n")
 
