@@ -790,6 +790,37 @@ func (r *Runner) StashDrop(ctx context.Context, ref string) error {
 	return err
 }
 
+// StashShow returns the patch diff for a specific stash entry.
+func (r *Runner) StashShow(ctx context.Context, ref string) (string, error) {
+	out, err := r.run(ctx, "stash", "show", "-p", ref)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// StashShowFiles returns the list of files changed in a specific stash entry.
+func (r *Runner) StashShowFiles(ctx context.Context, ref string) ([]string, error) {
+	out, err := r.run(ctx, "stash", "show", "--name-only", ref)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
+}
+
+// StashCheckoutFiles applies specific files from a stash entry without applying the whole stash.
+func (r *Runner) StashCheckoutFiles(ctx context.Context, ref string, files []string) error {
+	args := append([]string{"checkout", ref, "--"}, files...)
+	_, err := r.run(ctx, args...)
+	return err
+}
+
 // StashList returns all stash entries in order.
 func (r *Runner) StashList(ctx context.Context) ([]StashEntry, error) {
 	out, err := r.run(ctx, "stash", "list")

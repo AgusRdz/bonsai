@@ -73,6 +73,7 @@ const (
 	panelPushOpts
 	panelMastery
 	panelStashMsg
+	panelStashFiles
 	panelFileHistory
 	panelGraph
 	panelEduMgr
@@ -314,6 +315,10 @@ type model struct {
 	stashFilter         string
 	stashFilterInput    textinput.Model
 	stashFiltering      bool
+	stashFilesRef       string
+	stashFilesList      []string
+	stashFilesSel       []bool
+	stashFilesCursor    int
 	confirmPrompt       string
 	confirmCmd          tea.Cmd
 	flowOptions         []flowOption
@@ -573,6 +578,11 @@ type diffLinePos struct {
 	position int    // 0 = not commentable
 }
 type stashListMsg []git.StashEntry
+
+type stashFilesMsg struct {
+	ref   string
+	files []string
+}
 type commitDetailMsg *git.CommitDetail
 
 type logPageMsg struct {
@@ -1184,6 +1194,40 @@ func (m model) doFetchStashList() tea.Cmd {
 			return stashListMsg([]git.StashEntry{})
 		}
 		return stashListMsg(entries)
+	}
+}
+
+func (m model) doFetchStashDiff(ref string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		content, err := m.git.StashShow(ctx, ref)
+		if err != nil || content == "" {
+			return diffMsg{title: ref, lines: []string{}}
+		}
+		lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+		return diffMsg{title: ref, lines: lines}
+	}
+}
+
+func (m model) doFetchStashFiles(ref string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		files, err := m.git.StashShowFiles(ctx, ref)
+		if err != nil {
+			return stashFilesMsg{ref: ref, files: nil}
+		}
+		return stashFilesMsg{ref: ref, files: files}
+	}
+}
+
+func (m model) doStashCheckoutFiles(ref string, files []string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.StashCheckoutFiles(ctx, ref, files)
+		return actionDoneMsg{cmd: "git checkout " + ref + " -- <files>", err: err}
 	}
 }
 
@@ -2266,6 +2310,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stashCursor = 0
 		m.panel = panelStashList
 
+	case stashFilesMsg:
+		m.stashFilesRef = msg.ref
+		m.stashFilesList = msg.files
+		m.stashFilesSel = make([]bool, len(msg.files))
+		for i := range m.stashFilesSel {
+			m.stashFilesSel[i] = true
+		}
+		m.stashFilesCursor = 0
+		m.panel = panelStashFiles
+
 	case commitDetailMsg:
 		m.commitDetail = (*git.CommitDetail)(msg)
 		m.commitDetailScroll = 0
@@ -2642,6 +2696,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelStashList {
 			return m.updateStashListPanel(msg)
+		}
+		if m.panel == panelStashFiles {
+			return m.updateStashFilesPanel(msg)
 		}
 		if m.panel == panelHelp {
 			return m.updateHelpPanel(msg)
@@ -4882,6 +4939,22 @@ func (m model) updateStashListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		ref := visible[m.stashCursor].Ref
 		m.panel = panelMain
 		return m, m.doStashApply(ref)
+	case "p":
+		if len(visible) == 0 {
+			break
+		}
+		ref := visible[m.stashCursor].Ref
+		return m, m.doFetchStashFiles(ref)
+	case " ":
+		if len(visible) == 0 {
+			break
+		}
+		ref := visible[m.stashCursor].Ref
+		m.diffLines = nil
+		m.diffScroll = 0
+		m.diffOrigin = panelStashList
+		m.panel = panelDiff
+		return m, m.doFetchStashDiff(ref)
 	case "d":
 		if len(visible) == 0 {
 			break
@@ -4905,6 +4978,91 @@ func (m model) updateStashListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+func (m model) updateStashFilesPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.stashFilesCursor > 0 {
+			m.stashFilesCursor--
+		}
+	case "down", "j":
+		if m.stashFilesCursor < len(m.stashFilesList)-1 {
+			m.stashFilesCursor++
+		}
+	case " ":
+		if m.stashFilesCursor < len(m.stashFilesSel) {
+			m.stashFilesSel[m.stashFilesCursor] = !m.stashFilesSel[m.stashFilesCursor]
+		}
+	case "a":
+		allOn := true
+		for _, s := range m.stashFilesSel {
+			if !s {
+				allOn = false
+				break
+			}
+		}
+		for i := range m.stashFilesSel {
+			m.stashFilesSel[i] = !allOn
+		}
+	case "enter":
+		var selected []string
+		for i, f := range m.stashFilesList {
+			if i < len(m.stashFilesSel) && m.stashFilesSel[i] {
+				selected = append(selected, f)
+			}
+		}
+		if len(selected) == 0 {
+			break
+		}
+		ref := m.stashFilesRef
+		m.panel = panelMain
+		return m, m.doStashCheckoutFiles(ref, selected)
+	case "esc", m.cfg.Keybindings.Quit:
+		m.panel = panelStashList
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) stashFilesView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Partial Apply") + "  " + styleDim.Render(m.stashFilesRef) + "\n\n")
+
+	if m.stashFilesList == nil {
+		b.WriteString("  " + styleDim.Render("loading...") + "\n")
+	} else if len(m.stashFilesList) == 0 {
+		b.WriteString("  " + styleDim.Render("no files in stash") + "\n")
+	} else {
+		selectedCount := 0
+		for _, s := range m.stashFilesSel {
+			if s {
+				selectedCount++
+			}
+		}
+		b.WriteString("  " + styleDim.Render(fmt.Sprintf("%d/%d files selected — space to toggle, a to toggle all", selectedCount, len(m.stashFilesList))) + "\n\n")
+		for i, f := range m.stashFilesList {
+			cursor := "  "
+			if m.stashFilesCursor == i {
+				cursor = styleSelected.Render("> ")
+			}
+			check := "[ ]"
+			if i < len(m.stashFilesSel) && m.stashFilesSel[i] {
+				check = styleSelected.Render("[x]")
+			}
+			b.WriteString(cursor + "  " + check + "  " + f + "\n")
+		}
+	}
+	b.WriteString("\n")
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [space] toggle  [a] toggle all  [enter] apply selected  [esc] back") + "\n"
 }
 
 func (m model) updateFlowPickPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -5396,6 +5554,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelStashList {
 		return m.stashListView()
+	}
+	if m.panel == panelStashFiles {
+		return m.stashFilesView()
 	}
 	if m.panel == panelHelp {
 		return m.helpView()
@@ -6111,7 +6272,7 @@ func (m model) stashListView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [enter] pop  [a] apply  [d] drop  [/] search  [esc] back") + "\n"
+	return content + styleDim.Render("  [enter] pop  [a] apply  [p] partial  [space] preview  [d] drop  [/] search  [esc] back") + "\n"
 }
 
 func (m model) diffView() string {
