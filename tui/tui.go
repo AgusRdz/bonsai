@@ -534,6 +534,10 @@ type model struct {
 
 	// which panel to return to when escaping the diff viewer
 	diffOrigin panel
+
+	// context for the file currently shown in the diff viewer
+	diffFilePath   string
+	diffFileStaged bool
 }
 
 // --- messages ---
@@ -544,6 +548,16 @@ type actionDoneMsg struct {
 	cmd  string
 	err  error
 	info string // optional human-readable summary shown in the footer
+}
+
+// diffActionDoneMsg is returned when a stage/unstage/discard is triggered from
+// within the diff viewer. It carries the actionDoneMsg payload plus enough
+// context to re-fetch the diff with the new staged state.
+type diffActionDoneMsg struct {
+	actionDoneMsg
+	path   string
+	staged bool // new staged state to display after the action
+	close  bool // true when the file is gone and the panel should close
 }
 type branchListMsg []git.Branch
 type protectedBranchesMsg map[string]bool
@@ -1138,6 +1152,41 @@ func (m model) doFetchDiff(path string, staged bool) tea.Cmd {
 		}
 		lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
 		return diffMsg{title: title, lines: lines}
+	}
+}
+
+// doStageFromDiff stages or unstages path, then signals the diff viewer to
+// refresh with the new state. stage=true means git add, false means git restore.
+func (m model) doStageFromDiff(path string, stage bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		var err error
+		if stage {
+			err = m.git.Add(ctx, path)
+		} else {
+			err = m.git.Restore(ctx, path)
+		}
+		return diffActionDoneMsg{
+			actionDoneMsg: actionDoneMsg{cmd: m.git.LastCmd(), err: err},
+			path:          path,
+			staged:        stage,
+		}
+	}
+}
+
+// doDiscardFromDiff discards working-tree changes for path and signals the diff
+// viewer to close (the file will have no diff after discard).
+func (m model) doDiscardFromDiff(path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.Discard(ctx, path)
+		return diffActionDoneMsg{
+			actionDoneMsg: actionDoneMsg{cmd: m.git.LastCmd(), err: err},
+			path:          path,
+			close:         true,
+		}
 	}
 }
 
@@ -2700,6 +2749,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m, tea.Batch(baseCmds...)
 
+	case diffActionDoneMsg:
+		m.actionErr = msg.err
+		m.lastCmd = msg.actionDoneMsg.cmd
+		cmds := []tea.Cmd{m.fetchStatus()}
+		if msg.err == nil && m.panel == panelDiff {
+			if msg.close {
+				m.panel = m.diffOrigin
+				m.diffOrigin = panelMain
+			} else {
+				m.diffFileStaged = msg.staged
+				m.diffLines = nil
+				m.diffScroll = 0
+				cmds = append(cmds, m.doFetchDiff(msg.path, msg.staged))
+			}
+		}
+		return m, tea.Batch(cmds...)
+
 	case eduTickMsg:
 		if m.panel == panelEducation {
 			m.eduTimer--
@@ -3260,6 +3326,8 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.diffLines = nil
 		m.diffScroll = 0
 		m.diffOrigin = panelMain
+		m.diffFilePath = f.entry.Path
+		m.diffFileStaged = f.category == catStaged
 		m.panel = panelDiff
 		return m, m.doFetchDiff(f.entry.Path, f.category == catStaged)
 
@@ -4170,6 +4238,14 @@ func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		_, ms := m.diffViewport()
 		if m.diffScroll < ms {
 			m.diffScroll++
+		}
+	case " ":
+		if m.diffOrigin == panelMain && m.diffFilePath != "" {
+			return m, m.doStageFromDiff(m.diffFilePath, !m.diffFileStaged)
+		}
+	case "x":
+		if m.diffOrigin == panelMain && m.diffFilePath != "" && !m.diffFileStaged {
+			return m, m.doDiscardFromDiff(m.diffFilePath)
 		}
 	case "e":
 		path := strings.TrimSuffix(m.diffTitle, "  (staged)")
@@ -6561,13 +6637,29 @@ func (m model) diffView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
+	visibleLines, _ := m.diffViewport()
+	scrollable := len(m.diffLines) > visibleLines
 	pos := ""
-	if len(m.diffLines) > 0 {
-		pos = fmt.Sprintf("  (%d/%d)", m.diffCursor+1, len(m.diffLines))
+	if scrollable {
+		pos = fmt.Sprintf("  (%d/%d)", m.diffScroll+1, len(m.diffLines))
 	}
-	hint := "  [↑↓] scroll  [e] blame  [esc] back"
+	var hint string
 	if m.diffOrigin == panelPR {
 		hint = "  [↑↓] move cursor  [c] comment line  [esc] back"
+	} else {
+		var parts []string
+		if scrollable {
+			parts = append(parts, "[↑↓] scroll")
+		}
+		if m.diffOrigin == panelMain && m.diffFilePath != "" {
+			if m.diffFileStaged {
+				parts = append(parts, "[space] unstage")
+			} else {
+				parts = append(parts, "[space] stage  [x] discard")
+			}
+		}
+		parts = append(parts, "[e] blame  [esc] back")
+		hint = "  " + strings.Join(parts, "  ")
 	}
 	return content + styleDim.Render(hint+pos) + "\n"
 }
