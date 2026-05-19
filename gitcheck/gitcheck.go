@@ -25,10 +25,9 @@ func EnsureInstalled() {
 	}
 }
 
-// SuggestUpdate prints the detected git version and, if a newer release is
-// available, appends an upgrade hint. Always prints the version line so the
-// user gets confirmation that git was found. Call only in interactive mode
-// to avoid the network round-trip for subcommands.
+// SuggestUpdate prints an upgrade hint if a newer git release is available.
+// Prints nothing when git is up to date or when the version check fails.
+// Call only in interactive mode to avoid the network round-trip for subcommands.
 func SuggestUpdate() {
 	current, err := currentVersion()
 	if err != nil {
@@ -40,15 +39,12 @@ func SuggestUpdate() {
 
 	latest, err := fetchLatestVersion(ctx)
 	if err != nil {
-		fmt.Printf("bonsai: git %s\n", current)
 		return
 	}
 
 	if isNewer(latest, current) {
 		fmt.Printf("bonsai: git %s - update available: %s (run: %s)\n",
 			current, latest, upgradeCmd())
-	} else {
-		fmt.Printf("bonsai: git %s\n", current)
 	}
 }
 
