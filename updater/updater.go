@@ -303,17 +303,26 @@ func replaceBinary(destPath, srcPath string) error {
 		// allows renaming them away. Two-step: move current → .old (safe while
 		// running), then move .tmp → current (now uncontested).
 		// CleanupStaleUpdate removes the .old file on the next startup.
+		//
+		// AV scanners also briefly lock newly downloaded files. Retry with
+		// backoff to let the scan complete before giving up.
 		oldPath := destPath + ".old"
-		os.Remove(oldPath) // remove any leftover from a previous attempt
+		os.Remove(oldPath)
 		if err := os.Rename(destPath, oldPath); err != nil {
 			return fmt.Errorf("could not move current binary aside: %w", err)
 		}
-		if err := os.Rename(srcPath, destPath); err != nil {
-			// best-effort rollback
-			os.Rename(oldPath, destPath)
-			return fmt.Errorf("could not replace binary: %w", err)
+		delays := []time.Duration{0, 500 * time.Millisecond, 1 * time.Second, 2 * time.Second}
+		var lastErr error
+		for _, d := range delays {
+			if d > 0 {
+				time.Sleep(d)
+			}
+			if lastErr = os.Rename(srcPath, destPath); lastErr == nil {
+				return nil
+			}
 		}
-		return nil
+		os.Rename(oldPath, destPath) // best-effort rollback
+		return fmt.Errorf("could not replace binary: %w", lastErr)
 	}
 	// Linux/macOS: os.Rename atomically replaces the path entry.
 	// Running processes keep their existing file descriptor unaffected.
