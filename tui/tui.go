@@ -6063,14 +6063,37 @@ func (m model) renderSection(b *strings.Builder, title string, entries []git.Fil
 			cursor = styleSelected.Render("> ")
 		}
 		check := ""
+		checkW := 0
 		if inSelMode {
+			checkW = 4
 			if offset+i < len(m.files) && m.files[offset+i].selected {
 				check = styleSelected.Render("[x] ")
 			} else {
 				check = styleDim.Render("[ ] ")
 			}
 		}
-		b.WriteString(cursor + "  " + check + style.Render(fileCode(f, cat)+"  "+f.Path) + "\n")
+		// prefix visual width: cursor(2) + sep(2) + check(0|4) + code+"  "(3)
+		prefixW := 2 + 2 + checkW + 3
+		path := f.Path
+		if m.width > prefixW+1 {
+			availW := m.width - prefixW
+			if len(path) > availW {
+				// first chunk on this line
+				b.WriteString(cursor + "  " + check + style.Render(fileCode(f, cat)+"  "+path[:availW]) + "\n")
+				rest := path[availW:]
+				indent := strings.Repeat(" ", prefixW)
+				for len(rest) > 0 {
+					chunk := rest
+					if len(chunk) > availW {
+						chunk = rest[:availW]
+					}
+					b.WriteString(indent + style.Render(chunk) + "\n")
+					rest = rest[len(chunk):]
+				}
+				continue
+			}
+		}
+		b.WriteString(cursor + "  " + check + style.Render(fileCode(f, cat)+"  "+path) + "\n")
 	}
 	b.WriteString("\n")
 }
