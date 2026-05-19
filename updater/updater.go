@@ -10,7 +10,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -90,8 +92,16 @@ func Run(currentVersion string) {
 		os.Exit(1)
 	}
 
+	// On Windows, close any other open bonsai instances (e.g. the TUI) before
+	// swapping the binary. The current process keeps running because we exclude
+	// our own PID.
+	if runtime.GOOS == "windows" {
+		killOtherInstances()
+	}
+
 	if err := replaceBinary(exe, tmpPath); err != nil {
 		fmt.Fprintf(os.Stderr, "bonsai: failed to replace binary: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hint: close any open bonsai windows and try again\n")
 		os.Remove(tmpPath)
 		os.Exit(1)
 	}
@@ -295,6 +305,15 @@ func parseChecksum(checksums, binaryName string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no checksum found for %s", binaryName)
+}
+
+// killOtherInstances terminates other running bonsai processes on Windows,
+// leaving the current update process alive. Best-effort — errors are ignored.
+func killOtherInstances() {
+	pid := strconv.Itoa(os.Getpid())
+	script := `Get-Process -Name bonsai -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne ` + pid + ` } | Stop-Process -Force -ErrorAction SilentlyContinue`
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	cmd.Run() //nolint:errcheck
 }
 
 func replaceBinary(destPath, srcPath string) error {
