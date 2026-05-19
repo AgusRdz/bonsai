@@ -299,11 +299,18 @@ func parseChecksum(checksums, binaryName string) (string, error) {
 
 func replaceBinary(destPath, srcPath string) error {
 	if runtime.GOOS == "windows" {
-		// On Windows you cannot rename a running executable away from its path,
-		// but MoveFileExW(MOVEFILE_REPLACE_EXISTING) — what os.Rename uses when
-		// the destination already exists — can atomically swap the directory entry
-		// without opening or moving the running file. Just rename new → old path.
+		// Windows locks running executables against in-place replacement but
+		// allows renaming them away. Two-step: move current → .old (safe while
+		// running), then move .tmp → current (now uncontested).
+		// CleanupStaleUpdate removes the .old file on the next startup.
+		oldPath := destPath + ".old"
+		os.Remove(oldPath) // remove any leftover from a previous attempt
+		if err := os.Rename(destPath, oldPath); err != nil {
+			return fmt.Errorf("could not move current binary aside: %w", err)
+		}
 		if err := os.Rename(srcPath, destPath); err != nil {
+			// best-effort rollback
+			os.Rename(oldPath, destPath)
 			return fmt.Errorf("could not replace binary: %w", err)
 		}
 		return nil
