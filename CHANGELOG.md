@@ -2,6 +2,66 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.69.7] - 2026-05-20
+
+### Bug Fixes
+- MCP server now respects agent.default_format config
+([a30692d](https://github.com/AgusRdz/bonsai/commit/a30692d7818f4c05ee637fa3cdb99528cf22aa88))
+## [0.69.6] - 2026-05-19
+
+### Bug Fixes
+- Stage/unstage from diff view closes the panel instead of reloading
+([f7fd6d7](https://github.com/AgusRdz/bonsai/commit/f7fd6d7cf76e53aa6fed1a409ee11ea7a2eb5e9b))
+## [0.69.5] - 2026-05-19
+
+### Bug Fixes
+- Require yes/no confirmation before discard from diff view
+([92baac5](https://github.com/AgusRdz/bonsai/commit/92baac53713eed6c8d01a9359b641fa750b6e078))
+## [0.69.4] - 2026-05-19
+
+### Features
+- Stage/unstage/discard and smart scroll hint from diff view
+([fa355a0](https://github.com/AgusRdz/bonsai/commit/fa355a0b70f44ad44658ac7f342ac046cba1e3e5))
+## [0.69.3] - 2026-05-19
+
+### Bug Fixes
+- Wrap long file paths to multiple lines in narrow terminals
+([8f310b3](https://github.com/AgusRdz/bonsai/commit/8f310b34c5b50298f125bc6a2a7ca1b393e25aab))
+## [0.69.2] - 2026-05-19
+
+### Bug Fixes
+- Suppress git version line printed after TUI exits
+([c0b9b19](https://github.com/AgusRdz/bonsai/commit/c0b9b1907af277d25dbc70e4f993180d4d3685e4))
+## [0.69.1] - 2026-05-19
+
+### Bug Fixes
+- Wrap command bar to multiple lines on narrow terminals
+([a40ac3f](https://github.com/AgusRdz/bonsai/commit/a40ac3f08ebff0d5a68f539c37723de5d4f02d2e))
+## [0.69.0] - 2026-05-19
+
+### Features
+- Add multi-select for batch stage/unstage/discard/untrack
+([4aaad11](https://github.com/AgusRdz/bonsai/commit/4aaad1146e91a56b0456ed67f54f309f1e43dd5c))
+## [0.68.3] - 2026-05-19
+
+### Bug Fixes
+- Close other bonsai instances before binary swap on Windows
+([d6016a2](https://github.com/AgusRdz/bonsai/commit/d6016a225af88ff6b3c67e6ac3ee6dcdcdc967bb))
+## [0.68.2] - 2026-05-19
+
+### Bug Fixes
+- Retry binary rename on Windows to survive AV scan lock
+([514a928](https://github.com/AgusRdz/bonsai/commit/514a928d80e8b0b6e6b126691a413e4b33688211))
+## [0.68.1] - 2026-05-19
+
+### Bug Fixes
+- Use two-step rename for Windows self-update
+([d4aaf12](https://github.com/AgusRdz/bonsai/commit/d4aaf1281a1e2550dfc71c83af700e4096d5565b))
+## [0.68.0] - 2026-05-19
+
+### Features
+- Add stash diff preview and partial apply
+([0e603f1](https://github.com/AgusRdz/bonsai/commit/0e603f19027b7ab918df9ad4ba936e263bd056a9))
 ## [0.67.0] - 2026-05-18
 
 ### Features
