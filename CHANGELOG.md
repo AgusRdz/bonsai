@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.70.0] - 2026-05-20
+
+### Features
+- Add blame line range and diff context-line params to MCP tools
+([57f99a3](https://github.com/AgusRdz/bonsai/commit/57f99a32c1efe34d17be55b987a74cb6a8db45e2))
 ## [0.69.7] - 2026-05-20
 
 ### Bug Fixes
