@@ -10,18 +10,41 @@ import (
 	"strconv"
 
 	"github.com/AgusRdz/bonsai/agent"
+	"github.com/AgusRdz/bonsai/config"
 	"github.com/AgusRdz/bonsai/git"
 )
 
 // Run starts the MCP stdio server and blocks until stdin is closed.
 func Run(version string) {
-	s := &server{g: git.New(), version: version}
+	format := "markdown"
+	if cfg, err := config.Load(); err == nil {
+		switch cfg.Agent.DefaultFormat {
+		case "json", "xml":
+			format = cfg.Agent.DefaultFormat
+		case "markdown", "md":
+			format = "markdown"
+		}
+	}
+	s := &server{g: git.New(), version: version, format: format}
 	s.serve(os.Stdin, os.Stdout)
 }
 
 type server struct {
 	g       *git.Runner
 	version string
+	format  string
+}
+
+func (s *server) formatOutput(v any) string {
+	switch s.format {
+	case "xml":
+		return agent.FormatXML(v)
+	case "json":
+		b, _ := json.MarshalIndent(v, "", "  ")
+		return string(b)
+	default:
+		return agent.FormatMarkdown(v)
+	}
 }
 
 // rpcRequest is a JSON-RPC 2.0 request or notification.
@@ -150,14 +173,14 @@ func (s *server) callTool(ctx context.Context, name string, args map[string]any)
 		if err != nil {
 			return "", err
 		}
-		return agent.FormatMarkdown(out), nil
+		return s.formatOutput(out), nil
 
 	case "git_status":
 		out, err := agent.BuildStatus(ctx, s.g)
 		if err != nil {
 			return "", err
 		}
-		return agent.FormatMarkdown(out), nil
+		return s.formatOutput(out), nil
 
 	case "git_log":
 		out, err := agent.BuildLog(ctx, s.g, agent.LogParams{
@@ -168,7 +191,7 @@ func (s *server) callTool(ctx context.Context, name string, args map[string]any)
 		if err != nil {
 			return "", err
 		}
-		return agent.FormatMarkdown(out), nil
+		return s.formatOutput(out), nil
 
 	case "git_diff":
 		out, err := agent.BuildDiff(ctx, s.g,
@@ -181,7 +204,7 @@ func (s *server) callTool(ctx context.Context, name string, args map[string]any)
 		if err != nil {
 			return "", err
 		}
-		return agent.FormatMarkdown(out), nil
+		return s.formatOutput(out), nil
 
 	case "git_show":
 		ref := stringArg(args, "ref")
@@ -192,7 +215,7 @@ func (s *server) callTool(ctx context.Context, name string, args map[string]any)
 		if err != nil {
 			return "", err
 		}
-		return agent.FormatMarkdown(out), nil
+		return s.formatOutput(out), nil
 
 	case "git_blame":
 		file := stringArg(args, "file")
@@ -203,28 +226,28 @@ func (s *server) callTool(ctx context.Context, name string, args map[string]any)
 		if err != nil {
 			return "", err
 		}
-		return agent.FormatMarkdown(out), nil
+		return s.formatOutput(out), nil
 
 	case "git_branches":
 		out, err := agent.BuildBranches(ctx, s.g)
 		if err != nil {
 			return "", err
 		}
-		return agent.FormatMarkdown(out), nil
+		return s.formatOutput(out), nil
 
 	case "git_stash_list":
 		out, err := agent.BuildStashList(ctx, s.g)
 		if err != nil {
 			return "", err
 		}
-		return agent.FormatMarkdown(out), nil
+		return s.formatOutput(out), nil
 
 	case "git_review":
 		out, err := agent.BuildReview(ctx, s.g, stringArg(args, "base"), boolArg(args, "detailed"))
 		if err != nil {
 			return "", err
 		}
-		return agent.FormatMarkdown(out), nil
+		return s.formatOutput(out), nil
 
 	default:
 		return "", fmt.Errorf("unknown tool: %s", name)
