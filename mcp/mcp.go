@@ -169,7 +169,7 @@ func (s *server) handleToolsCall(raw json.RawMessage) (any, *rpcError) {
 func (s *server) callTool(ctx context.Context, name string, args map[string]any) (string, error) {
 	switch name {
 	case "git_context":
-		out, err := agent.BuildContext(ctx, s.g, intArg(args, "limit", 10), boolArg(args, "detailed"))
+		out, err := agent.BuildContext(ctx, s.g, intArg(args, "limit", 10), boolArg(args, "detailed"), intArg(args, "context", 0))
 		if err != nil {
 			return "", err
 		}
@@ -200,6 +200,7 @@ func (s *server) callTool(ctx context.Context, name string, args map[string]any)
 			boolArg(args, "unstaged"),
 			boolArg(args, "untracked"),
 			boolArg(args, "detailed"),
+			intArg(args, "context", 0),
 		)
 		if err != nil {
 			return "", err
@@ -211,7 +212,7 @@ func (s *server) callTool(ctx context.Context, name string, args map[string]any)
 		if ref == "" {
 			ref = "HEAD"
 		}
-		out, err := agent.BuildShow(ctx, s.g, ref, boolArg(args, "detailed"))
+		out, err := agent.BuildShow(ctx, s.g, ref, boolArg(args, "detailed"), intArg(args, "context", 0))
 		if err != nil {
 			return "", err
 		}
@@ -222,7 +223,7 @@ func (s *server) callTool(ctx context.Context, name string, args map[string]any)
 		if file == "" {
 			return "", fmt.Errorf("git_blame requires 'file' argument")
 		}
-		out, err := agent.BuildBlame(ctx, s.g, file)
+		out, err := agent.BuildBlame(ctx, s.g, file, intArg(args, "start_line", 0), intArg(args, "end_line", 0))
 		if err != nil {
 			return "", err
 		}
@@ -243,7 +244,7 @@ func (s *server) callTool(ctx context.Context, name string, args map[string]any)
 		return s.formatOutput(out), nil
 
 	case "git_review":
-		out, err := agent.BuildReview(ctx, s.g, stringArg(args, "base"), boolArg(args, "detailed"))
+		out, err := agent.BuildReview(ctx, s.g, stringArg(args, "base"), boolArg(args, "detailed"), intArg(args, "context", 0))
 		if err != nil {
 			return "", err
 		}
@@ -316,6 +317,7 @@ func toolDefs() []map[string]any {
 			"inputSchema": schema(propMap{
 				"limit":    {"type": "integer", "description": "Number of recent commits (default 10)"},
 				"detailed": {"type": "boolean", "description": "Include full patch hunks in the diff"},
+				"context":  {"type": "integer", "description": "Number of context lines around each hunk (0 = git default of 3)"},
 			}, nil),
 		},
 		{
@@ -341,6 +343,7 @@ func toolDefs() []map[string]any {
 				"untracked": {"type": "boolean", "description": "Include untracked files"},
 				"detailed":  {"type": "boolean", "description": "Include patch hunks"},
 				"file":      {"type": "string", "description": "Filter to a single file path"},
+				"context":   {"type": "integer", "description": "Number of context lines around each hunk (0 = git default of 3)"},
 			}, nil),
 		},
 		{
@@ -349,13 +352,16 @@ func toolDefs() []map[string]any {
 			"inputSchema": schema(propMap{
 				"ref":      {"type": "string", "description": "Commit ref (default HEAD)"},
 				"detailed": {"type": "boolean", "description": "Include patch hunks"},
+				"context":  {"type": "integer", "description": "Number of context lines around each hunk (0 = git default of 3)"},
 			}, nil),
 		},
 		{
 			"name":        "git_blame",
 			"description": "Line-by-line blame for a file: each line annotated with commit hash, author, and date.",
 			"inputSchema": schema(propMap{
-				"file": {"type": "string", "description": "File path to blame"},
+				"file":       {"type": "string", "description": "File path to blame"},
+				"start_line": {"type": "integer", "description": "First line of range to blame (1-based; requires end_line)"},
+				"end_line":   {"type": "integer", "description": "Last line of range to blame (1-based; requires start_line)"},
 			}, []string{"file"}),
 		},
 		{
@@ -374,6 +380,7 @@ func toolDefs() []map[string]any {
 			"inputSchema": schema(propMap{
 				"base":     {"type": "string", "description": "Base branch or ref to compare against (e.g. 'main')"},
 				"detailed": {"type": "boolean", "description": "Include patch hunks"},
+				"context":  {"type": "integer", "description": "Number of context lines around each hunk (0 = git default of 3)"},
 			}, nil),
 		},
 	}

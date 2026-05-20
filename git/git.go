@@ -679,8 +679,12 @@ func (r *Runner) PullMerge(ctx context.Context) error {
 // Diff returns the unified diff for a single file.
 // When staged is true it diffs the index against HEAD (what will be committed).
 // When staged is false it diffs the working tree against the index (unstaged changes).
-func (r *Runner) Diff(ctx context.Context, path string, staged bool) (string, error) {
+// When contextLines > 0, passes -U<n> to control the number of context lines.
+func (r *Runner) Diff(ctx context.Context, path string, staged bool, contextLines int) (string, error) {
 	args := []string{"diff"}
+	if contextLines > 0 {
+		args = append(args, fmt.Sprintf("-U%d", contextLines))
+	}
 	if staged {
 		args = append(args, "--staged")
 	}
@@ -1036,8 +1040,14 @@ type BlameLine struct {
 }
 
 // Blame returns the blame output for a file.
-func (r *Runner) Blame(ctx context.Context, path string) ([]BlameLine, error) {
-	out, err := r.run(ctx, "blame", "--porcelain", path)
+// When both startLine and endLine are > 0, only lines in that range are returned.
+func (r *Runner) Blame(ctx context.Context, path string, startLine, endLine int) ([]BlameLine, error) {
+	args := []string{"blame", "--porcelain"}
+	if startLine > 0 && endLine > 0 {
+		args = append(args, fmt.Sprintf("-L%d,%d", startLine, endLine))
+	}
+	args = append(args, path)
+	out, err := r.run(ctx, args...)
 	if err != nil {
 		// untracked or empty file
 		return nil, nil
@@ -2444,8 +2454,12 @@ func (r *Runner) CommitsInRange(ctx context.Context, base string) ([]StructuredL
 
 // DiffAll returns the full unified diff for all staged (staged=true) or
 // unstaged (staged=false) changes across the working tree.
-func (r *Runner) DiffAll(ctx context.Context, staged bool) (string, error) {
+// When contextLines > 0, passes -U<n> to control the number of context lines.
+func (r *Runner) DiffAll(ctx context.Context, staged bool, contextLines int) (string, error) {
 	args := []string{"diff"}
+	if contextLines > 0 {
+		args = append(args, fmt.Sprintf("-U%d", contextLines))
+	}
 	if staged {
 		args = append(args, "--staged")
 	}
@@ -2458,8 +2472,14 @@ func (r *Runner) DiffAll(ctx context.Context, staged bool) (string, error) {
 
 // DiffRange returns the unified diff of all changes introduced between base
 // and HEAD (equivalent to git diff base..HEAD).
-func (r *Runner) DiffRange(ctx context.Context, base string) (string, error) {
-	out, err := r.run(ctx, "diff", base+"..HEAD")
+// When contextLines > 0, passes -U<n> to control the number of context lines.
+func (r *Runner) DiffRange(ctx context.Context, base string, contextLines int) (string, error) {
+	args := []string{"diff"}
+	if contextLines > 0 {
+		args = append(args, fmt.Sprintf("-U%d", contextLines))
+	}
+	args = append(args, base+"..HEAD")
+	out, err := r.run(ctx, args...)
 	if err != nil {
 		return "", err
 	}
@@ -2582,8 +2602,14 @@ func (r *Runner) ShowNumstat(ctx context.Context, ref string) ([]FileNumstat, er
 }
 
 // ShowDiff returns the full unified diff for a single commit.
-func (r *Runner) ShowDiff(ctx context.Context, ref string) (string, error) {
-	out, err := r.run(ctx, "show", "--format=", ref)
+// When contextLines > 0, passes -U<n> to control the number of context lines.
+func (r *Runner) ShowDiff(ctx context.Context, ref string, contextLines int) (string, error) {
+	args := []string{"show", "--format="}
+	if contextLines > 0 {
+		args = append(args, fmt.Sprintf("-U%d", contextLines))
+	}
+	args = append(args, ref)
+	out, err := r.run(ctx, args...)
 	if err != nil {
 		return "", err
 	}

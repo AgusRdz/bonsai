@@ -1099,6 +1099,7 @@ func runMCP(args []string) {
 func runAgentContext(args []string) {
 	limit := 10
 	detailed := false
+	var contextLines int
 	for _, a := range args {
 		switch {
 		case strings.HasPrefix(a, "--limit="):
@@ -1107,11 +1108,15 @@ func runAgentContext(args []string) {
 			}
 		case a == "--detailed":
 			detailed = true
+		case strings.HasPrefix(a, "--context="):
+			if n, err := strconv.Atoi(strings.TrimPrefix(a, "--context=")); err == nil {
+				contextLines = n
+			}
 		}
 	}
 	ctx := context.Background()
 	g := git.New()
-	out, err := agent.BuildContext(ctx, g, limit, detailed)
+	out, err := agent.BuildContext(ctx, g, limit, detailed, contextLines)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bonsai context:", err)
 		os.Exit(1)
@@ -1164,6 +1169,7 @@ func runAgentLog(args []string) {
 func runAgentDiff(args []string) {
 	var file string
 	var showStaged, showUnstaged, showUntracked, detailed bool
+	var contextLines int
 	for _, a := range args {
 		switch {
 		case strings.HasPrefix(a, "--file="):
@@ -1176,11 +1182,15 @@ func runAgentDiff(args []string) {
 			showUntracked = true
 		case a == "--detailed":
 			detailed = true
+		case strings.HasPrefix(a, "--context="):
+			if n, err := strconv.Atoi(strings.TrimPrefix(a, "--context=")); err == nil {
+				contextLines = n
+			}
 		}
 	}
 	ctx := context.Background()
 	g := git.New()
-	out, err := agent.BuildDiff(ctx, g, file, showStaged, showUnstaged, showUntracked, detailed)
+	out, err := agent.BuildDiff(ctx, g, file, showStaged, showUnstaged, showUntracked, detailed, contextLines)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bonsai diff:", err)
 		os.Exit(1)
@@ -1190,9 +1200,19 @@ func runAgentDiff(args []string) {
 
 func runAgentBlame(args []string) {
 	var file string
+	var startLine, endLine int
 	for _, a := range args {
-		if strings.HasPrefix(a, "--file=") {
+		switch {
+		case strings.HasPrefix(a, "--file="):
 			file = strings.TrimPrefix(a, "--file=")
+		case strings.HasPrefix(a, "--start-line="):
+			if n, err := strconv.Atoi(strings.TrimPrefix(a, "--start-line=")); err == nil {
+				startLine = n
+			}
+		case strings.HasPrefix(a, "--end-line="):
+			if n, err := strconv.Atoi(strings.TrimPrefix(a, "--end-line=")); err == nil {
+				endLine = n
+			}
 		}
 	}
 	if file == "" {
@@ -1201,7 +1221,7 @@ func runAgentBlame(args []string) {
 	}
 	ctx := context.Background()
 	g := git.New()
-	out, err := agent.BuildBlame(ctx, g, file)
+	out, err := agent.BuildBlame(ctx, g, file, startLine, endLine)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bonsai blame:", err)
 		os.Exit(1)
@@ -1234,17 +1254,22 @@ func runAgentStashList(args []string) {
 func runAgentShow(args []string) {
 	ref := "HEAD"
 	detailed := false
+	var contextLines int
 	for _, a := range args {
 		switch {
 		case a == "--detailed":
 			detailed = true
+		case strings.HasPrefix(a, "--context="):
+			if n, err := strconv.Atoi(strings.TrimPrefix(a, "--context=")); err == nil {
+				contextLines = n
+			}
 		case !strings.HasPrefix(a, "--"):
 			ref = a
 		}
 	}
 	ctx := context.Background()
 	g := git.New()
-	out, err := agent.BuildShow(ctx, g, ref, detailed)
+	out, err := agent.BuildShow(ctx, g, ref, detailed, contextLines)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bonsai show:", err)
 		os.Exit(1)
@@ -1255,17 +1280,22 @@ func runAgentShow(args []string) {
 func runAgentReview(args []string) {
 	var base string
 	detailed := false
+	var contextLines int
 	for _, a := range args {
 		switch {
 		case strings.HasPrefix(a, "--base="):
 			base = strings.TrimPrefix(a, "--base=")
 		case a == "--detailed":
 			detailed = true
+		case strings.HasPrefix(a, "--context="):
+			if n, err := strconv.Atoi(strings.TrimPrefix(a, "--context=")); err == nil {
+				contextLines = n
+			}
 		}
 	}
 	ctx := context.Background()
 	g := git.New()
-	out, err := agent.BuildReview(ctx, g, base, detailed)
+	out, err := agent.BuildReview(ctx, g, base, detailed, contextLines)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bonsai review:", err)
 		os.Exit(1)

@@ -1147,7 +1147,7 @@ func (m model) doFetchDiff(path string, staged bool) tea.Cmd {
 		if staged {
 			title += "  (staged)"
 		}
-		content, err := m.git.Diff(ctx, path, staged)
+		content, err := m.git.Diff(ctx, path, staged, 0)
 		if err != nil || content == "" {
 			return diffMsg{title: title, lines: []string{}}
 		}
@@ -1484,7 +1484,7 @@ func (m model) doBlame(path string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
-		lines, err := m.git.Blame(ctx, path)
+		lines, err := m.git.Blame(ctx, path, 0, 0)
 		if err != nil || lines == nil {
 			return blameMsg{title: path, lines: []git.BlameLine{}}
 		}

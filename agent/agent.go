@@ -193,7 +193,8 @@ func BuildLog(ctx context.Context, g *git.Runner, p LogParams) ([]LogEntry, erro
 // When no scope flag is true, all three scopes are included.
 // When detailed is false, only file counts are returned (no patch hunks).
 // path filters results to a single file; untracked is skipped when path is set.
-func BuildDiff(ctx context.Context, g *git.Runner, path string, showStaged, showUnstaged, showUntracked, detailed bool) (*DiffOut, error) {
+// contextLines controls the -U<n> flag (0 = git default).
+func BuildDiff(ctx context.Context, g *git.Runner, path string, showStaged, showUnstaged, showUntracked, detailed bool, contextLines int) (*DiffOut, error) {
 	if !showStaged && !showUnstaged && !showUntracked {
 		showStaged, showUnstaged, showUntracked = true, true, true
 	}
@@ -205,7 +206,7 @@ func BuildDiff(ctx context.Context, g *git.Runner, path string, showStaged, show
 	}
 
 	if showStaged {
-		files, err := buildScopeDiff(ctx, g, path, true, detailed)
+		files, err := buildScopeDiff(ctx, g, path, true, detailed, contextLines)
 		if err != nil {
 			return nil, err
 		}
@@ -213,7 +214,7 @@ func BuildDiff(ctx context.Context, g *git.Runner, path string, showStaged, show
 	}
 
 	if showUnstaged {
-		files, err := buildScopeDiff(ctx, g, path, false, detailed)
+		files, err := buildScopeDiff(ctx, g, path, false, detailed, contextLines)
 		if err != nil {
 			return nil, err
 		}
@@ -233,16 +234,17 @@ func BuildDiff(ctx context.Context, g *git.Runner, path string, showStaged, show
 }
 
 // buildScopeDiff returns FileDiff entries for staged or unstaged changes.
-func buildScopeDiff(ctx context.Context, g *git.Runner, path string, staged, detailed bool) ([]FileDiff, error) {
+// contextLines controls the -U<n> flag (0 = git default).
+func buildScopeDiff(ctx context.Context, g *git.Runner, path string, staged, detailed bool, contextLines int) ([]FileDiff, error) {
 	if detailed {
 		var (
 			raw string
 			err error
 		)
 		if path != "" {
-			raw, err = g.Diff(ctx, path, staged)
+			raw, err = g.Diff(ctx, path, staged, contextLines)
 		} else {
-			raw, err = g.DiffAll(ctx, staged)
+			raw, err = g.DiffAll(ctx, staged, contextLines)
 		}
 		if err != nil {
 			return []FileDiff{}, err
@@ -280,7 +282,8 @@ func buildScopeDiff(ctx context.Context, g *git.Runner, path string, staged, det
 
 // BuildShow returns metadata and optionally diff hunks for a single commit.
 // ref may be a hash, HEAD, or HEAD~N.
-func BuildShow(ctx context.Context, g *git.Runner, ref string, detailed bool) (*ShowOut, error) {
+// contextLines controls the -U<n> flag (0 = git default).
+func BuildShow(ctx context.Context, g *git.Runner, ref string, detailed bool, contextLines int) (*ShowOut, error) {
 	entry, err := g.ShowCommit(ctx, ref)
 	if err != nil {
 		return nil, err
@@ -295,7 +298,7 @@ func BuildShow(ctx context.Context, g *git.Runner, ref string, detailed bool) (*
 	}
 
 	if detailed {
-		raw, err := g.ShowDiff(ctx, ref)
+		raw, err := g.ShowDiff(ctx, ref, contextLines)
 		if err != nil {
 			return nil, err
 		}
@@ -332,8 +335,8 @@ func BuildShow(ctx context.Context, g *git.Runner, ref string, detailed bool) (*
 	return out, nil
 }
 
-func BuildBlame(ctx context.Context, g *git.Runner, path string) ([]BlameEntry, error) {
-	lines, err := g.Blame(ctx, path)
+func BuildBlame(ctx context.Context, g *git.Runner, path string, startLine, endLine int) ([]BlameEntry, error) {
+	lines, err := g.Blame(ctx, path, startLine, endLine)
 	if err != nil {
 		return nil, err
 	}
@@ -371,7 +374,8 @@ func BuildStashList(ctx context.Context, g *git.Runner) ([]StashEntry, error) {
 // BuildContext returns a single snapshot of repo status, working-tree diff,
 // and recent commits. logLimit controls how many commits to include (0 = 10).
 // When detailed is false, diff contains only file counts (no patch hunks).
-func BuildContext(ctx context.Context, g *git.Runner, logLimit int, detailed bool) (*ContextOut, error) {
+// contextLines controls the -U<n> flag (0 = git default).
+func BuildContext(ctx context.Context, g *git.Runner, logLimit int, detailed bool, contextLines int) (*ContextOut, error) {
 	if logLimit <= 0 {
 		logLimit = 10
 	}
@@ -381,7 +385,7 @@ func BuildContext(ctx context.Context, g *git.Runner, logLimit int, detailed boo
 		return nil, err
 	}
 
-	diff, err := BuildDiff(ctx, g, "", true, true, true, detailed)
+	diff, err := BuildDiff(ctx, g, "", true, true, true, detailed, contextLines)
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +400,8 @@ func BuildContext(ctx context.Context, g *git.Runner, logLimit int, detailed boo
 
 // BuildReview returns diff and commit context for code review.
 // When detailed is false, only file counts are returned (no patch hunks).
-func BuildReview(ctx context.Context, g *git.Runner, base string, detailed bool) (*ReviewOut, error) {
+// contextLines controls the -U<n> flag (0 = git default).
+func BuildReview(ctx context.Context, g *git.Runner, base string, detailed bool, contextLines int) (*ReviewOut, error) {
 	status, err := BuildStatus(ctx, g)
 	if err != nil {
 		return nil, err
@@ -412,7 +417,7 @@ func BuildReview(ctx context.Context, g *git.Runner, base string, detailed bool)
 
 	if base != "" {
 		if detailed {
-			raw, err := g.DiffRange(ctx, base)
+			raw, err := g.DiffRange(ctx, base, contextLines)
 			if err != nil {
 				return nil, err
 			}
@@ -447,7 +452,7 @@ func BuildReview(ctx context.Context, g *git.Runner, base string, detailed bool)
 		out.CommitsCount = len(out.Commits)
 	} else {
 		if detailed {
-			raw, err := g.DiffAll(ctx, true)
+			raw, err := g.DiffAll(ctx, true, contextLines)
 			if err != nil {
 				return nil, err
 			}
