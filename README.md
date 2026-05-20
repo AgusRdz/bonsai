@@ -116,7 +116,7 @@ Press `i` to run `git init`, then optionally add a remote - or press `esc` to sk
 | `bonsai diff` | Structured diff: staged, unstaged, untracked (AI output) |
 | `bonsai log` | Structured commit history (AI output) |
 | `bonsai show [--ref=<ref>]` | Structured commit detail (AI output) |
-| `bonsai blame --file=<path>` | Structured line-by-line blame (AI output) |
+| `bonsai blame --file=<path> [--start-line=N --end-line=N]` | Structured line-by-line blame; optional line range (AI output) |
 | `bonsai branches` | Structured branch list (AI output) |
 | `bonsai stash-list` | Structured stash entries (AI output) |
 | `bonsai review [--base=<ref>]` | Structured diff against a base branch for code review (AI output) |
@@ -135,9 +135,11 @@ Once installed, AI agents prefer bonsai tools over raw git commands for read-onl
 The `bonsai context`, `bonsai diff`, `bonsai review`, and related commands are the same tools exposed via MCP - you can also call them from the terminal to get structured JSON, Markdown, or XML output:
 
 ```sh
-bonsai context --format=markdown      # full repo snapshot
-bonsai review --base=main --detailed  # code review diff
-bonsai diff --staged --detailed       # staged changes with patch hunks
+bonsai context --format=markdown                    # full repo snapshot
+bonsai review --base=main --detailed               # code review diff
+bonsai review --base=main --detailed --context=1   # same, 1 context line per hunk
+bonsai diff --staged --detailed                    # staged changes with patch hunks
+bonsai blame --file=git/git.go --start-line=10 --end-line=50  # blame a line range
 ```
 
 ### Examples
