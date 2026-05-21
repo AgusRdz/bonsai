@@ -89,6 +89,7 @@ const (
 	panelLFS
 	panelDashboard
 	panelInit
+	panelAbout
 )
 
 type branchMode int
@@ -281,6 +282,7 @@ const (
 
 type model struct {
 	cfg                 *config.Config
+	version             string
 	git                 *git.Runner
 	status              *git.Status
 	files               []fileItem // flat list of all selectable files
@@ -2835,6 +2837,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelHelp {
 			return m.updateHelpPanel(msg)
+		}
+		if m.panel == panelAbout {
+			return m.updateAboutPanel(msg)
 		}
 		if m.panel == panelConfirm {
 			return m.updateConfirmPanel(msg)
@@ -5439,6 +5444,18 @@ func (m model) updateHelpPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
+	case "a":
+		m.panel = panelAbout
+	default:
+		m.panel = panelMain
+	}
+	return m, nil
+}
+
+func (m model) updateAboutPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
 	default:
 		m.panel = panelMain
 	}
@@ -5880,6 +5897,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelHelp {
 		return m.helpView()
+	}
+	if m.panel == panelAbout {
+		return m.aboutView()
 	}
 	if m.panel == panelConfirm {
 		return m.confirmView()
@@ -6573,6 +6593,7 @@ func (m model) helpView() string {
 	section("App")
 	row("C", "configuration manager (git config, gitignore, profiles, education)")
 	row("?", "all shortcuts (this panel)")
+	row("a", "about bonsai (from this panel)")
 	row(kb.Quit+" / ctrl+c", "quit")
 	b.WriteString("\n")
 
@@ -6582,6 +6603,22 @@ func (m model) helpView() string {
 		content += strings.Repeat("\n", pad)
 	}
 	return content + styleDim.Render("  press any key to close") + "\n"
+}
+
+func (m model) aboutView() string {
+	v := m.version
+	if v == "" {
+		v = "dev"
+	}
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleTitle.Render("bonsai") + "  " + styleDim.Render("v"+v) + "\n\n")
+	b.WriteString("  " + styleDim.Render("A terminal UI for git.") + "\n\n")
+	b.WriteString("  " + styleCmd.Render("Author ") + "  AgusRdz\n")
+	b.WriteString("  " + styleCmd.Render("Repo   ") + "  https://github.com/AgusRdz/bonsai\n")
+	b.WriteString("  " + styleCmd.Render("Issues ") + "  https://github.com/AgusRdz/bonsai/issues\n\n")
+	b.WriteString(styleDim.Render("  press any key to close") + "\n")
+	return b.String()
 }
 
 func (m model) stashListView() string {
@@ -10466,7 +10503,7 @@ func (m model) doFinishGitflowBranch(branch, branchType, mainBranch, devBranch s
 }
 
 // Run starts the bonsai TUI. mdb may be nil when metrics are disabled.
-func Run(cfg *config.Config, mdb *metrics.DB) error {
+func Run(cfg *config.Config, mdb *metrics.DB, version string) error {
 	g := git.New()
 	fi := textinput.New()
 	fi.Placeholder = "message text  |  author:name  |  since:2026-01-01  |  until:2026-03-01"
@@ -10502,6 +10539,7 @@ func Run(cfg *config.Config, mdb *metrics.DB) error {
 
 	m := model{
 		cfg:               cfg,
+		version:           version,
 		git:               g,
 		logFilterInput:    fi,
 		branchFilterInput: branchFI,

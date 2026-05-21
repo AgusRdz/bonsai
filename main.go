@@ -144,7 +144,7 @@ func runTUI() {
 		}
 	}
 
-	if err := tui.Run(cfg, mdb); err != nil {
+	if err := tui.Run(cfg, mdb, version); err != nil {
 		fmt.Fprintf(os.Stderr, "bonsai: %v\n", err)
 		os.Exit(1)
 	}
