@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.74.1] - 2026-05-21
+
+### Bug Fixes
+- About panel keeps ctrl free and fixes double v in version
+([8304599](https://github.com/AgusRdz/bonsai/commit/8304599e089b935ab2d916e3d4271a0f685c2821))
 ## [0.74.0] - 2026-05-21
 
 ### Features
