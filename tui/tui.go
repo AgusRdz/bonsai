@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -7011,6 +7012,67 @@ func renderStatLine(line string) string {
 	return styleDim.Render(name) + colored
 }
 
+var reCommitType = regexp.MustCompile(`^(feat|fix|docs|refactor|test|chore|ci|build|perf|style|revert)(\([^)]*\))?(!)?\s*:`)
+
+func colorizeGraph(s string) string {
+	var b strings.Builder
+	for _, ch := range s {
+		switch ch {
+		case '*':
+			b.WriteString(styleCmd.Render("*"))
+		case '|', '/', '\\', '_', '-':
+			b.WriteString(styleDim.Render(string(ch)))
+		default:
+			b.WriteString(string(ch))
+		}
+	}
+	return b.String()
+}
+
+func colorizeCommitSubject(s string) string {
+	loc := reCommitType.FindStringIndex(s)
+	if loc == nil {
+		return s
+	}
+	prefix := s[:loc[1]]
+	rest := s[loc[1]:]
+	var sty lipgloss.Style
+	switch {
+	case strings.Contains(prefix, "!"):
+		sty = styleChanged
+	case strings.HasPrefix(prefix, "feat"):
+		sty = styleStaged
+	case strings.HasPrefix(prefix, "fix"):
+		sty = styleUntracked
+	default:
+		sty = styleDim
+	}
+	return sty.Render(prefix) + rest
+}
+
+func colorizeLogLine(line, hash string) string {
+	if hash == "" {
+		return styleDim.Render(line)
+	}
+	idx := strings.Index(line, hash)
+	if idx < 0 {
+		return styleDim.Render(line)
+	}
+	graphOut := colorizeGraph(line[:idx])
+	hashOut := styleHash.Render(hash)
+	rest := line[idx+len(hash):]
+	decoOut := ""
+	if strings.HasPrefix(rest, " (") {
+		end := strings.Index(rest, ")")
+		if end >= 0 {
+			decoOut = " " + styleBranch.Render(rest[1:end+1])
+			rest = rest[end+1:]
+		}
+	}
+	subject := strings.TrimPrefix(rest, " ")
+	return graphOut + hashOut + decoOut + " " + colorizeCommitSubject(subject)
+}
+
 func (m model) logView() string {
 	var b strings.Builder
 	b.WriteString("\n")
@@ -7057,9 +7119,9 @@ func (m model) logView() string {
 			e := m.logEntries[i]
 			badge := sigBadge(e.Sig)
 			if m.logCursor == i {
-				b.WriteString("  " + styleSelected.Render(">") + " " + badge + styleDim.Render(e.Line) + "\n")
+				b.WriteString("  " + styleSelected.Render(">") + " " + badge + colorizeLogLine(e.Line, e.Hash) + "\n")
 			} else {
-				b.WriteString("    " + badge + styleDim.Render(e.Line) + "\n")
+				b.WriteString("    " + badge + colorizeLogLine(e.Line, e.Hash) + "\n")
 			}
 		}
 		if m.logHasMore && m.logFilter == "" {
