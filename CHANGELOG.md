@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.73.0] - 2026-05-21
+
+### Features
+- Colorize commit log entries
+([b2c0b20](https://github.com/AgusRdz/bonsai/commit/b2c0b20fa80d1d59374a3646279f5cb75fa3510d))
 ## [0.72.0] - 2026-05-21
 
 ### Features
