@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.72.0] - 2026-05-21
+
+### Features
+- Add about panel accessible from the help screen
+([79e680d](https://github.com/AgusRdz/bonsai/commit/79e680d4ade99d751050cffb9b71f90f05c1a1f1))
 ## [0.71.1] - 2026-05-21
 
 ### Bug Fixes
