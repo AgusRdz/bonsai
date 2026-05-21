@@ -47,7 +47,9 @@ func main() {
 	case "help", "--help", "-h":
 		printHelp()
 	case "version", "--version", "-v":
-		fmt.Printf("bonsai %s\n", version)
+		fmt.Printf("bonsai %s · AgusRdz\n", version)
+	case "about", "--about":
+		printAbout(version)
 	case "update":
 		updater.Run(version)
 	case "uninstall":
@@ -170,6 +172,17 @@ func runSetup(args []string) {
 	}
 }
 
+func printAbout(version string) {
+	if version == "" {
+		version = "dev"
+	}
+	fmt.Printf("bonsai %s\n", version)
+	fmt.Println("A terminal UI for git.")
+	fmt.Println()
+	fmt.Println("Author  AgusRdz")
+	fmt.Println("Repo    https://github.com/AgusRdz/bonsai")
+}
+
 func printHelp() {
 	fmt.Printf(`bonsai %s - a TUI Git client that teaches while you work
 
@@ -180,6 +193,7 @@ Usage:
 Commands:
   help              show this help
   version           print version
+  about             show author and repository info
   update            update to the latest release
   uninstall         remove bonsai from this system
   changelog         show the changelog
@@ -246,6 +260,7 @@ Agent / structured output:
 Options:
   -h, --help        show help
   -v, --version     print version
+      --about       show author and repository info
 `, version)
 }
 
