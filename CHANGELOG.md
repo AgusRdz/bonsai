@@ -2,6 +2,15 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.71.0] - 2026-05-21
+
+### Documentation
+- Document blame line range and diff context params in README
+([a7f03a8](https://github.com/AgusRdz/bonsai/commit/a7f03a819bfed1ea89d9bb3a3d1582f10e2c303d))
+
+### Features
+- Stash pop and apply preview diff before executing
+([378a840](https://github.com/AgusRdz/bonsai/commit/378a840457e2b569af30b5c4647197615171d8c8))
 ## [0.70.0] - 2026-05-20
 
 ### Features
