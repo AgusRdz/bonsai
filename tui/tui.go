@@ -320,6 +320,7 @@ type model struct {
 	stashFilesList      []string
 	stashFilesSel       []bool
 	stashFilesCursor    int
+	stashPendingAction  string // "apply" or "pop" — set when previewing stash diff before confirming
 	confirmPrompt       string
 	confirmCmd          tea.Cmd
 	confirmOrigin       panel // panel to return to on cancel; zero = panelMain
@@ -4252,6 +4253,22 @@ func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.confirmOrigin = panelDiff
 			m.panel = panelConfirm
 		}
+	case "a":
+		if m.diffOrigin == panelStashList {
+			ref := m.diffTitle
+			m.panel = panelMain
+			m.diffOrigin = panelMain
+			m.stashPendingAction = ""
+			return m, m.doStashApply(ref)
+		}
+	case "enter":
+		if m.diffOrigin == panelStashList {
+			ref := m.diffTitle
+			m.panel = panelMain
+			m.diffOrigin = panelMain
+			m.stashPendingAction = ""
+			return m, m.doStashPop(ref)
+		}
 	case "e":
 		path := strings.TrimSuffix(m.diffTitle, "  (staged)")
 		m.blameLines = nil
@@ -4259,6 +4276,12 @@ func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.panel = panelBlame
 		return m, m.doBlame(path)
 	case "esc", m.cfg.Keybindings.Quit:
+		if m.diffOrigin == panelStashList {
+			m.stashPendingAction = ""
+			m.panel = panelStashList
+			m.diffOrigin = panelMain
+			return m, nil
+		}
 		m.panel = m.diffOrigin
 		m.diffOrigin = panelMain
 	case "ctrl+c":
@@ -5216,15 +5239,23 @@ func (m model) updateStashListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			break
 		}
 		ref := visible[m.stashCursor].Ref
-		m.panel = panelMain
-		return m, m.doStashPop(ref)
+		m.diffLines = nil
+		m.diffScroll = 0
+		m.diffOrigin = panelStashList
+		m.stashPendingAction = "pop"
+		m.panel = panelDiff
+		return m, m.doFetchStashDiff(ref)
 	case "a":
 		if len(visible) == 0 {
 			break
 		}
 		ref := visible[m.stashCursor].Ref
-		m.panel = panelMain
-		return m, m.doStashApply(ref)
+		m.diffLines = nil
+		m.diffScroll = 0
+		m.diffOrigin = panelStashList
+		m.stashPendingAction = "apply"
+		m.panel = panelDiff
+		return m, m.doFetchStashDiff(ref)
 	case "p":
 		if len(visible) == 0 {
 			break
@@ -6520,7 +6551,7 @@ func (m model) helpView() string {
 
 	section("Stash & tags")
 	row(kb.Stash+" / s", "stash all changes (opens message input)")
-	row("S", "stash list - pop, apply, drop")
+	row("S", "stash list - pop, apply (both preview diff before acting), drop")
 	row("t", "tag list - create, delete, push to remote")
 	b.WriteString("\n")
 
@@ -6601,7 +6632,7 @@ func (m model) stashListView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [enter] pop  [a] apply  [p] partial  [space] preview  [d] drop  [/] search  [esc] back") + "\n"
+	return content + styleDim.Render("  [enter] pop  [a] apply  [space] preview only  [p] partial  [d] drop  [/] search  [esc] back") + "\n"
 }
 
 func (m model) diffView() string {
@@ -6654,6 +6685,17 @@ func (m model) diffView() string {
 	var hint string
 	if m.diffOrigin == panelPR {
 		hint = "  [↑↓] move cursor  [c] comment line  [esc] back"
+	} else if m.diffOrigin == panelStashList {
+		var parts []string
+		if scrollable {
+			parts = append(parts, "[↑↓] scroll")
+		}
+		if m.stashPendingAction == "pop" {
+			parts = append(parts, "[enter] pop  [a] apply  [esc] back")
+		} else {
+			parts = append(parts, "[a] apply  [enter] pop  [esc] back")
+		}
+		hint = "  " + strings.Join(parts, "  ")
 	} else {
 		var parts []string
 		if scrollable {
