@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.71.1] - 2026-05-21
+
+### Bug Fixes
+- Include hook stdout in push error message
+([35426a5](https://github.com/AgusRdz/bonsai/commit/35426a5b21db0651928962e86727ede549d746a9))
 ## [0.71.0] - 2026-05-21
 
 ### Documentation
