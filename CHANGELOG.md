@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.75.0] - 2026-05-21
+
+### Features
+- Add source/target/paths params to git_review and document MCP tools
+([57ca389](https://github.com/AgusRdz/bonsai/commit/57ca389aaa7e9dc24e8f96038b6c0391b9592d0a))
 ## [0.74.1] - 2026-05-21
 
 ### Bug Fixes
