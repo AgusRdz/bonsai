@@ -5457,7 +5457,7 @@ func (m model) updateAboutPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
-	default:
+	case "esc", "q", "enter", "?":
 		m.panel = panelMain
 	}
 	return m, nil
@@ -6613,12 +6613,12 @@ func (m model) aboutView() string {
 	}
 	var b strings.Builder
 	b.WriteString("\n")
-	b.WriteString("  " + styleTitle.Render("bonsai") + "  " + styleDim.Render("v"+v) + "\n\n")
+	b.WriteString("  " + styleTitle.Render("bonsai") + "  " + styleDim.Render(v) + "\n\n")
 	b.WriteString("  " + styleDim.Render("A terminal UI for git.") + "\n\n")
 	b.WriteString("  " + styleCmd.Render("Author ") + "  AgusRdz\n")
 	b.WriteString("  " + styleCmd.Render("Repo   ") + "  https://github.com/AgusRdz/bonsai\n")
 	b.WriteString("  " + styleCmd.Render("Issues ") + "  https://github.com/AgusRdz/bonsai/issues\n\n")
-	b.WriteString(styleDim.Render("  press any key to close") + "\n")
+	b.WriteString(styleDim.Render("  [esc / q] close") + "\n")
 	return b.String()
 }
 
