@@ -8342,7 +8342,7 @@ func (m model) fileHistoryView() string {
 			if m.fileHistoryCursor == i {
 				cursor = styleSelected.Render("> ")
 			}
-			b.WriteString(cursor + e.Line + "\n")
+			b.WriteString(cursor + colorizeLogLine(e.Line, e.Hash) + "\n")
 		}
 	}
 	b.WriteString("\n")
