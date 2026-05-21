@@ -244,7 +244,12 @@ func (s *server) callTool(ctx context.Context, name string, args map[string]any)
 		return s.formatOutput(out), nil
 
 	case "git_review":
-		out, err := agent.BuildReview(ctx, s.g, stringArg(args, "base"), boolArg(args, "detailed"), intArg(args, "context", 0))
+		base := stringArg(args, "source")
+		if base == "" {
+			base = stringArg(args, "base")
+		}
+		target := stringArg(args, "target")
+		out, err := agent.BuildReview(ctx, s.g, base, target, boolArg(args, "detailed"), intArg(args, "context", 0), stringsArg(args, "paths"))
 		if err != nil {
 			return "", err
 		}
@@ -293,6 +298,24 @@ func stringArg(args map[string]any, key string) string {
 	}
 	s, _ := v.(string)
 	return s
+}
+
+func stringsArg(args map[string]any, key string) []string {
+	v, ok := args[key]
+	if !ok {
+		return nil
+	}
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, item := range arr {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------
@@ -376,9 +399,12 @@ func toolDefs() []map[string]any {
 		},
 		{
 			"name":        "git_review",
-			"description": "Diff and commit context for code review, comparing HEAD against a base branch.",
+			"description": "Diff and commit context for code review. Compares source..target (two-dot diff). Defaults to HEAD when target is omitted, making it equivalent to source..HEAD. Use paths to restrict the diff to specific files.",
 			"inputSchema": schema(propMap{
-				"base":     {"type": "string", "description": "Base branch or ref to compare against (e.g. 'main')"},
+				"source":   {"type": "string", "description": "Source ref to diff from (e.g. 'main', 'origin/main'). Alias: 'base'."},
+				"base":     {"type": "string", "description": "Alias for source (kept for backward compatibility)."},
+				"target":   {"type": "string", "description": "Target ref to diff to (default: HEAD). Allows comparing two arbitrary refs without checking out either."},
+				"paths":    {"type": "array", "items": map[string]any{"type": "string"}, "description": "Restrict diff to these file paths. Always passed after a -- separator."},
 				"detailed": {"type": "boolean", "description": "Include patch hunks"},
 				"context":  {"type": "integer", "description": "Number of context lines around each hunk (0 = git default of 3)"},
 			}, nil),

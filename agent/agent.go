@@ -401,7 +401,12 @@ func BuildContext(ctx context.Context, g *git.Runner, logLimit int, detailed boo
 // BuildReview returns diff and commit context for code review.
 // When detailed is false, only file counts are returned (no patch hunks).
 // contextLines controls the -U<n> flag (0 = git default).
-func BuildReview(ctx context.Context, g *git.Runner, base string, detailed bool, contextLines int) (*ReviewOut, error) {
+// BuildReview compares base..target (two-dot diff). target defaults to HEAD when empty.
+// paths restricts the diff to a subset of files; always passed after a literal -- separator.
+func BuildReview(ctx context.Context, g *git.Runner, base, target string, detailed bool, contextLines int, paths []string) (*ReviewOut, error) {
+	if target == "" {
+		target = "HEAD"
+	}
 	status, err := BuildStatus(ctx, g)
 	if err != nil {
 		return nil, err
@@ -417,7 +422,7 @@ func BuildReview(ctx context.Context, g *git.Runner, base string, detailed bool,
 
 	if base != "" {
 		if detailed {
-			raw, err := g.DiffRange(ctx, base, contextLines)
+			raw, err := g.DiffRange(ctx, base, target, contextLines, paths)
 			if err != nil {
 				return nil, err
 			}
@@ -425,14 +430,14 @@ func BuildReview(ctx context.Context, g *git.Runner, base string, detailed bool,
 			if out.Diff == nil {
 				out.Diff = []FileDiff{}
 			}
-			nameStatus, _ := g.DiffRangeNameStatus(ctx, base)
+			nameStatus, _ := g.DiffRangeNameStatus(ctx, base, target, paths)
 			applyStatuses(out.Diff, nameStatus)
 		} else {
-			numstats, err := g.DiffRangeNumstat(ctx, base)
+			numstats, err := g.DiffRangeNumstat(ctx, base, target, paths)
 			if err != nil {
 				return nil, err
 			}
-			nameStatus, _ := g.DiffRangeNameStatus(ctx, base)
+			nameStatus, _ := g.DiffRangeNameStatus(ctx, base, target, paths)
 			for _, n := range numstats {
 				fd := FileDiff{Path: n.Path, Additions: n.Additions, Deletions: n.Deletions}
 				if s, ok := nameStatus[n.Path]; ok {
@@ -445,7 +450,7 @@ func BuildReview(ctx context.Context, g *git.Runner, base string, detailed bool,
 			}
 		}
 
-		commits, _ := g.CommitsInRange(ctx, base)
+		commits, _ := g.CommitsInRange(ctx, base, target)
 		for _, c := range commits {
 			out.Commits = append(out.Commits, LogEntry{Hash: c.Hash, Subject: c.Subject, Author: c.Author, Date: c.Date})
 		}

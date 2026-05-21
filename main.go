@@ -1278,13 +1278,24 @@ func runAgentShow(args []string) {
 }
 
 func runAgentReview(args []string) {
-	var base string
+	var base, target string
+	var paths []string
 	detailed := false
 	var contextLines int
 	for _, a := range args {
 		switch {
 		case strings.HasPrefix(a, "--base="):
 			base = strings.TrimPrefix(a, "--base=")
+		case strings.HasPrefix(a, "--source="):
+			base = strings.TrimPrefix(a, "--source=")
+		case strings.HasPrefix(a, "--target="):
+			target = strings.TrimPrefix(a, "--target=")
+		case strings.HasPrefix(a, "--paths="):
+			for _, p := range strings.Split(strings.TrimPrefix(a, "--paths="), ",") {
+				if p = strings.TrimSpace(p); p != "" {
+					paths = append(paths, p)
+				}
+			}
 		case a == "--detailed":
 			detailed = true
 		case strings.HasPrefix(a, "--context="):
@@ -1295,7 +1306,7 @@ func runAgentReview(args []string) {
 	}
 	ctx := context.Background()
 	g := git.New()
-	out, err := agent.BuildReview(ctx, g, base, detailed, contextLines)
+	out, err := agent.BuildReview(ctx, g, base, target, detailed, contextLines, paths)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bonsai review:", err)
 		os.Exit(1)

@@ -2433,11 +2433,14 @@ func (r *Runner) LogStructured(ctx context.Context, n int) ([]StructuredLogEntry
 }
 
 // CommitsInRange returns structured commits reachable from HEAD but not from base.
-func (r *Runner) CommitsInRange(ctx context.Context, base string) ([]StructuredLogEntry, error) {
+func (r *Runner) CommitsInRange(ctx context.Context, base, target string) ([]StructuredLogEntry, error) {
+	if target == "" {
+		target = "HEAD"
+	}
 	args := []string{
 		"log",
 		"--pretty=tformat:%h\x1f%s\x1f%an\x1f%as",
-		base + "..HEAD",
+		base + ".." + target,
 	}
 	out, err := r.run(ctx, args...)
 	if err != nil {
@@ -2480,15 +2483,23 @@ func (r *Runner) DiffAll(ctx context.Context, staged bool, contextLines int) (st
 	return string(out), nil
 }
 
-// DiffRange returns the unified diff of all changes introduced between base
-// and HEAD (equivalent to git diff base..HEAD).
+// DiffRange returns the unified diff between base and target (git diff base..target).
+// target defaults to HEAD when empty. paths, if non-empty, are appended after a
+// literal -- separator to prevent git from misinterpreting them as refs.
 // When contextLines > 0, passes -U<n> to control the number of context lines.
-func (r *Runner) DiffRange(ctx context.Context, base string, contextLines int) (string, error) {
+func (r *Runner) DiffRange(ctx context.Context, base, target string, contextLines int, paths []string) (string, error) {
+	if target == "" {
+		target = "HEAD"
+	}
 	args := []string{"diff"}
 	if contextLines > 0 {
 		args = append(args, fmt.Sprintf("-U%d", contextLines))
 	}
-	args = append(args, base+"..HEAD")
+	args = append(args, base+".."+target)
+	if len(paths) > 0 {
+		args = append(args, "--")
+		args = append(args, paths...)
+	}
 	out, err := r.run(ctx, args...)
 	if err != nil {
 		return "", err
@@ -2511,9 +2522,18 @@ func (r *Runner) DiffNameStatus(ctx context.Context, staged bool) (map[string]st
 }
 
 // DiffRangeNameStatus returns a map of path -> single-character status code
-// for all files changed between base and HEAD.
-func (r *Runner) DiffRangeNameStatus(ctx context.Context, base string) (map[string]string, error) {
-	out, err := r.run(ctx, "diff", "--name-status", base+"..HEAD")
+// for all files changed between base and target. target defaults to HEAD when empty.
+// paths restricts output to those files; always separated with a literal --.
+func (r *Runner) DiffRangeNameStatus(ctx context.Context, base, target string, paths []string) (map[string]string, error) {
+	if target == "" {
+		target = "HEAD"
+	}
+	args := []string{"diff", "--name-status", base + ".." + target}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		args = append(args, paths...)
+	}
+	out, err := r.run(ctx, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -2564,9 +2584,19 @@ func (r *Runner) DiffNumstat(ctx context.Context, staged bool) ([]FileNumstat, e
 	return parseDiffNumstat(string(out)), nil
 }
 
-// DiffRangeNumstat returns per-file line counts for base..HEAD.
-func (r *Runner) DiffRangeNumstat(ctx context.Context, base string) ([]FileNumstat, error) {
-	out, err := r.run(ctx, "diff", "--numstat", base+"..HEAD")
+// DiffRangeNumstat returns per-file line counts for base..target.
+// target defaults to HEAD when empty. paths restricts output to those files;
+// always separated with a literal --.
+func (r *Runner) DiffRangeNumstat(ctx context.Context, base, target string, paths []string) ([]FileNumstat, error) {
+	if target == "" {
+		target = "HEAD"
+	}
+	args := []string{"diff", "--numstat", base + ".." + target}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		args = append(args, paths...)
+	}
+	out, err := r.run(ctx, args...)
 	if err != nil {
 		return nil, err
 	}
