@@ -120,8 +120,18 @@ func (r *Runner) run(ctx context.Context, args ...string) ([]byte, error) {
 	r.lastCmd = "git " + strings.Join(args, " ")
 	out, err := exec.CommandContext(ctx, "git", args...).Output()
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
-			return nil, fmt.Errorf("%s", strings.TrimSpace(string(ee.Stderr)))
+		if ee, ok := err.(*exec.ExitError); ok {
+			stdout := strings.TrimSpace(string(out))
+			stderr := strings.TrimSpace(string(ee.Stderr))
+			if stdout != "" && stderr != "" {
+				return nil, fmt.Errorf("%s\n%s", stdout, stderr)
+			}
+			if stderr != "" {
+				return nil, fmt.Errorf("%s", stderr)
+			}
+			if stdout != "" {
+				return nil, fmt.Errorf("%s", stdout)
+			}
 		}
 		return nil, err
 	}
