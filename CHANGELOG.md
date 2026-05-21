@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.76.0] - 2026-05-21
+
+### Features
+- Add author to --version output and --about command
+([885e0ec](https://github.com/AgusRdz/bonsai/commit/885e0ec98c31ee5dcebc4ba1ebd4e6834d711bb1))
 ## [0.75.0] - 2026-05-21
 
 ### Features
