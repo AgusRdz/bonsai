@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.79.1] - 2026-05-22
+
+### Bug Fixes
+- Restore cursor to next unstaged file after staging from diff view
+([0d98341](https://github.com/AgusRdz/bonsai/commit/0d983414e11f6d04a5acbe465501d216a79f3ac4))
 ## [0.79.0] - 2026-05-22
 
 ### Features
