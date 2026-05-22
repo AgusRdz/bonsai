@@ -3137,7 +3137,8 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "down", "j":
 		if len(m.files) == 0 && config.OverviewEnabled(m.cfg) {
-			if m.overviewCursor < len(m.prListItems)-1 {
+			total := len(m.prListItems) + len(m.overviewLogEntries)
+			if m.overviewCursor < total-1 {
 				m.overviewCursor++
 			}
 		} else if m.cursor < len(m.files)-1 {
@@ -3186,9 +3187,16 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case " ", "enter":
 		if len(m.files) == 0 {
-			if config.OverviewEnabled(m.cfg) && len(m.prListItems) > 0 {
-				m.prListCursor = m.overviewCursor
-				m.panel = panelPRDetail
+			if config.OverviewEnabled(m.cfg) {
+				if m.overviewCursor < len(m.prListItems) && len(m.prListItems) > 0 {
+					m.prListCursor = m.overviewCursor
+					m.panel = panelPRDetail
+				} else {
+					idx := m.overviewCursor - len(m.prListItems)
+					if idx >= 0 && idx < len(m.overviewLogEntries) {
+						return m, m.doFetchCommitDetail(m.overviewLogEntries[idx].Hash)
+					}
+				}
 			}
 			break
 		}
@@ -6314,12 +6322,16 @@ func (m model) renderOverview(b *strings.Builder) {
 	}
 	if len(m.overviewLogEntries) > 0 {
 		b.WriteString("  " + styleSection.Render("Recent commits") + "\n")
-		for _, e := range m.overviewLogEntries {
+		for i, e := range m.overviewLogEntries {
 			hash := e.Hash
 			if len(hash) > 7 {
 				hash = hash[:7]
 			}
-			b.WriteString("     " + styleDim.Render(hash+"  "+e.Line) + "\n")
+			cursor := "  "
+			if len(m.prListItems)+i == m.overviewCursor {
+				cursor = styleSelected.Render(">>")
+			}
+			b.WriteString(cursor + "  " + styleDim.Render(hash+"  "+e.Line) + "\n")
 		}
 		b.WriteString("\n")
 	}
