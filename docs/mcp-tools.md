@@ -14,14 +14,39 @@ bonsai exposes a read-only MCP server that AI coding assistants (Claude Code, Cu
 
 The practical rule: if you are reading state for review or analysis, reach for an MCP tool — you get typed output instead of text to parse. If you are changing state, use git directly.
 
-## Diff operator semantics
+## Operator semantics: `..` vs `...`
 
-All bonsai diff tools use the **two-dot operator** (`source..target`), not three-dot (`source...target`).
+The two operators mean different things depending on the command. Mixing them up produces silently wrong results.
 
-- `A..B` — direct diff between two refs: what B has that A does not. This is the literal delta between the current state of both refs, which is what code review consumers expect.
-- `A...B` — diff from the merge-base of A and B up to B. This hides changes that landed in A after the branch was created. A clean `A...B` diff does not mean the branch is conflict-free against the current A.
+### For `git diff` / `git_review`
 
-**Rule: always use `..` for diff and review operations.** Three-dot silently drops upstream changes from the result, which is misleading for review purposes. Three-dot is only appropriate for symmetric commit enumeration in `git log`.
+| Operator | Meaning |
+|---|---|
+| `A...B` | Diff from the merge-base of A and B up to B — **only what the branch introduced since it diverged**. This is what GitHub and GitLab use for PR diffs. Default for `git_review`. |
+| `A..B` | Literal tip-to-tip diff — what B has that A does not at this moment. If A has advanced since the branch was cut, those new commits show up as deletions. Opt-in via `merge_base: false`. |
+
+**Rule: use `...` (merge-base) for diff and review.** It shows the true branch delta without noise from upstream advances.
+
+### For `git log` / `git_log`
+
+| Operator | Meaning |
+|---|---|
+| `A..B` | Commits reachable from B but not from A — **only branch-only commits**. Correct for "what did this branch add?" |
+| `A...B` | Symmetric difference — commits reachable from either ref but not both. Leaks commits from A that B never had. Wrong for branch scoping. |
+
+**Rule: use `..` (two-dot) for log.** Symmetric difference (`...`) leaks commits from the base branch into the result.
+
+### Summary
+
+```
+git diff  A...B   ✓  merge-base diff (branch delta only)
+git diff  A..B    ✓  tip-to-tip (use when you want literal current state)
+
+git log   A..B    ✓  branch-only commits
+git log   A...B   ✗  symmetric difference — leaks base-branch commits
+```
+
+The operators are not interchangeable across commands — they have opposite correct values for diff vs log.
 
 ---
 
@@ -29,7 +54,7 @@ All bonsai diff tools use the **two-dot operator** (`source..target`), not three
 
 ### git_review
 
-Diff and commit context for code review. Compares `source..target` (two-dot). Returns structured per-file stats, total line counts, and commit list.
+Diff and commit context for code review. Uses merge-base diff (`source...target`) by default — only what the branch introduced since it diverged, matching GitHub/GitLab PR diffs. Set `merge_base: false` for a literal tip-to-tip diff (`source..target`). Returns structured per-file stats, total line counts, and commit list.
 
 **Parameters**
 
@@ -147,7 +172,7 @@ Current repository state: branch, upstream tracking, staged/unstaged/untracked f
 
 ### git_log
 
-Recent commit history.
+Recent commit history. When `base` is provided, scopes to commits reachable from HEAD but not from `base` (branch-only commits since divergence). Uses `base..HEAD` — two-dot, not three-dot. See [operator semantics](#operator-semantics--vs-) above.
 
 **Parameters**
 
@@ -156,6 +181,7 @@ Recent commit history.
 | `limit` | integer | 20 | Maximum commits to return. |
 | `since` | string | — | Start date or expression, e.g. `yesterday`, `1 week ago`, `2026-05-01`. |
 | `until` | string | — | End date, e.g. `2026-05-17`. |
+| `base` | string | — | Scope to branch-only commits since divergence from this ref (e.g. `main`, `origin/main`). Uses `base..HEAD`. |
 
 **Output: `LogEntry[]`**
 
