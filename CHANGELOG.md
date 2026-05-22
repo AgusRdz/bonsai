@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.78.0] - 2026-05-22
+
+### Features
+- Add hooks command with dispatcher for global, shared, and local scopes
+([3c1eb6e](https://github.com/AgusRdz/bonsai/commit/3c1eb6e34b16fca84c59414bf1f597d25780a7dd))
 ## [0.77.2] - 2026-05-22
 
 ### Documentation
