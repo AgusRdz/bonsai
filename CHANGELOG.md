@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.79.2] - 2026-05-22
+
+### Bug Fixes
+- Make recent commits selectable in overview panel
+([f6a0a6f](https://github.com/AgusRdz/bonsai/commit/f6a0a6f185861fbe5cb1f02b1324a3f5cd9f435b))
 ## [0.79.1] - 2026-05-22
 
 ### Bug Fixes
