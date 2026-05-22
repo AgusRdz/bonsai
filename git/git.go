@@ -2440,7 +2440,7 @@ func (r *Runner) CommitsInRange(ctx context.Context, base, target string) ([]Str
 	args := []string{
 		"log",
 		"--pretty=tformat:%h\x1f%s\x1f%an\x1f%as",
-		base + ".." + target,
+		base + "..." + target,
 	}
 	out, err := r.run(ctx, args...)
 	if err != nil {
@@ -2467,14 +2467,19 @@ func (r *Runner) CommitsInRange(ctx context.Context, base, target string) ([]Str
 
 // DiffAll returns the full unified diff for all staged (staged=true) or
 // unstaged (staged=false) changes across the working tree.
+// paths restricts output to those files; always separated with a literal --.
 // When contextLines > 0, passes -U<n> to control the number of context lines.
-func (r *Runner) DiffAll(ctx context.Context, staged bool, contextLines int) (string, error) {
+func (r *Runner) DiffAll(ctx context.Context, staged bool, contextLines int, paths []string) (string, error) {
 	args := []string{"diff"}
 	if contextLines > 0 {
 		args = append(args, fmt.Sprintf("-U%d", contextLines))
 	}
 	if staged {
 		args = append(args, "--staged")
+	}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		args = append(args, paths...)
 	}
 	out, err := r.run(ctx, args...)
 	if err != nil {
@@ -2483,19 +2488,25 @@ func (r *Runner) DiffAll(ctx context.Context, staged bool, contextLines int) (st
 	return string(out), nil
 }
 
-// DiffRange returns the unified diff between base and target (git diff base..target).
+// DiffRange returns the unified diff between base and target.
+// mergeBase=true (default for review) uses ... (merge-base diff: only what the branch
+// introduced since it diverged). mergeBase=false uses .. (tip-to-tip literal diff).
 // target defaults to HEAD when empty. paths, if non-empty, are appended after a
 // literal -- separator to prevent git from misinterpreting them as refs.
 // When contextLines > 0, passes -U<n> to control the number of context lines.
-func (r *Runner) DiffRange(ctx context.Context, base, target string, contextLines int, paths []string) (string, error) {
+func (r *Runner) DiffRange(ctx context.Context, base, target string, mergeBase bool, contextLines int, paths []string) (string, error) {
 	if target == "" {
 		target = "HEAD"
+	}
+	op := "..."
+	if !mergeBase {
+		op = ".."
 	}
 	args := []string{"diff"}
 	if contextLines > 0 {
 		args = append(args, fmt.Sprintf("-U%d", contextLines))
 	}
-	args = append(args, base+".."+target)
+	args = append(args, base+op+target)
 	if len(paths) > 0 {
 		args = append(args, "--")
 		args = append(args, paths...)
@@ -2509,10 +2520,15 @@ func (r *Runner) DiffRange(ctx context.Context, base, target string, contextLine
 
 // DiffNameStatus returns a map of path -> single-character status code for
 // staged (staged=true) or unstaged (staged=false) changed files.
-func (r *Runner) DiffNameStatus(ctx context.Context, staged bool) (map[string]string, error) {
+// paths restricts output to those files; always separated with a literal --.
+func (r *Runner) DiffNameStatus(ctx context.Context, staged bool, paths []string) (map[string]string, error) {
 	args := []string{"diff", "--name-status"}
 	if staged {
 		args = append(args, "--staged")
+	}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		args = append(args, paths...)
 	}
 	out, err := r.run(ctx, args...)
 	if err != nil {
@@ -2522,13 +2538,17 @@ func (r *Runner) DiffNameStatus(ctx context.Context, staged bool) (map[string]st
 }
 
 // DiffRangeNameStatus returns a map of path -> single-character status code
-// for all files changed between base and target. target defaults to HEAD when empty.
-// paths restricts output to those files; always separated with a literal --.
-func (r *Runner) DiffRangeNameStatus(ctx context.Context, base, target string, paths []string) (map[string]string, error) {
+// for all files changed between base and target. mergeBase controls .. vs ... (see DiffRange).
+// target defaults to HEAD when empty. paths restricts output; always separated with --.
+func (r *Runner) DiffRangeNameStatus(ctx context.Context, base, target string, mergeBase bool, paths []string) (map[string]string, error) {
 	if target == "" {
 		target = "HEAD"
 	}
-	args := []string{"diff", "--name-status", base + ".." + target}
+	op := "..."
+	if !mergeBase {
+		op = ".."
+	}
+	args := []string{"diff", "--name-status", base + op + target}
 	if len(paths) > 0 {
 		args = append(args, "--")
 		args = append(args, paths...)
@@ -2572,10 +2592,15 @@ type FileNumstat struct {
 
 // DiffNumstat returns per-file line counts without patch content.
 // staged=true diffs the index against HEAD; staged=false diffs the working tree against the index.
-func (r *Runner) DiffNumstat(ctx context.Context, staged bool) ([]FileNumstat, error) {
+// paths restricts output to those files; always separated with a literal --.
+func (r *Runner) DiffNumstat(ctx context.Context, staged bool, paths []string) ([]FileNumstat, error) {
 	args := []string{"diff", "--numstat"}
 	if staged {
 		args = append(args, "--staged")
+	}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		args = append(args, paths...)
 	}
 	out, err := r.run(ctx, args...)
 	if err != nil {
@@ -2584,14 +2609,18 @@ func (r *Runner) DiffNumstat(ctx context.Context, staged bool) ([]FileNumstat, e
 	return parseDiffNumstat(string(out)), nil
 }
 
-// DiffRangeNumstat returns per-file line counts for base..target.
-// target defaults to HEAD when empty. paths restricts output to those files;
-// always separated with a literal --.
-func (r *Runner) DiffRangeNumstat(ctx context.Context, base, target string, paths []string) ([]FileNumstat, error) {
+// DiffRangeNumstat returns per-file line counts for base...target (or base..target).
+// mergeBase controls .. vs ... (see DiffRange). target defaults to HEAD when empty.
+// paths restricts output; always separated with a literal --.
+func (r *Runner) DiffRangeNumstat(ctx context.Context, base, target string, mergeBase bool, paths []string) ([]FileNumstat, error) {
 	if target == "" {
 		target = "HEAD"
 	}
-	args := []string{"diff", "--numstat", base + ".." + target}
+	op := "..."
+	if !mergeBase {
+		op = ".."
+	}
+	args := []string{"diff", "--numstat", base + op + target}
 	if len(paths) > 0 {
 		args = append(args, "--")
 		args = append(args, paths...)
@@ -2670,6 +2699,7 @@ type LogStructuredOpts struct {
 	Limit int    // 0 = 20
 	Since string // e.g. "yesterday", "1 week ago", "2026-05-01"
 	Until string // e.g. "2026-05-17"
+	Base  string // when set, scopes to commits reachable from HEAD but not from Base (branch-only commits)
 }
 
 // LogStructuredWithOpts returns structured log entries filtered by opts.
@@ -2682,6 +2712,9 @@ func (r *Runner) LogStructuredWithOpts(ctx context.Context, opts LogStructuredOp
 		"log",
 		fmt.Sprintf("--max-count=%d", n),
 		"--pretty=tformat:%h\x1f%s\x1f%an\x1f%as",
+	}
+	if opts.Base != "" {
+		args = append(args, opts.Base+"...HEAD")
 	}
 	if opts.Since != "" {
 		args = append(args, "--since="+opts.Since)

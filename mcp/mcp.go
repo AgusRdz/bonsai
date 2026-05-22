@@ -187,6 +187,7 @@ func (s *server) callTool(ctx context.Context, name string, args map[string]any)
 			Limit: intArg(args, "limit", 20),
 			Since: stringArg(args, "since"),
 			Until: stringArg(args, "until"),
+			Base:  stringArg(args, "base"),
 		})
 		if err != nil {
 			return "", err
@@ -196,6 +197,7 @@ func (s *server) callTool(ctx context.Context, name string, args map[string]any)
 	case "git_diff":
 		out, err := agent.BuildDiff(ctx, s.g,
 			stringArg(args, "file"),
+			stringsArg(args, "paths"),
 			boolArg(args, "staged"),
 			boolArg(args, "unstaged"),
 			boolArg(args, "untracked"),
@@ -249,7 +251,13 @@ func (s *server) callTool(ctx context.Context, name string, args map[string]any)
 			base = stringArg(args, "base")
 		}
 		target := stringArg(args, "target")
-		out, err := agent.BuildReview(ctx, s.g, base, target, boolArg(args, "detailed"), intArg(args, "context", 0), stringsArg(args, "paths"))
+		mergeBase := true
+		if v, ok := args["merge_base"]; ok {
+			if b, ok := v.(bool); ok {
+				mergeBase = b
+			}
+		}
+		out, err := agent.BuildReview(ctx, s.g, base, target, mergeBase, boolArg(args, "detailed"), intArg(args, "context", 0), stringsArg(args, "paths"))
 		if err != nil {
 			return "", err
 		}
@@ -355,6 +363,7 @@ func toolDefs() []map[string]any {
 				"limit": {"type": "integer", "description": "Maximum commits to return (default 20)"},
 				"since": {"type": "string", "description": "Start date or expression, e.g. 'yesterday', '1 week ago', '2026-05-01'"},
 				"until": {"type": "string", "description": "End date, e.g. '2026-05-17'"},
+				"base":  {"type": "string", "description": "When set, scopes to commits reachable from HEAD but not from base (branch-only commits since divergence). e.g. 'main', 'origin/main'."},
 			}, nil),
 		},
 		{
@@ -366,6 +375,7 @@ func toolDefs() []map[string]any {
 				"untracked": {"type": "boolean", "description": "Include untracked files"},
 				"detailed":  {"type": "boolean", "description": "Include patch hunks"},
 				"file":      {"type": "string", "description": "Filter to a single file path"},
+				"paths":     {"type": "array", "items": map[string]any{"type": "string"}, "description": "Restrict diff to these file paths. Always passed after a -- separator."},
 				"context":   {"type": "integer", "description": "Number of context lines around each hunk (0 = git default of 3)"},
 			}, nil),
 		},
@@ -399,14 +409,15 @@ func toolDefs() []map[string]any {
 		},
 		{
 			"name":        "git_review",
-			"description": "Diff and commit context for code review. Compares source..target (two-dot diff). Defaults to HEAD when target is omitted, making it equivalent to source..HEAD. Use paths to restrict the diff to specific files.",
+			"description": "Diff and commit context for code review. By default uses merge-base diff (source...target): only what the branch introduced since it diverged, matching GitHub/GitLab PR diffs. Set merge_base=false for a literal tip-to-tip diff (source..target). Use paths to restrict the diff to specific files.",
 			"inputSchema": schema(propMap{
-				"source":   {"type": "string", "description": "Source ref to diff from (e.g. 'main', 'origin/main'). Alias: 'base'."},
-				"base":     {"type": "string", "description": "Alias for source (kept for backward compatibility)."},
-				"target":   {"type": "string", "description": "Target ref to diff to (default: HEAD). Allows comparing two arbitrary refs without checking out either."},
-				"paths":    {"type": "array", "items": map[string]any{"type": "string"}, "description": "Restrict diff to these file paths. Always passed after a -- separator."},
-				"detailed": {"type": "boolean", "description": "Include patch hunks"},
-				"context":  {"type": "integer", "description": "Number of context lines around each hunk (0 = git default of 3)"},
+				"source":     {"type": "string", "description": "Source ref to diff from (e.g. 'main', 'origin/main'). Alias: 'base'."},
+				"base":       {"type": "string", "description": "Alias for source (kept for backward compatibility)."},
+				"target":     {"type": "string", "description": "Target ref to diff to (default: HEAD). Allows comparing two arbitrary refs without checking out either."},
+				"merge_base": {"type": "boolean", "description": "Use merge-base diff (source...target) — default true. Set false for literal tip-to-tip diff (source..target)."},
+				"paths":      {"type": "array", "items": map[string]any{"type": "string"}, "description": "Restrict diff to these file paths. Always passed after a -- separator."},
+				"detailed":   {"type": "boolean", "description": "Include patch hunks"},
+				"context":    {"type": "integer", "description": "Number of context lines around each hunk (0 = git default of 3)"},
 			}, nil),
 		},
 	}

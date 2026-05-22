@@ -16,6 +16,7 @@ import (
 	"github.com/AgusRdz/bonsai/doctor"
 	"github.com/AgusRdz/bonsai/git"
 	"github.com/AgusRdz/bonsai/gitcheck"
+	"github.com/AgusRdz/bonsai/grow"
 	"github.com/AgusRdz/bonsai/mcp"
 	"github.com/AgusRdz/bonsai/metrics"
 	"github.com/AgusRdz/bonsai/plugins"
@@ -50,6 +51,8 @@ func main() {
 		fmt.Printf("bonsai %s · AgusRdz\n", version)
 	case "about", "--about":
 		printAbout(version)
+	case "grow":
+		grow.Run()
 	case "update":
 		updater.Run(version)
 	case "uninstall":
@@ -194,6 +197,7 @@ Commands:
   help              show this help
   version           print version
   about             show author and repository info
+  grow              grow an animated bonsai tree
   update            update to the latest release
   uninstall         remove bonsai from this system
   changelog         show the changelog
@@ -1205,7 +1209,7 @@ func runAgentDiff(args []string) {
 	}
 	ctx := context.Background()
 	g := git.New()
-	out, err := agent.BuildDiff(ctx, g, file, showStaged, showUnstaged, showUntracked, detailed, contextLines)
+	out, err := agent.BuildDiff(ctx, g, file, nil, showStaged, showUnstaged, showUntracked, detailed, contextLines)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bonsai diff:", err)
 		os.Exit(1)
@@ -1321,7 +1325,7 @@ func runAgentReview(args []string) {
 	}
 	ctx := context.Background()
 	g := git.New()
-	out, err := agent.BuildReview(ctx, g, base, target, detailed, contextLines, paths)
+	out, err := agent.BuildReview(ctx, g, base, target, true, detailed, contextLines, paths)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "bonsai review:", err)
 		os.Exit(1)

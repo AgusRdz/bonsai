@@ -43,6 +43,7 @@ type LogParams struct {
 	Limit int    // 0 = 20
 	Since string // e.g. "yesterday", "1 week ago", "2026-05-01"
 	Until string // e.g. "2026-05-17"
+	Base  string // when set, scopes to commits reachable from HEAD but not Base
 }
 
 type HunkOut struct {
@@ -177,7 +178,7 @@ func BuildStatus(ctx context.Context, g *git.Runner) (*StatusOut, error) {
 }
 
 func BuildLog(ctx context.Context, g *git.Runner, p LogParams) ([]LogEntry, error) {
-	opts := git.LogStructuredOpts{Limit: p.Limit, Since: p.Since, Until: p.Until}
+	opts := git.LogStructuredOpts{Limit: p.Limit, Since: p.Since, Until: p.Until, Base: p.Base}
 	entries, err := g.LogStructuredWithOpts(ctx, opts)
 	if err != nil {
 		return nil, err
@@ -194,7 +195,7 @@ func BuildLog(ctx context.Context, g *git.Runner, p LogParams) ([]LogEntry, erro
 // When detailed is false, only file counts are returned (no patch hunks).
 // path filters results to a single file; untracked is skipped when path is set.
 // contextLines controls the -U<n> flag (0 = git default).
-func BuildDiff(ctx context.Context, g *git.Runner, path string, showStaged, showUnstaged, showUntracked, detailed bool, contextLines int) (*DiffOut, error) {
+func BuildDiff(ctx context.Context, g *git.Runner, path string, paths []string, showStaged, showUnstaged, showUntracked, detailed bool, contextLines int) (*DiffOut, error) {
 	if !showStaged && !showUnstaged && !showUntracked {
 		showStaged, showUnstaged, showUntracked = true, true, true
 	}
@@ -206,7 +207,7 @@ func BuildDiff(ctx context.Context, g *git.Runner, path string, showStaged, show
 	}
 
 	if showStaged {
-		files, err := buildScopeDiff(ctx, g, path, true, detailed, contextLines)
+		files, err := buildScopeDiff(ctx, g, path, paths, true, detailed, contextLines)
 		if err != nil {
 			return nil, err
 		}
@@ -214,17 +215,17 @@ func BuildDiff(ctx context.Context, g *git.Runner, path string, showStaged, show
 	}
 
 	if showUnstaged {
-		files, err := buildScopeDiff(ctx, g, path, false, detailed, contextLines)
+		files, err := buildScopeDiff(ctx, g, path, paths, false, detailed, contextLines)
 		if err != nil {
 			return nil, err
 		}
 		out.Unstaged = files
 	}
 
-	if showUntracked && path == "" {
-		paths, err := g.ListUntracked(ctx)
+	if showUntracked && path == "" && len(paths) == 0 {
+		untrackedPaths, err := g.ListUntracked(ctx)
 		if err == nil {
-			for _, p := range paths {
+			for _, p := range untrackedPaths {
 				out.Untracked = append(out.Untracked, UntrackedEntry{Path: p})
 			}
 		}
@@ -234,8 +235,9 @@ func BuildDiff(ctx context.Context, g *git.Runner, path string, showStaged, show
 }
 
 // buildScopeDiff returns FileDiff entries for staged or unstaged changes.
+// path filters to a single file (existing behaviour); paths filters to multiple files.
 // contextLines controls the -U<n> flag (0 = git default).
-func buildScopeDiff(ctx context.Context, g *git.Runner, path string, staged, detailed bool, contextLines int) ([]FileDiff, error) {
+func buildScopeDiff(ctx context.Context, g *git.Runner, path string, paths []string, staged, detailed bool, contextLines int) ([]FileDiff, error) {
 	if detailed {
 		var (
 			raw string
@@ -244,7 +246,7 @@ func buildScopeDiff(ctx context.Context, g *git.Runner, path string, staged, det
 		if path != "" {
 			raw, err = g.Diff(ctx, path, staged, contextLines)
 		} else {
-			raw, err = g.DiffAll(ctx, staged, contextLines)
+			raw, err = g.DiffAll(ctx, staged, contextLines, paths)
 		}
 		if err != nil {
 			return []FileDiff{}, err
@@ -253,16 +255,16 @@ func buildScopeDiff(ctx context.Context, g *git.Runner, path string, staged, det
 		if files == nil {
 			return []FileDiff{}, nil
 		}
-		ns, _ := g.DiffNameStatus(ctx, staged)
+		ns, _ := g.DiffNameStatus(ctx, staged, paths)
 		applyStatuses(files, ns)
 		return files, nil
 	}
 
-	numstats, err := g.DiffNumstat(ctx, staged)
+	numstats, err := g.DiffNumstat(ctx, staged, paths)
 	if err != nil {
 		return []FileDiff{}, err
 	}
-	ns, _ := g.DiffNameStatus(ctx, staged)
+	ns, _ := g.DiffNameStatus(ctx, staged, paths)
 	var files []FileDiff
 	for _, n := range numstats {
 		if path != "" && n.Path != path {
@@ -385,7 +387,7 @@ func BuildContext(ctx context.Context, g *git.Runner, logLimit int, detailed boo
 		return nil, err
 	}
 
-	diff, err := BuildDiff(ctx, g, "", true, true, true, detailed, contextLines)
+	diff, err := BuildDiff(ctx, g, "", nil, true, true, true, detailed, contextLines)
 	if err != nil {
 		return nil, err
 	}
@@ -401,9 +403,11 @@ func BuildContext(ctx context.Context, g *git.Runner, logLimit int, detailed boo
 // BuildReview returns diff and commit context for code review.
 // When detailed is false, only file counts are returned (no patch hunks).
 // contextLines controls the -U<n> flag (0 = git default).
-// BuildReview compares base..target (two-dot diff). target defaults to HEAD when empty.
-// paths restricts the diff to a subset of files; always passed after a literal -- separator.
-func BuildReview(ctx context.Context, g *git.Runner, base, target string, detailed bool, contextLines int, paths []string) (*ReviewOut, error) {
+// BuildReview compares base and target using merge-base diff by default (base...target),
+// which shows only what the branch introduced since it diverged — matching GitHub/GitLab PR diffs.
+// Set mergeBase=false for a literal tip-to-tip diff (base..target).
+// target defaults to HEAD when empty. paths restricts the diff to a subset of files.
+func BuildReview(ctx context.Context, g *git.Runner, base, target string, mergeBase bool, detailed bool, contextLines int, paths []string) (*ReviewOut, error) {
 	if target == "" {
 		target = "HEAD"
 	}
@@ -422,7 +426,7 @@ func BuildReview(ctx context.Context, g *git.Runner, base, target string, detail
 
 	if base != "" {
 		if detailed {
-			raw, err := g.DiffRange(ctx, base, target, contextLines, paths)
+			raw, err := g.DiffRange(ctx, base, target, mergeBase, contextLines, paths)
 			if err != nil {
 				return nil, err
 			}
@@ -430,14 +434,14 @@ func BuildReview(ctx context.Context, g *git.Runner, base, target string, detail
 			if out.Diff == nil {
 				out.Diff = []FileDiff{}
 			}
-			nameStatus, _ := g.DiffRangeNameStatus(ctx, base, target, paths)
+			nameStatus, _ := g.DiffRangeNameStatus(ctx, base, target, mergeBase, paths)
 			applyStatuses(out.Diff, nameStatus)
 		} else {
-			numstats, err := g.DiffRangeNumstat(ctx, base, target, paths)
+			numstats, err := g.DiffRangeNumstat(ctx, base, target, mergeBase, paths)
 			if err != nil {
 				return nil, err
 			}
-			nameStatus, _ := g.DiffRangeNameStatus(ctx, base, target, paths)
+			nameStatus, _ := g.DiffRangeNameStatus(ctx, base, target, mergeBase, paths)
 			for _, n := range numstats {
 				fd := FileDiff{Path: n.Path, Additions: n.Additions, Deletions: n.Deletions}
 				if s, ok := nameStatus[n.Path]; ok {
@@ -457,7 +461,7 @@ func BuildReview(ctx context.Context, g *git.Runner, base, target string, detail
 		out.CommitsCount = len(out.Commits)
 	} else {
 		if detailed {
-			raw, err := g.DiffAll(ctx, true, contextLines)
+			raw, err := g.DiffAll(ctx, true, contextLines, paths)
 			if err != nil {
 				return nil, err
 			}
@@ -465,14 +469,14 @@ func BuildReview(ctx context.Context, g *git.Runner, base, target string, detail
 			if out.Diff == nil {
 				out.Diff = []FileDiff{}
 			}
-			nameStatus, _ := g.DiffNameStatus(ctx, true)
+			nameStatus, _ := g.DiffNameStatus(ctx, true, paths)
 			applyStatuses(out.Diff, nameStatus)
 		} else {
-			numstats, err := g.DiffNumstat(ctx, true)
+			numstats, err := g.DiffNumstat(ctx, true, paths)
 			if err != nil {
 				return nil, err
 			}
-			nameStatus, _ := g.DiffNameStatus(ctx, true)
+			nameStatus, _ := g.DiffNameStatus(ctx, true, paths)
 			for _, n := range numstats {
 				fd := FileDiff{Path: n.Path, Additions: n.Additions, Deletions: n.Deletions}
 				if s, ok := nameStatus[n.Path]; ok {
