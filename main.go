@@ -16,7 +16,6 @@ import (
 	"github.com/AgusRdz/bonsai/doctor"
 	"github.com/AgusRdz/bonsai/git"
 	"github.com/AgusRdz/bonsai/gitcheck"
-	"github.com/AgusRdz/bonsai/grow"
 	"github.com/AgusRdz/bonsai/mcp"
 	"github.com/AgusRdz/bonsai/metrics"
 	"github.com/AgusRdz/bonsai/plugins"
@@ -51,8 +50,6 @@ func main() {
 		fmt.Printf("bonsai %s · AgusRdz\n", version)
 	case "about", "--about":
 		printAbout(version)
-	case "grow":
-		grow.Run()
 	case "update":
 		updater.Run(version)
 	case "uninstall":
@@ -197,7 +194,6 @@ Commands:
   help              show this help
   version           print version
   about             show author and repository info
-  grow              grow an animated bonsai tree
   update            update to the latest release
   uninstall         remove bonsai from this system
   changelog         show the changelog
