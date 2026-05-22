@@ -2,6 +2,15 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.77.1] - 2026-05-22
+
+### Bug Fixes
+- Git_log base uses .. not ... to avoid symmetric difference leak
+([1ee8336](https://github.com/AgusRdz/bonsai/commit/1ee83366ccec66fbecb1cd66845091e3c39e4e0b))
+
+### Other
+- Remove grow command
+([8e903d6](https://github.com/AgusRdz/bonsai/commit/8e903d65c9507ba8e4274269282be5832ca34f29))
 ## [0.77.0] - 2026-05-22
 
 ### Features
