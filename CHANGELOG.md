@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.79.0] - 2026-05-22
+
+### Features
+- Add ignore command for gitignore management across local, global, and exclude scopes
+([114b7fe](https://github.com/AgusRdz/bonsai/commit/114b7fe3a590b0a7cdf19dc271ded6d646961803))
 ## [0.78.0] - 2026-05-22
 
 ### Features
