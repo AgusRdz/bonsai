@@ -17,6 +17,7 @@ import (
 	"github.com/AgusRdz/bonsai/git"
 	"github.com/AgusRdz/bonsai/gitcheck"
 	"github.com/AgusRdz/bonsai/hooks"
+	"github.com/AgusRdz/bonsai/ignore"
 	"github.com/AgusRdz/bonsai/mcp"
 	"github.com/AgusRdz/bonsai/metrics"
 	"github.com/AgusRdz/bonsai/plugins"
@@ -85,6 +86,8 @@ func main() {
 		runStandup(os.Args[2:])
 	case "repo":
 		runRepo(os.Args[2:])
+	case "ignore":
+		runIgnore(os.Args[2:])
 	case "hooks":
 		runHooks(os.Args[2:])
 	case "mcp":
@@ -207,6 +210,14 @@ Commands:
   config            open global config in your editor
   config --local    open (or create) per-project .bonsai.toml in your editor
   config --path     print the path to the global config file
+
+  ignore               list all patterns (local, global, .git/info/exclude)
+  ignore --add <pat>   add a pattern (--global or --exclude to target other scopes)
+  ignore --remove <pat> remove a pattern
+  ignore --check <pat> dry-run: show which files would be matched
+  ignore --seed        write base patterns (OS, editor, secrets) to .gitignore
+                       --global             seed into global ignore instead
+                       --lang go|node|python|dotnet|java  also add language patterns
 
   hooks               list all hooks (global, shared, local) and dispatcher status
   hooks --install     wire bonsai dispatcher into current repo (.git/bonsai-hooks/)
@@ -1483,6 +1494,169 @@ func runStandup(args []string) {
 		fmt.Println(dim("  run 'bonsai standup --days 7' to see the week"))
 	}
 	fmt.Println()
+}
+
+// ---------------------------------------------------------------------------
+// bonsai ignore
+// ---------------------------------------------------------------------------
+
+func runIgnore(args []string) {
+	if len(args) == 0 {
+		runIgnoreList()
+		return
+	}
+
+	sub := args[0]
+	rest := args[1:]
+
+	scope := ignore.ScopeLocal
+	var langs []string
+	var pattern string
+
+	for _, a := range rest {
+		switch {
+		case a == "--global":
+			scope = ignore.ScopeGlobal
+		case a == "--exclude":
+			scope = ignore.ScopeExclude
+		case strings.HasPrefix(a, "--lang="):
+			for _, l := range strings.Split(strings.TrimPrefix(a, "--lang="), ",") {
+				if l = strings.TrimSpace(l); l != "" {
+					langs = append(langs, l)
+				}
+			}
+		case strings.HasPrefix(a, "--lang"):
+			// --lang go  (space-separated value handled below)
+		case !strings.HasPrefix(a, "--") && pattern == "":
+			pattern = a
+		}
+	}
+	// Handle: --lang go  (value as next positional after the flag)
+	for i, a := range rest {
+		if a == "--lang" && i+1 < len(rest) {
+			langs = append(langs, rest[i+1])
+		}
+	}
+
+	switch sub {
+	case "--add":
+		if pattern == "" {
+			fmt.Fprintln(os.Stderr, "usage: bonsai ignore --add <pattern> [--global|--exclude]")
+			os.Exit(1)
+		}
+		if err := ignore.Add(scope, pattern); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai ignore --add:", err)
+			os.Exit(1)
+		}
+		path, _ := ignore.FilePath(scope)
+		fmt.Printf("added %q → %s\n", pattern, path)
+
+	case "--remove":
+		if pattern == "" {
+			fmt.Fprintln(os.Stderr, "usage: bonsai ignore --remove <pattern> [--global|--exclude]")
+			os.Exit(1)
+		}
+		if err := ignore.Remove(scope, pattern); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai ignore --remove:", err)
+			os.Exit(1)
+		}
+		path, _ := ignore.FilePath(scope)
+		fmt.Printf("removed %q from %s\n", pattern, path)
+
+	case "--check":
+		if pattern == "" {
+			fmt.Fprintln(os.Stderr, "usage: bonsai ignore --check <pattern>")
+			os.Exit(1)
+		}
+		matches, err := ignore.Check(pattern)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai ignore --check:", err)
+			os.Exit(1)
+		}
+		color := isTTY()
+		dim := func(s string) string {
+			if color {
+				return "\033[2m" + s + "\033[0m"
+			}
+			return s
+		}
+		if len(matches) == 0 {
+			fmt.Printf("no files matched by %q\n", pattern)
+			return
+		}
+		fmt.Printf("%d file(s) matched by %q:\n", len(matches), pattern)
+		for _, m := range matches {
+			fmt.Printf("  %s\n", dim(m))
+		}
+
+	case "--seed":
+		n, err := ignore.Seed(scope, langs)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai ignore --seed:", err)
+			os.Exit(1)
+		}
+		path, _ := ignore.FilePath(scope)
+		if n == 0 {
+			fmt.Printf("nothing new to add — %s already has all seed patterns\n", path)
+			return
+		}
+		fmt.Printf("added %d pattern(s) to %s\n", n, path)
+		if len(langs) == 0 {
+			fmt.Println()
+			fmt.Printf("tip: add language patterns with --lang  (supported: %s)\n", strings.Join(ignore.SupportedLangs, ", "))
+		}
+
+	default:
+		fmt.Fprintf(os.Stderr, "bonsai ignore: unknown subcommand %q\n", sub)
+		fmt.Fprintln(os.Stderr, "run 'bonsai ignore' to list patterns or 'bonsai help' for all commands")
+		os.Exit(1)
+	}
+}
+
+func runIgnoreList() {
+	global, local, exclude, err := ignore.List()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai ignore:", err)
+		os.Exit(1)
+	}
+
+	color := isTTY()
+	bold := func(s string) string {
+		if color {
+			return "\033[1m" + s + "\033[0m"
+		}
+		return s
+	}
+	dim := func(s string) string {
+		if color {
+			return "\033[2m" + s + "\033[0m"
+		}
+		return s
+	}
+
+	printScope := func(label, path string, entries []ignore.PatternEntry) {
+		fmt.Printf("  %s  %s\n", bold(label), dim(path))
+		if len(entries) == 0 {
+			fmt.Println(dim("    none"))
+		} else {
+			for _, e := range entries {
+				fmt.Printf("    %s\n", e.Pattern)
+			}
+		}
+		fmt.Println()
+	}
+
+	globalPath, _ := ignore.GlobalPath()
+
+	fmt.Println(bold("bonsai ignore"))
+	fmt.Println()
+	printScope("Local", "(.gitignore)", local)
+	printScope("Global", fmt.Sprintf("(%s)", globalPath), global)
+	printScope("Exclude", "(.git/info/exclude)", exclude)
+
+	fmt.Println(dim("  add:   bonsai ignore --add <pattern> [--global|--exclude]"))
+	fmt.Println(dim("  seed:  bonsai ignore --seed [--lang go|node|python|dotnet|java]"))
+	fmt.Println(dim("  check: bonsai ignore --check <pattern>"))
 }
 
 // ---------------------------------------------------------------------------
