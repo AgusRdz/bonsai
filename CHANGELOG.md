@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.77.0] - 2026-05-22
+
+### Features
+- Grow command, merge-base diffs, paths on git_diff, base on git_log
+([b641872](https://github.com/AgusRdz/bonsai/commit/b641872306f527c250f82f6b78c9c67c6d284b68))
 ## [0.76.0] - 2026-05-21
 
 ### Features
