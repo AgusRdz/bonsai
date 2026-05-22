@@ -2244,10 +2244,56 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		initialLoad := !m.ready
 		m.status = msg
+
+		// Save anchor before rebuilding so cursor survives a stage/unstage that
+		// moves the current file into a different section of the list.
+		var anchorPath string
+		var anchorCat int
+		var anchorCatIdx int
+		if !initialLoad && m.cursor < len(m.files) {
+			anchorPath = m.files[m.cursor].entry.Path
+			anchorCat = m.files[m.cursor].category
+			for i := 0; i < m.cursor; i++ {
+				if m.files[i].category == anchorCat {
+					anchorCatIdx++
+				}
+			}
+		}
+
 		m.files = buildFileList(msg)
-		if m.cursor >= len(m.files) {
+
+		// Restore cursor: exact path match first; if the file moved categories
+		// (staged/unstaged), land on the same index within the original category.
+		if anchorPath != "" {
+			found := false
+			for i, f := range m.files {
+				if f.entry.Path == anchorPath {
+					m.cursor = i
+					found = true
+					break
+				}
+			}
+			if !found {
+				var catIdxs []int
+				for i, f := range m.files {
+					if f.category == anchorCat {
+						catIdxs = append(catIdxs, i)
+					}
+				}
+				if len(catIdxs) > 0 {
+					idx := anchorCatIdx
+					if idx >= len(catIdxs) {
+						idx = len(catIdxs) - 1
+					}
+					m.cursor = catIdxs[idx]
+				} else if m.cursor >= len(m.files) {
+					m.cursor = max(0, len(m.files)-1)
+				}
+			}
+		} else if m.cursor >= len(m.files) {
 			m.cursor = max(0, len(m.files)-1)
 		}
+
 		m.ready = true
 		m.err = nil
 		branchChanged := msg.Branch != prevBranch
