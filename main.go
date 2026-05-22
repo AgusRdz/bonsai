@@ -16,6 +16,7 @@ import (
 	"github.com/AgusRdz/bonsai/doctor"
 	"github.com/AgusRdz/bonsai/git"
 	"github.com/AgusRdz/bonsai/gitcheck"
+	"github.com/AgusRdz/bonsai/hooks"
 	"github.com/AgusRdz/bonsai/mcp"
 	"github.com/AgusRdz/bonsai/metrics"
 	"github.com/AgusRdz/bonsai/plugins"
@@ -84,6 +85,8 @@ func main() {
 		runStandup(os.Args[2:])
 	case "repo":
 		runRepo(os.Args[2:])
+	case "hooks":
+		runHooks(os.Args[2:])
 	case "mcp":
 		runMCP(os.Args[2:])
 	case "context":
@@ -204,6 +207,19 @@ Commands:
   config            open global config in your editor
   config --local    open (or create) per-project .bonsai.toml in your editor
   config --path     print the path to the global config file
+
+  hooks               list all hooks (global, shared, local) and dispatcher status
+  hooks --install     wire bonsai dispatcher into current repo (.git/bonsai-hooks/)
+  hooks --global-install  create ~/.config/git/hooks and set global core.hooksPath
+  hooks --add <name>  add a hook (requires --global, --shared, or --local)
+                      --template=<name>  use a built-in template
+                      --force            overwrite if it already exists
+  hooks --remove <name>   remove a hook (--global|--shared|--local)
+  hooks --enable <name>   make a hook executable (--global|--shared|--local)
+  hooks --disable <name>  remove executable bit, keep the file (--global|--shared|--local)
+  hooks --show <name>     print hook content (--global|--shared|--local)
+  hooks --edit <name>     open hook in editor (--global|--shared|--local)
+  hooks --templates       list built-in hook templates
 
   doctor            check global and local git configuration health
   doctor --verbose  same, with a one-line explanation per check
@@ -1467,6 +1483,262 @@ func runStandup(args []string) {
 		fmt.Println(dim("  run 'bonsai standup --days 7' to see the week"))
 	}
 	fmt.Println()
+}
+
+// ---------------------------------------------------------------------------
+// bonsai hooks
+// ---------------------------------------------------------------------------
+
+func runHooks(args []string) {
+	if len(args) == 0 {
+		runHooksList()
+		return
+	}
+
+	sub := args[0]
+	rest := args[1:]
+
+	var scope hooks.Scope
+	scopeSet := false
+	var name, templateName string
+	force := false
+
+	for _, a := range rest {
+		switch {
+		case a == "--global":
+			scope = hooks.ScopeGlobal
+			scopeSet = true
+		case a == "--shared":
+			scope = hooks.ScopeShared
+			scopeSet = true
+		case a == "--local":
+			scope = hooks.ScopeLocal
+			scopeSet = true
+		case strings.HasPrefix(a, "--template="):
+			templateName = strings.TrimPrefix(a, "--template=")
+		case a == "--force":
+			force = true
+		case !strings.HasPrefix(a, "--") && name == "":
+			name = a
+		}
+	}
+
+	switch sub {
+	case "--install":
+		if err := hooks.Install(); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai hooks --install:", err)
+			os.Exit(1)
+		}
+		fmt.Println("bonsai hooks installed")
+		fmt.Println()
+		fmt.Println("  dispatcher  .git/bonsai-hooks/  (core.hooksPath set locally)")
+		fmt.Println("  shared      .githooks/           (commit this directory)")
+		fmt.Println("  local       .git/hooks/          (personal, not committed)")
+		fmt.Println()
+		fmt.Println("add a hook:  bonsai hooks --add commit-msg --shared --template=conventional-commits")
+		fmt.Println("templates:   bonsai hooks --templates")
+
+	case "--global-install":
+		if err := hooks.InstallGlobal(); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai hooks --global-install:", err)
+			os.Exit(1)
+		}
+		globalDir, _ := hooks.GlobalDir()
+		fmt.Printf("global hooks: %s\n", globalDir)
+		fmt.Println("core.hooksPath set globally — personal hooks run in every repo")
+		fmt.Println()
+		fmt.Println("add a hook:  bonsai hooks --add pre-commit --global --template=no-debug")
+
+	case "--templates":
+		runHooksTemplates()
+
+	case "--add":
+		if name == "" {
+			fmt.Fprintln(os.Stderr, "usage: bonsai hooks --add <hook-name> --global|--shared|--local [--template=<name>] [--force]")
+			os.Exit(1)
+		}
+		if !scopeSet {
+			fmt.Fprintln(os.Stderr, "bonsai hooks --add: scope required (--global, --shared, or --local)")
+			os.Exit(1)
+		}
+		content := hooks.DefaultScript(name)
+		if templateName != "" {
+			tpl := hooks.TemplateByName(templateName)
+			if tpl == nil {
+				fmt.Fprintf(os.Stderr, "bonsai hooks --add: unknown template %q\n", templateName)
+				fmt.Fprintln(os.Stderr, "run 'bonsai hooks --templates' to see available templates")
+				os.Exit(1)
+			}
+			content = tpl.Script
+		}
+		if err := hooks.Add(scope, name, content, force); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai hooks --add:", err)
+			os.Exit(1)
+		}
+		dir, _ := hooks.Dir(scope)
+		fmt.Printf("added %s → %s\n", name, filepath.Join(dir, name))
+		if scope != hooks.ScopeGlobal && !hooks.IsInstalled() {
+			fmt.Println()
+			fmt.Println("tip: run 'bonsai hooks --install' to activate the dispatcher in this repo")
+		}
+
+	case "--remove":
+		if name == "" || !scopeSet {
+			fmt.Fprintln(os.Stderr, "usage: bonsai hooks --remove <hook-name> --global|--shared|--local")
+			os.Exit(1)
+		}
+		if err := hooks.Remove(scope, name); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai hooks --remove:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("removed %s (%s)\n", name, hooks.ScopeLabel(scope))
+
+	case "--enable":
+		if name == "" || !scopeSet {
+			fmt.Fprintln(os.Stderr, "usage: bonsai hooks --enable <hook-name> --global|--shared|--local")
+			os.Exit(1)
+		}
+		if err := hooks.Enable(scope, name); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai hooks --enable:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("enabled %s (%s)\n", name, hooks.ScopeLabel(scope))
+
+	case "--disable":
+		if name == "" || !scopeSet {
+			fmt.Fprintln(os.Stderr, "usage: bonsai hooks --disable <hook-name> --global|--shared|--local")
+			os.Exit(1)
+		}
+		if err := hooks.Disable(scope, name); err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai hooks --disable:", err)
+			os.Exit(1)
+		}
+		fmt.Printf("disabled %s (%s)\n", name, hooks.ScopeLabel(scope))
+
+	case "--show":
+		if name == "" || !scopeSet {
+			fmt.Fprintln(os.Stderr, "usage: bonsai hooks --show <hook-name> --global|--shared|--local")
+			os.Exit(1)
+		}
+		content, err := hooks.Show(scope, name)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai hooks --show:", err)
+			os.Exit(1)
+		}
+		fmt.Print(content)
+
+	case "--edit":
+		if name == "" || !scopeSet {
+			fmt.Fprintln(os.Stderr, "usage: bonsai hooks --edit <hook-name> --global|--shared|--local")
+			os.Exit(1)
+		}
+		dir, err := hooks.Dir(scope)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "bonsai hooks --edit:", err)
+			os.Exit(1)
+		}
+		cfg, _ := config.Load()
+		openInEditor(config.ResolveEditor(cfg), filepath.Join(dir, name))
+
+	default:
+		fmt.Fprintf(os.Stderr, "bonsai hooks: unknown subcommand %q\n", sub)
+		fmt.Fprintln(os.Stderr, "run 'bonsai hooks' to list hooks or 'bonsai help' for all commands")
+		os.Exit(1)
+	}
+}
+
+func runHooksList() {
+	global, shared, local, installed, err := hooks.List()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai hooks:", err)
+		os.Exit(1)
+	}
+
+	color := isTTY()
+	bold := func(s string) string {
+		if color {
+			return "\033[1m" + s + "\033[0m"
+		}
+		return s
+	}
+	green := func(s string) string {
+		if color {
+			return "\033[32m" + s + "\033[0m"
+		}
+		return s
+	}
+	yellow := func(s string) string {
+		if color {
+			return "\033[33m" + s + "\033[0m"
+		}
+		return s
+	}
+	dim := func(s string) string {
+		if color {
+			return "\033[2m" + s + "\033[0m"
+		}
+		return s
+	}
+
+	printScope := func(label, path string, entries []hooks.HookEntry) {
+		fmt.Printf("  %s  %s\n", bold(label), dim(path))
+		if len(entries) == 0 {
+			fmt.Println(dim("    none"))
+		} else {
+			for _, e := range entries {
+				if e.Active {
+					fmt.Printf("    %s  %s\n", green("✓"), e.Name)
+				} else {
+					fmt.Printf("    %s  %s\n", yellow("✗"), e.Name+dim(" (not executable)"))
+				}
+			}
+		}
+		fmt.Println()
+	}
+
+	fmt.Println(bold("bonsai hooks"))
+	fmt.Println()
+
+	fmt.Print("  dispatcher  ")
+	if installed {
+		fmt.Println(green("installed") + dim("  (.git/bonsai-hooks/ → core.hooksPath)"))
+	} else {
+		fmt.Println(yellow("not installed") + dim("  run: bonsai hooks --install"))
+	}
+	fmt.Println()
+
+	globalDir, _ := hooks.GlobalDir()
+	printScope("Global", fmt.Sprintf("(%s)", globalDir), global)
+	printScope("Shared", "(.githooks/)", shared)
+	printScope("Local", "(.git/hooks/)", local)
+
+	fmt.Println(dim("  add:        bonsai hooks --add <name> --shared --template=<template>"))
+	fmt.Println(dim("  templates:  bonsai hooks --templates"))
+}
+
+func runHooksTemplates() {
+	color := isTTY()
+	bold := func(s string) string {
+		if color {
+			return "\033[1m" + s + "\033[0m"
+		}
+		return s
+	}
+	dim := func(s string) string {
+		if color {
+			return "\033[2m" + s + "\033[0m"
+		}
+		return s
+	}
+
+	fmt.Println(bold("bonsai hooks templates"))
+	fmt.Println()
+	for _, tpl := range hooks.Templates {
+		fmt.Printf("  %-30s %s  %s\n", tpl.Name, dim(tpl.HookName), tpl.Description)
+	}
+	fmt.Println()
+	fmt.Println("use with: bonsai hooks --add <hook-name> --shared --template=<name>")
+	fmt.Println(dim("example:  bonsai hooks --add commit-msg --shared --template=conventional-commits"))
 }
 
 func runRepo(args []string) {
