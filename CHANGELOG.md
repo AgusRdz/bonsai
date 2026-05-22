@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.77.2] - 2026-05-22
+
+### Documentation
+- Correct operator semantics — ... for diff, .. for log
+([a30db5e](https://github.com/AgusRdz/bonsai/commit/a30db5ecefe474dac7940d2bc50e8d563d8f59ce))
 ## [0.77.1] - 2026-05-22
 
 ### Bug Fixes
