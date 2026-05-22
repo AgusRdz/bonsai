@@ -2714,7 +2714,7 @@ func (r *Runner) LogStructuredWithOpts(ctx context.Context, opts LogStructuredOp
 		"--pretty=tformat:%h\x1f%s\x1f%an\x1f%as",
 	}
 	if opts.Base != "" {
-		args = append(args, opts.Base+"...HEAD")
+		args = append(args, opts.Base+"..HEAD")
 	}
 	if opts.Since != "" {
 		args = append(args, "--since="+opts.Since)
