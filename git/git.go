@@ -118,7 +118,9 @@ func (r *Runner) LastCmd() string { return r.lastCmd }
 
 func (r *Runner) run(ctx context.Context, args ...string) ([]byte, error) {
 	r.lastCmd = "git " + strings.Join(args, " ")
-	out, err := exec.CommandContext(ctx, "git", args...).Output()
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
+	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
 			stdout := strings.TrimSpace(string(out))
@@ -580,6 +582,7 @@ func (r *Runner) ApplyHunks(ctx context.Context, fileHeader string, hunks []Hunk
 	}
 	r.lastCmd = "git " + strings.Join(args, " ")
 	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
 	cmd.Stdin = strings.NewReader(patch.String())
 	outB, applyErr := cmd.CombinedOutput()
 	if applyErr != nil {
@@ -610,6 +613,7 @@ func (r *Runner) ApplyLines(ctx context.Context, fileHeader string, hunk Hunk, l
 	}
 	r.lastCmd = "git " + strings.Join(args, " ")
 	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
 	cmd.Stdin = strings.NewReader(patch.String())
 	outB, applyErr := cmd.CombinedOutput()
 	if applyErr != nil {
