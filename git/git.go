@@ -731,7 +731,7 @@ func (r *Runner) StashWithMessage(ctx context.Context, msg string) error {
 
 // FileLog returns the commit log entries that touched the given file.
 func (r *Runner) FileLog(ctx context.Context, path string, limit int) ([]LogEntry, error) {
-	args := []string{"log", fmt.Sprintf("--max-count=%d", limit), "--format=%G?%x1f%h%d %s", "--", path}
+	args := []string{"log", "--follow", fmt.Sprintf("--max-count=%d", limit), "--format=%G?%x1f%h%d %s", "--", path}
 	out, err := r.run(ctx, args...)
 	if err != nil {
 		return nil, err
@@ -980,6 +980,13 @@ func (r *Runner) RemoveWorktree(ctx context.Context, path string) error {
 	return err
 }
 
+// PruneWorktrees removes stale worktree administrative files for worktrees
+// whose working directories no longer exist.
+func (r *Runner) PruneWorktrees(ctx context.Context) error {
+	_, err := r.run(ctx, "worktree", "prune")
+	return err
+}
+
 // TagEntry is one tag returned by git tag.
 type TagEntry struct {
 	Name string
@@ -1004,6 +1011,14 @@ func (r *Runner) Tags(ctx context.Context) ([]TagEntry, error) {
 // CreateTag creates a lightweight tag at HEAD.
 func (r *Runner) CreateTag(ctx context.Context, name string) error {
 	_, err := r.run(ctx, "tag", name)
+	return err
+}
+
+// CreateAnnotatedTag creates an annotated tag at HEAD with a message.
+// Annotated tags store the tagger name, date, and message; they are
+// recommended for public releases because they are full git objects.
+func (r *Runner) CreateAnnotatedTag(ctx context.Context, name, message string) error {
+	_, err := r.run(ctx, "tag", "-a", name, "-m", message)
 	return err
 }
 
@@ -1178,6 +1193,17 @@ func (r *Runner) BisectReset(ctx context.Context) error {
 	return err
 }
 
+// BisectSkip marks the current commit (or hash) as untestable so git bisect
+// moves on to a different commit. hash may be empty to skip HEAD.
+func (r *Runner) BisectSkip(ctx context.Context, hash string) error {
+	if hash == "" {
+		_, err := r.run(ctx, "bisect", "skip")
+		return err
+	}
+	_, err := r.run(ctx, "bisect", "skip", hash)
+	return err
+}
+
 // BisectLog returns the full bisect log output for display.
 func (r *Runner) BisectLog(ctx context.Context) (string, error) {
 	out, err := r.run(ctx, "bisect", "log")
@@ -1319,6 +1345,14 @@ func (r *Runner) FinishRelease(ctx context.Context, branch, mainBranch, devBranc
 // CherryPick applies the commit hash onto the current branch.
 func (r *Runner) CherryPick(ctx context.Context, hash string) error {
 	_, err := r.run(ctx, "cherry-pick", hash)
+	return err
+}
+
+// CherryPickRange applies the commits in the range (from, to] onto the current
+// branch. from is exclusive (not applied), to is inclusive. Both must be commit
+// hashes or refs understood by git.
+func (r *Runner) CherryPickRange(ctx context.Context, from, to string) error {
+	_, err := r.run(ctx, "cherry-pick", from+".."+to)
 	return err
 }
 
@@ -1801,6 +1835,13 @@ func (r *Runner) RemoteRemove(ctx context.Context, name string) error {
 // RemoteRename renames a remote.
 func (r *Runner) RemoteRename(ctx context.Context, oldName, newName string) error {
 	_, err := r.run(ctx, "remote", "rename", oldName, newName)
+	return err
+}
+
+// RemotePrune removes remote-tracking refs that no longer exist on the remote.
+// Equivalent to `git remote prune <name>`.
+func (r *Runner) RemotePrune(ctx context.Context, name string) error {
+	_, err := r.run(ctx, "remote", "prune", name)
 	return err
 }
 

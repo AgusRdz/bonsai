@@ -87,12 +87,16 @@ func commandKey(cmd string) string {
 		return "reset-hard"
 	case strings.HasPrefix(cmd, "git tag"):
 		return "tag"
+	case strings.HasPrefix(cmd, "git worktree prune"):
+		return "worktree-prune"
 	case strings.HasPrefix(cmd, "git worktree"):
 		return "worktree"
 	case strings.HasPrefix(cmd, "git fetch"):
 		return "fetch"
 	case strings.HasPrefix(cmd, "git clean"):
 		return "clean"
+	case strings.HasPrefix(cmd, "git remote prune"):
+		return "remote-prune"
 	case strings.HasPrefix(cmd, "git remote"):
 		return "remote"
 	case strings.HasPrefix(cmd, "git submodule"):
@@ -136,8 +140,10 @@ var masteryThresholds = map[string]int{
 	"stash-drop":           5,
 	"tag":                  5,
 	"worktree":             5,
+	"worktree-prune":       3,
 	"clean":                5,
 	"remote":               5,
+	"remote-prune":         3,
 	"submodule":            5,
 	"notes":                5,
 }
@@ -254,6 +260,12 @@ func actionTitle(cmd string, err error) string {
 		return "Worktree created"
 	case strings.HasPrefix(cmd, "git worktree remove"):
 		return "Worktree removed"
+	case strings.HasPrefix(cmd, "git worktree prune"):
+		return "Worktrees pruned"
+	case strings.HasPrefix(cmd, "git remote prune"):
+		return "Remote pruned"
+	case strings.HasPrefix(cmd, "gh pr create"), strings.HasPrefix(cmd, "git pr create"), strings.HasPrefix(cmd, "git mr create"):
+		return "PR created"
 	default:
 		return "Done"
 	}
@@ -342,6 +354,10 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git cherry-pick --abort"):
 		return "The cherry-pick was cancelled and your branch was restored to its previous state. " +
 			"The operation did not apply any commits."
+	case strings.HasPrefix(cmd, "git cherry-pick") && strings.Contains(cmd, ".."):
+		return "The range of commits was applied on top of your current branch as new commits. " +
+			"Each commit in the range becomes an independent commit in your branch history. " +
+			"Cherry-pick copies diffs - the original commits remain unchanged in their source branch."
 	case strings.HasPrefix(cmd, "git cherry-pick"):
 		return "The selected commit was applied on top of your current branch as a new commit. " +
 			"Cherry-pick copies the diff from that commit - the original commit remains unchanged in its branch."
@@ -367,6 +383,10 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git tag -d"):
 		return "The tag was deleted from your local repository. " +
 			"If the tag was already pushed to a remote, delete it there too with: git push origin --delete <tag>."
+	case strings.HasPrefix(cmd, "git tag -a"):
+		return "An annotated tag was created at the current HEAD commit. " +
+			"Annotated tags store a tagger name, email, date, and message - they are full git objects. " +
+			"Prefer annotated tags for releases. Push to remote with: git push origin <tag>."
 	case strings.HasPrefix(cmd, "git tag"):
 		return "A lightweight tag was created at the current HEAD commit. " +
 			"Tags mark specific points in history, commonly used for releases. " +
@@ -378,6 +398,14 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git worktree remove"):
 		return "The linked worktree was removed. The branch it contained still exists in the repository. " +
 			"Removing a worktree only deletes the working directory link - your commits are safe."
+	case strings.HasPrefix(cmd, "git worktree prune"):
+		return "Stale worktree administrative files were cleaned up. " +
+			"This happens when a worktree directory was deleted manually without running 'git worktree remove'. " +
+			"Pruning keeps git's internal state consistent."
+	case strings.HasPrefix(cmd, "git remote prune"):
+		return "Remote-tracking branches that no longer exist on the server were removed from your local repository. " +
+			"This is safe - only the local refs are deleted. Your actual branches and commits are untouched. " +
+			"Run this after teammates delete remote branches to keep your local ref list clean."
 	case strings.HasPrefix(cmd, "git fetch --all --prune"):
 		return "All remotes were fetched and stale remote-tracking refs (branches deleted on the server) were pruned. " +
 			"Your local branches are untouched."

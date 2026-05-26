@@ -40,12 +40,13 @@ func (g *glabProvider) CurrentPR(ctx context.Context, branch string) (*PRStatus,
 		return nil, fmt.Errorf("glab mr view parse: %w", err)
 	}
 
+	ci := glabPipelineStatus(ctx, fmt.Sprintf("%d", raw.IID))
 	return &PRStatus{
 		Number: raw.IID,
 		Title:  raw.Title,
 		State:  normaliseGlabState(raw.State),
 		URL:    raw.URL,
-		CI:     "none", // pipeline status requires an extra call; omit for now
+		CI:     ci,
 	}, nil
 }
 
@@ -56,6 +57,9 @@ func (g *glabProvider) CreatePR(ctx context.Context, opts PRCreateOpts) error {
 	args := []string{"mr", "create", "--source-branch", opts.Branch, "--title", opts.Title, "--description", opts.Body}
 	if opts.Base != "" {
 		args = append(args, "--target-branch", opts.Base)
+	}
+	if opts.Draft {
+		args = append(args, "--draft")
 	}
 	args = append(args, "--yes")
 	out, err := exec.CommandContext(ctx, "glab", args...).CombinedOutput()
@@ -90,7 +94,8 @@ func (g *glabProvider) ListPRs(ctx context.Context) ([]PRStatus, error) {
 
 	out2 := make([]PRStatus, len(raw))
 	for i, r := range raw {
-		out2[i] = PRStatus{Number: r.IID, Title: r.Title, State: normaliseGlabState(r.State), URL: r.URL, CI: "none"}
+		ci := glabPipelineStatus(ctx, fmt.Sprintf("%d", r.IID))
+		out2[i] = PRStatus{Number: r.IID, Title: r.Title, State: normaliseGlabState(r.State), URL: r.URL, CI: ci}
 	}
 	return out2, nil
 }
@@ -238,6 +243,34 @@ func (g *glabProvider) MergePR(ctx context.Context, number int, method string) e
 		return err
 	}
 	return nil
+}
+
+// glabPipelineStatus fetches the latest pipeline status for a GitLab MR by running
+// `glab mr view <number> --output json` and parsing head_pipeline.status.
+// Returns "none" on any error or when no pipeline exists.
+func glabPipelineStatus(ctx context.Context, number string) string {
+	out, err := exec.CommandContext(ctx, "glab", "mr", "view", number, "--output", "json").Output()
+	if err != nil {
+		return "none"
+	}
+	var raw struct {
+		HeadPipeline *struct {
+			Status string `json:"status"`
+		} `json:"head_pipeline"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil || raw.HeadPipeline == nil {
+		return "none"
+	}
+	switch strings.ToLower(raw.HeadPipeline.Status) {
+	case "success":
+		return "success"
+	case "failed", "canceled":
+		return "failure"
+	case "running", "pending", "created", "waiting_for_resource", "preparing", "scheduled":
+		return "pending"
+	default:
+		return "none"
+	}
 }
 
 func normaliseGlabState(s string) string {

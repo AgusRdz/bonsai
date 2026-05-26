@@ -331,6 +331,9 @@ type model struct {
 	flowPickCursor      int
 	commitDetail        *git.CommitDetail
 	commitDetailScroll  int
+	cpRangeTarget       string         // "to" hash for range cherry-pick
+	cpRangeInput        textinput.Model
+	cpRangeInputActive  bool
 	conflictPath        string
 	conflictLines       []string
 	conflictScroll      int
@@ -345,6 +348,9 @@ type model struct {
 	tagFilter           string
 	tagFilterInput      textinput.Model
 	tagFiltering        bool
+	tagAnnotated        bool           // true when creating an annotated tag
+	tagAnnotateStep     int            // 0=name, 1=message
+	tagMsgInput         textinput.Model
 	worktrees           []git.WorktreeEntry
 	worktreeCursor      int
 	edu                 *educationPanel
@@ -497,7 +503,8 @@ type model struct {
 	prCreateTitleInput textinput.Model
 	prCreateBodyTA     textarea.Model
 	prCreateBaseInput  textinput.Model
-	prCreateField      int // 0=title 1=body 2=base
+	prCreateField      int  // 0=title 1=body 2=base
+	prCreateDraft      bool // create as draft PR
 
 	// overview (shown when working tree is clean)
 	overviewCursor     int
@@ -1454,6 +1461,19 @@ func (m model) doCreateTag(name string) tea.Cmd {
 	}
 }
 
+func (m model) doCreateAnnotatedTag(name, message string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.CreateAnnotatedTag(ctx, name, message)
+		var info string
+		if err == nil {
+			info = "created annotated tag " + name
+		}
+		return actionDoneMsg{cmd: "git tag -a " + name + " -m " + message, err: err, info: info}
+	}
+}
+
 func (m model) doDeleteTag(name string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -1505,6 +1525,19 @@ func (m model) doRemoveWorktree(path string) tea.Cmd {
 	}
 }
 
+func (m model) doPruneWorktrees() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.PruneWorktrees(ctx)
+		var info string
+		if err == nil {
+			info = "stale worktree refs pruned"
+		}
+		return actionDoneMsg{cmd: "git worktree prune", err: err, info: info}
+	}
+}
+
 func (m model) doBlame(path string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -1540,6 +1573,20 @@ func (m model) doCherryPick(hash string) tea.Cmd {
 			info = "cherry-picked " + hash
 		}
 		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
+	}
+}
+
+func (m model) doCherryPickRange(from, to string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.CherryPickRange(ctx, from, to)
+		var info string
+		rangeSpec := from + ".." + to
+		if err == nil {
+			info = "cherry-picked range " + rangeSpec
+		}
+		return actionDoneMsg{cmd: "git cherry-pick " + rangeSpec, err: err, info: info}
 	}
 }
 
@@ -1710,6 +1757,19 @@ func (m model) doBisectReset() tea.Cmd {
 		defer cancel()
 		err := m.git.BisectReset(ctx)
 		return bisectActionMsg{cmd: "git bisect reset", err: err}
+	}
+}
+
+func (m model) doBisectSkip(hash string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.BisectSkip(ctx, hash)
+		cmd := "git bisect skip"
+		if hash != "" {
+			cmd += " " + hash
+		}
+		return bisectActionMsg{cmd: cmd, err: err}
 	}
 }
 
@@ -2162,6 +2222,19 @@ func (m model) doRemoteRename(oldName, newName string) tea.Cmd {
 			info = "renamed remote " + oldName + " to " + newName
 		}
 		return actionDoneMsg{cmd: "git remote rename " + oldName + " " + newName, err: err, info: info}
+	}
+}
+
+func (m model) doRemotePrune(name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.RemotePrune(ctx, name)
+		var info string
+		if err == nil {
+			info = "pruned stale tracking refs for " + name
+		}
+		return actionDoneMsg{cmd: "git remote prune " + name, err: err, info: info}
 	}
 }
 
@@ -3983,6 +4056,32 @@ func (m model) updateLogPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateCommitDetailPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Range cherry-pick input intercepts all keys while active.
+	if m.cpRangeInputActive {
+		switch msg.String() {
+		case "enter":
+			from := strings.TrimSpace(m.cpRangeInput.Value())
+			if from == "" {
+				m.actionErr = fmt.Errorf("enter the exclusive start commit hash")
+				return m, nil
+			}
+			to := m.cpRangeTarget
+			m.cpRangeInputActive = false
+			m.cpRangeTarget = ""
+			m.actionErr = nil
+			m.panel = panelMain
+			return m, m.doCherryPickRange(from, to)
+		case "esc":
+			m.cpRangeInputActive = false
+			m.cpRangeTarget = ""
+			m.actionErr = nil
+			return m, nil
+		default:
+			var cmd tea.Cmd
+			m.cpRangeInput, cmd = m.cpRangeInput.Update(msg)
+			return m, cmd
+		}
+	}
 	visibleLines := m.height - 6
 	if visibleLines < 1 {
 		visibleLines = 1
@@ -4041,6 +4140,18 @@ func (m model) updateCommitDetailPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.confirmPrompt = fmt.Sprintf("revert %s on %s? (creates a new undo-commit)", short, current)
 			m.confirmCmd = m.doRevert(hash)
 			m.panel = panelConfirm
+		}
+	case "R":
+		if m.commitDetail != nil && m.commitDetail.Hash != "" {
+			ti := textinput.New()
+			ti.Placeholder = "exclusive start hash (from..THIS — e.g. abc123)"
+			ti.Focus()
+			ti.CharLimit = 64
+			ti.Width = m.width - 6
+			m.cpRangeInput = ti
+			m.cpRangeTarget = m.commitDetail.Hash
+			m.cpRangeInputActive = true
+			m.actionErr = nil
 		}
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = m.commitDetailOrigin
@@ -4497,10 +4608,11 @@ func (m model) updateBisectPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "s":
-		if !active {
-			m.actionErr = nil
-			return m, m.doBisectStart()
+		m.actionErr = nil
+		if active {
+			return m, m.doBisectSkip("")
 		}
+		return m, m.doBisectStart()
 	case "b":
 		if active {
 			m.actionErr = nil
@@ -5049,6 +5161,14 @@ func (m model) updateRemoteListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return actionDoneMsg{cmd: "repo fork", err: err, info: info}
 		}
+		m.panel = panelConfirm
+	case "p":
+		if len(m.remotes) == 0 {
+			break
+		}
+		name := m.remotes[m.remoteCursor].Name
+		m.confirmPrompt = fmt.Sprintf("prune stale tracking refs for %q? (removes refs to deleted remote branches)", name)
+		m.confirmCmd = m.doRemotePrune(name)
 		m.panel = panelConfirm
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
@@ -5918,16 +6038,53 @@ func (m model) updateTagListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) updateTagCreatePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "tab":
+		// Toggle annotated mode while on the name step.
+		if m.tagAnnotateStep == 0 {
+			m.tagAnnotated = !m.tagAnnotated
+		}
+		return m, nil
 	case "enter":
-		name := strings.TrimSpace(m.branchInput.Value())
-		if name == "" {
-			m.actionErr = fmt.Errorf("tag name cannot be empty")
+		if m.tagAnnotateStep == 0 {
+			name := strings.TrimSpace(m.branchInput.Value())
+			if name == "" {
+				m.actionErr = fmt.Errorf("tag name cannot be empty")
+				return m, nil
+			}
+			if !m.tagAnnotated {
+				m.panel = panelMain
+				m.actionErr = nil
+				return m, m.doCreateTag(name)
+			}
+			// Annotated: move to message step.
+			ti := textinput.New()
+			ti.Placeholder = "tag message (e.g. Release v1.2.0)"
+			ti.Focus()
+			ti.CharLimit = 256
+			ti.Width = m.branchInput.Width
+			m.tagMsgInput = ti
+			m.tagAnnotateStep = 1
+			m.actionErr = nil
 			return m, nil
 		}
+		// Step 1: create annotated tag.
+		name := strings.TrimSpace(m.branchInput.Value())
+		message := strings.TrimSpace(m.tagMsgInput.Value())
+		if message == "" {
+			m.actionErr = fmt.Errorf("message cannot be empty for an annotated tag")
+			return m, nil
+		}
+		m.tagAnnotateStep = 0
+		m.tagAnnotated = false
 		m.panel = panelMain
 		m.actionErr = nil
-		return m, m.doCreateTag(name)
+		return m, m.doCreateAnnotatedTag(name, message)
 	case "esc":
+		if m.tagAnnotateStep == 1 {
+			m.tagAnnotateStep = 0
+			return m, nil
+		}
+		m.tagAnnotated = false
 		m.panel = panelTagList
 		m.actionErr = nil
 		return m, nil
@@ -5936,7 +6093,11 @@ func (m model) updateTagCreatePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
-	m.branchInput, cmd = m.branchInput.Update(msg)
+	if m.tagAnnotateStep == 1 {
+		m.tagMsgInput, cmd = m.tagMsgInput.Update(msg)
+	} else {
+		m.branchInput, cmd = m.branchInput.Update(msg)
+	}
 	return m, cmd
 }
 
@@ -5971,6 +6132,11 @@ func (m model) updateWorktreeListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.confirmPrompt = fmt.Sprintf("remove worktree at %s?", wt.Path)
 		m.confirmCmd = m.doRemoveWorktree(wt.Path)
+		m.panel = panelConfirm
+		m.actionErr = nil
+	case "p":
+		m.confirmPrompt = "prune stale worktree refs? (removes admin files for gone worktrees)"
+		m.confirmCmd = m.doPruneWorktrees()
 		m.panel = panelConfirm
 		m.actionErr = nil
 	case "esc", kb.Quit:
@@ -6759,7 +6925,7 @@ func (m model) helpView() string {
 	section("Branches & history")
 	row("b", "create new branch (flow picker in gitflow mode)")
 	row("B", "branch list - switch, merge, rebase, delete, rename, delete remote")
-	row("l", "commit log (search with ctrl+/ or ctrl+r)")
+	row("l", "commit log (search with ctrl+/ or ctrl+r); [p] cherry-pick, [R] range cherry-pick, [r] revert")
 	row("L", "reflog - full HEAD history with reset-to")
 	row(kb.Graph+" / g", "branch graph (git log --graph --all)")
 	row("R", "interactive rebase (reorder, squash, fixup, drop)")
@@ -6768,15 +6934,15 @@ func (m model) helpView() string {
 	section("Stash & tags")
 	row(kb.Stash+" / s", "stash all changes (opens message input)")
 	row("S", "stash list - pop, apply (both preview diff before acting), drop")
-	row("t", "tag list - create, delete, push to remote")
+	row("t", "tag list - create (lightweight or annotated), delete, push to remote")
 	b.WriteString("\n")
 
 	section("Advanced")
-	row("i", "bisect - binary search for a bug-introducing commit")
+	row("i", "bisect - binary search for a bug-introducing commit ([b] bad, [G/g] good, [s] skip)")
 	row("z", "reset menu (soft / mixed / hard)")
 	row("U", "undo last commit / merge / rebase / cherry-pick / revert (shown when available)")
-	row("W", "worktree list - add, remove linked worktrees")
-	row("O", "remote management - add, remove, rename")
+	row("W", "worktree list - add, remove linked worktrees; [p] prune stale entries")
+	row("O", "remote management - add, remove, rename; [p] prune stale tracking refs")
 	row("M", "submodule management - add, update, deinit")
 	row("n", "git notes for HEAD commit")
 	row("X", "clean untracked files (preview + confirm)")
@@ -7170,7 +7336,7 @@ func (m model) commitDetailView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	bar := "  [↑↓] scroll  [esc] back  [y] copy hash  [p] cherry-pick  [r] revert"
+	bar := "  [↑↓] scroll  [esc] back  [y] copy hash  [p] cherry-pick  [R] range  [r] revert"
 	if m.commitDetail != nil {
 		total := commitDetailLineCount(m.commitDetail)
 		visibleLines := m.height - 6
@@ -7638,8 +7804,23 @@ func (m model) tagListView() string {
 func (m model) tagCreateView() string {
 	var b strings.Builder
 	b.WriteString("\n")
-	b.WriteString("  " + styleSection.Render("Create Tag") + "\n\n")
-	b.WriteString("  " + m.branchInput.View() + "\n\n")
+
+	if m.tagAnnotateStep == 1 {
+		b.WriteString("  " + styleSection.Render("Create Annotated Tag") + "\n\n")
+		b.WriteString("  " + styleDim.Render("Tag name: ") + styleCmd.Render(m.branchInput.Value()) + "\n\n")
+		b.WriteString("  " + styleDim.Render("Annotation message:") + "\n")
+		b.WriteString("  " + m.tagMsgInput.View() + "\n\n")
+	} else {
+		title := "Create Tag"
+		if m.tagAnnotated {
+			title = "Create Annotated Tag"
+		}
+		b.WriteString("  " + styleSection.Render(title) + "\n\n")
+		b.WriteString("  " + m.branchInput.View() + "\n\n")
+		if m.tagAnnotated {
+			b.WriteString("  " + styleDim.Render("Annotated tag — next step will ask for a message.") + "\n\n")
+		}
+	}
 
 	if m.actionErr != nil {
 		b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n\n")
@@ -7650,7 +7831,16 @@ func (m model) tagCreateView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [enter] create  [esc] cancel") + "\n"
+
+	var bar string
+	if m.tagAnnotateStep == 1 {
+		bar = "  [enter] create annotated tag  [esc] back to name"
+	} else if m.tagAnnotated {
+		bar = "  [enter] next (add message)  [tab] lightweight  [esc] cancel"
+	} else {
+		bar = "  [enter] create  [tab] annotated  [esc] cancel"
+	}
+	return content + styleDim.Render(bar) + "\n"
 }
 
 func (m model) worktreeListView() string {
@@ -7693,7 +7883,7 @@ func (m model) worktreeListView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [n] add  [d] remove  [esc] back") + "\n"
+	return content + styleDim.Render("  [n] add  [d] remove  [p] prune stale  [esc] back") + "\n"
 }
 
 func (m model) worktreeAddView() string {
@@ -7794,6 +7984,7 @@ func (m model) bisectView() string {
 		b.WriteString("  " + styleCmd.Render("[b]") + "  " + styleDim.Render("this commit is bad") + "\n")
 		b.WriteString("  " + styleCmd.Render("[G]") + "  " + styleDim.Render("this commit is good (HEAD)") + "\n")
 		b.WriteString("  " + styleCmd.Render("[g]") + "  " + styleDim.Render("good - enter a specific hash") + "\n")
+		b.WriteString("  " + styleCmd.Render("[s]") + "  " + styleDim.Render("skip this commit (can't test it)") + "\n")
 		b.WriteString("  " + styleCmd.Render("[r]") + "  " + styleDim.Render("reset and end session") + "\n")
 	} else {
 		b.WriteString("  " + styleDim.Render("Binary search through commit history to find what introduced a bug.") + "\n\n")
@@ -7837,7 +8028,7 @@ func (m model) bisectView() string {
 
 	var bar string
 	if active {
-		bar = "  [b] bad  [G] good (HEAD)  [g] good (hash)  [r] reset  [l] log"
+		bar = "  [b] bad  [G] good (HEAD)  [g] good (hash)  [s] skip  [r] reset  [l] log"
 	} else {
 		bar = "  [s] start  [esc] back"
 	}
@@ -8325,7 +8516,7 @@ func (m model) remoteListView() string {
 		}
 	}
 	b.WriteString("\n")
-	b.WriteString(styleDim.Render("  [a] add  [d] remove  [r] rename  [f] fork  [esc] back") + "\n")
+	b.WriteString(styleDim.Render("  [a] add  [d] remove  [r] rename  [p] prune stale refs  [f] fork  [esc] back") + "\n")
 	return b.String()
 }
 
@@ -10221,6 +10412,7 @@ func (m model) openPRCreatePanel() (model, tea.Cmd) {
 	m.prCreateBaseInput = base
 
 	m.prCreateField = 0
+	m.prCreateDraft = false
 	m.panel = panelPRCreate
 
 	runner := m.git
@@ -10246,6 +10438,7 @@ func (m model) submitPRCreate() (tea.Model, tea.Cmd) {
 		Title:  title,
 		Body:   m.prCreateBodyTA.Value(),
 		Base:   strings.TrimSpace(m.prCreateBaseInput.Value()),
+		Draft:  m.prCreateDraft,
 	}
 	prov := m.prProvider
 	runner := m.git
@@ -10274,6 +10467,12 @@ func (m model) updatePRCreatePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "ctrl+c":
 		return m, tea.Quit
+	case "d":
+		// toggle draft — only when not editing a text field (title or body)
+		if m.prCreateField != 0 && m.prCreateField != 1 {
+			m.prCreateDraft = !m.prCreateDraft
+			return m, nil
+		}
 	case "tab", "shift+tab":
 		// cycle through fields
 		if msg.String() == "tab" {
@@ -10346,6 +10545,12 @@ func (m model) prCreateView() string {
 	b.WriteString(baseLabel + "\n")
 	b.WriteString("  " + m.prCreateBaseInput.View() + "\n\n")
 
+	draftIndicator := "[ ]"
+	if m.prCreateDraft {
+		draftIndicator = "[x]"
+	}
+	b.WriteString("  " + labelStyle.Render(draftIndicator+" Draft PR") + "\n\n")
+
 	if m.actionErr != nil {
 		b.WriteString("  " + styleConflict.Render("error: "+m.actionErr.Error()) + "\n\n")
 	}
@@ -10355,7 +10560,7 @@ func (m model) prCreateView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [tab] next field  [ctrl+s] submit  [esc] cancel") + "\n"
+	return content + styleDim.Render("  [tab] next field  [d] toggle draft  [ctrl+s] submit  [esc] cancel") + "\n"
 }
 
 func (m model) updatePRMergePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

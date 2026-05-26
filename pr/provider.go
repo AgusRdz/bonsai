@@ -25,6 +25,7 @@ type PRCreateOpts struct {
 	Title  string
 	Body   string
 	Base   string // target branch; empty means provider default
+	Draft  bool   // create as a draft PR (not all providers support this)
 }
 
 // Provider abstracts a PR hosting platform (GitHub, GitLab, Bitbucket, or plugin).

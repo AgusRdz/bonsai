@@ -43,12 +43,13 @@ func (b *bbProvider) CurrentPR(ctx context.Context, branch string) (*PRStatus, e
 		return nil, fmt.Errorf("bb pr get parse: %w", err)
 	}
 
+	ci := bbBuildStatus(ctx, fmt.Sprintf("%d", raw.ID))
 	return &PRStatus{
 		Number: raw.ID,
 		Title:  raw.Title,
 		State:  normaliseBBState(raw.State),
 		URL:    raw.Links.HTML.Href,
-		CI:     "none",
+		CI:     ci,
 	}, nil
 }
 
@@ -63,6 +64,7 @@ func (b *bbProvider) CreatePR(ctx context.Context, opts PRCreateOpts) error {
 	if opts.Base != "" {
 		args = append(args, "--destination", opts.Base)
 	}
+	// Note: Bitbucket CLI (bb) does not support draft PRs natively; opts.Draft is ignored.
 	out, err := exec.CommandContext(ctx, "bb", args...).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
@@ -99,12 +101,13 @@ func (b *bbProvider) ListPRs(ctx context.Context) ([]PRStatus, error) {
 
 	out2 := make([]PRStatus, len(raw))
 	for i, r := range raw {
+		ci := bbBuildStatus(ctx, fmt.Sprintf("%d", r.ID))
 		out2[i] = PRStatus{
 			Number: r.ID,
 			Title:  r.Title,
 			State:  normaliseBBState(r.State),
 			URL:    r.Links.HTML.Href,
-			CI:     "none",
+			CI:     ci,
 		}
 	}
 	return out2, nil
@@ -186,6 +189,43 @@ func (b *bbProvider) MergePR(ctx context.Context, number int, _ string) error {
 		return err
 	}
 	return nil
+}
+
+// bbBuildStatus fetches build/pipeline status for a Bitbucket PR by running
+// `bb pr statuses <number> --output json` and collapsing the results.
+// Returns "none" on any error or when no statuses exist.
+func bbBuildStatus(ctx context.Context, number string) string {
+	out, err := exec.CommandContext(ctx, "bb", "pr", "statuses", number, "--output", "json").Output()
+	if err != nil {
+		return "none"
+	}
+	var raw []struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil || len(raw) == 0 {
+		return "none"
+	}
+	// Collapse: any failure wins, then any pending/in-progress, else success.
+	hasSuccess := false
+	for _, s := range raw {
+		switch strings.ToUpper(s.State) {
+		case "FAILED", "ERROR":
+			return "failure"
+		case "INPROGRESS":
+			// keep scanning for failures
+		case "SUCCESSFUL":
+			hasSuccess = true
+		}
+	}
+	for _, s := range raw {
+		if strings.ToUpper(s.State) == "INPROGRESS" {
+			return "pending"
+		}
+	}
+	if hasSuccess {
+		return "success"
+	}
+	return "none"
 }
 
 func normaliseBBState(s string) string {

@@ -63,6 +63,9 @@ func (g *ghProvider) CreatePR(ctx context.Context, opts PRCreateOpts) error {
 	if opts.Base != "" {
 		args = append(args, "--base", opts.Base)
 	}
+	if opts.Draft {
+		args = append(args, "--draft")
+	}
 	out, err := exec.CommandContext(ctx, "gh", args...).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
