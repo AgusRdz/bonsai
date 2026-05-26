@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.81.0] - 2026-05-26
+
+### Features
+- Add git revert — create undo-commit from log or commit detail
+([8249526](https://github.com/AgusRdz/bonsai/commit/82495263ebd55e31021c61a0c0fa4b5d78ca34d2))
 ## [0.80.3] - 2026-05-26
 
 ### Bug Fixes
