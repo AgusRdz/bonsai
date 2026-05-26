@@ -136,11 +136,14 @@ func UsageFilePath() (string, error) {
 }
 
 // GlobalExists reports whether the global config file already exists.
+// On Windows it also runs the one-time migration from AppData\Roaming so
+// that an existing config is found before the first-run setup wizard fires.
 func GlobalExists() (bool, error) {
 	p, err := globalConfigPath()
 	if err != nil {
 		return false, err
 	}
+	migrateRoamingConfig(p)
 	_, err = os.Stat(p)
 	if os.IsNotExist(err) {
 		return false, nil
