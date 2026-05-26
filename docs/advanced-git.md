@@ -46,7 +46,7 @@ Opens a menu with three reset modes. Resets apply to the current HEAD.
 | mixed | `git reset --mixed HEAD~1` | Undoes the last commit; changes remain unstaged |
 | hard | `git reset --hard HEAD~1` | Undoes the last commit and discards all changes |
 
-Hard reset is destructive and requires confirmation.
+All three modes (soft, mixed, hard) show a confirmation dialog before executing. The dialog message describes exactly what will happen so you can make an informed choice. Hard reset is also destructive — it discards all changes and cannot be undone.
 
 ## Merge
 
@@ -57,6 +57,28 @@ If the merge produces conflicts they appear in the Conflicts section at the top 
 ## Cherry-pick
 
 Also available from the log panel. Select a commit and press `p` to cherry-pick it onto the current branch.
+
+### Cherry-pick range
+
+Press `R` in the commit detail panel to cherry-pick a range of commits.
+Enter the "from" commit hash when prompted; bonsai will pick from..to
+(exclusive of "from", inclusive of "to") onto the current branch.
+
+## Git Revert
+
+Revert creates a new commit that undoes the changes from a previous commit.
+Unlike reset, revert is safe on shared branches because it adds history rather
+than rewriting it.
+
+Press `r` on any commit in the log or commit detail panel to start a revert.
+
+| State | Key | Action |
+|-------|-----|--------|
+| Revert in progress | `c` | Continue after resolving conflicts |
+| Revert in progress | `a` | Abort and restore previous state |
+| After revert | `U` | Undo the revert commit (soft reset) |
+
+A banner at the top of the screen indicates when a revert is in progress.
 
 ## Tags (`t`)
 
@@ -69,6 +91,13 @@ The tag list panel shows all local tags.
 | `esc` | Back |
 
 To push a tag after creating it: `git push origin <tag-name>`.
+
+### Annotated tags
+
+When creating a tag, press `tab` to toggle between lightweight and annotated mode.
+Annotated tags store a tagger name, email, date, and message — they are full git
+objects and the recommended format for releases. Lightweight tags are simple
+name→commit pointers with no extra metadata.
 
 ## Interactive rebase (`R`)
 
@@ -124,6 +153,11 @@ Binary search for the commit that introduced a bug.
 5. Repeat until bisect identifies the culprit.
 6. Press `r` to reset and return to the original branch.
 
+### Skipping a commit
+
+If the current commit cannot be tested (broken build, unrelated failure), press
+`s` to skip it. Git will select a nearby commit to test instead.
+
 ## Worktrees (`W`)
 
 Linked worktrees let you check out a different branch in a separate directory without disturbing your current work.
@@ -132,7 +166,14 @@ Linked worktrees let you check out a different branch in a separate directory wi
 |-----|--------|
 | `a` | Add a new worktree (enter path and branch name) |
 | `d` | Remove the selected worktree |
+| `p` | Prune stale worktree administrative files |
 | `esc` | Back |
+
+### Pruning stale worktrees
+
+If a linked worktree directory was deleted manually (not via `git worktree remove`),
+git retains stale administrative files. Press `p` in the worktree list to run
+`git worktree prune` and clean them up.
 
 Example: check out a hotfix while keeping your feature branch work intact:
 
@@ -149,7 +190,14 @@ Example: check out a hotfix while keeping your feature branch work intact:
 | `a` | Add a new remote (enter name and URL) |
 | `d` | Remove the selected remote |
 | `r` | Rename the selected remote |
+| `p` | Prune stale remote-tracking refs |
 | `esc` | Back |
+
+### Pruning stale tracking refs
+
+After teammates delete branches on the remote, your local repository still holds
+remote-tracking refs (e.g. `origin/feat/old`). Press `p` on a remote in the
+remote list to run `git remote prune <name>` and remove them.
 
 ## Submodules (`M`)
 
@@ -245,6 +293,9 @@ Shows the commit history for a single file - every commit that touched it, oldes
 3. Each line shows the hash, date, author, and subject of the commit.
 4. Press `enter` on a commit to open the commit detail panel for that commit.
 5. From the commit detail panel press `d` to see the full diff, or `esc` to return to file history.
+
+File history uses `--follow` automatically, so renames are tracked across the
+commit history — you won't lose history when a file was moved or renamed.
 
 ## Branch graph (`g`)
 

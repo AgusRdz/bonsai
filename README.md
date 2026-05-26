@@ -190,7 +190,7 @@ Open bonsai and press `?` for the full in-app reference. Key highlights:
 | `+` | Stage all changes at once (`git add .`) |
 | `h` | Hunk staging - choose which hunks to stage; press `l` inside to select individual lines |
 | `d` | Diff for the selected file |
-| `H` | File history - every commit that touched this file |
+| `H` | File history - every commit that touched this file (uses `--follow` to track renames automatically) |
 | `e` | Blame - who last changed each line |
 | `x` | Discard working tree changes (confirm required) |
 | `o` | Restore file to HEAD or a specific ref |
@@ -206,14 +206,14 @@ Open bonsai and press `?` for the full in-app reference. Key highlights:
 | `b` | Create / switch branch (flow picker in gitflow mode) |
 | `B` | Branch list - switch, merge, rebase, delete, rename, delete remote |
 | `z` | Reset menu (soft / mixed / hard) |
-| `t` | Tag list - create, delete, push to remote |
-| `i` | Bisect panel |
+| `t` | Tag list - create, delete, push to remote (press `tab` in create form to toggle lightweight / annotated) |
+| `i` | Bisect panel (press `s` to skip the current commit when a session is active) |
 | `R` | Interactive rebase - reorder/squash/fixup/drop commits |
 | `A` | Amend HEAD |
 | `U` | Undo last commit / merge / rebase |
 | `u` | Untrack selected staged file (`git rm --cached`) |
-| `W` | Worktree list |
-| `O` | Remote management |
+| `W` | Worktree list (press `p` to prune stale worktree refs) |
+| `O` | Remote management (press `p` on a remote to prune stale remote-tracking refs) |
 | `M` | Submodule management |
 | `n` | Git notes for HEAD |
 | `X` | Clean untracked files |
@@ -234,6 +234,7 @@ Open bonsai and press `?` for the full in-app reference. Key highlights:
 |-----|--------|
 | `↑` / `↓` | Scroll |
 | `enter` | Open commit detail |
+| `r` | Revert selected commit (safe undo via new commit) |
 | `/` | Open search / filter input |
 | `ctrl+/` or `ctrl+r` | Clear active filter |
 | `m` | Load more commits |
@@ -246,6 +247,8 @@ Open bonsai and press `?` for the full in-app reference. Key highlights:
 | `↑` / `↓` | Scroll |
 | `d` | Full diff for this commit |
 | `p` | Cherry-pick onto current branch |
+| `R` | Cherry-pick a range of commits (enter starting hash) |
+| `r` | Revert this commit — safe undo via a new commit (safe on shared branches) |
 | `y` | Copy commit hash to clipboard |
 | `esc` | Back |
 
@@ -268,14 +271,14 @@ Each branch shows its status: `↑↓ synced` (green), `↑N`/`↓N` (ahead/behi
 
 | Key | Action |
 |-----|--------|
-| `enter` | Open PR detail view (state, CI, labels, reviewers, URL) |
+| `enter` | Open PR detail view (state, CI status for GitHub / GitLab / Bitbucket, labels, reviewers, URL) |
 | `o` | Open PR in browser |
 | `d` | View full PR diff (cursor-based, press `c` to comment on a line) |
 | `a` | Approve PR |
 | `A` | Request changes (with reason) |
 | `c` | Post a general comment |
 | `m` | Merge picker - choose merge / squash / rebase |
-| `n` | Create a new PR (title, description, base branch form) |
+| `n` | Create a new PR (title, description, base branch form; press `d` to toggle draft mode — GitHub and GitLab only) |
 | `r` | Refresh list |
 | `esc` | Back |
 

@@ -122,6 +122,8 @@
 | `d` | View full diff of this commit |
 | `y` | Copy commit hash to clipboard |
 | `p` | Cherry-pick this commit onto current branch |
+| `R` | Cherry-pick range (enter "from" hash; picks from..to onto current branch) |
+| `r` | Create a revert commit (safe undo — adds a new commit that inverts changes) |
 | `esc` | Back |
 
 ## File history panel
@@ -228,6 +230,7 @@ Three-way merge editor (base / ours / theirs per hunk):
 | Key | Action |
 |-----|--------|
 | `tab` / `shift+tab` | Move between fields (title / description / base branch) |
+| `d` | Toggle draft mode (creates PR as draft; not supported by Bitbucket) |
 | `enter` | Submit (when focused on title or base branch field) |
 | `ctrl+s` | Submit from any field |
 | `esc` | Cancel |
@@ -267,7 +270,7 @@ Three-way merge editor (base / ours / theirs per hunk):
 | `enter` | Open selected repo in bonsai |
 | `esc` | Back |
 
-## Tag list panel
+## Tag list / Tag create
 
 | Key | Action |
 |-----|--------|
@@ -275,6 +278,7 @@ Three-way merge editor (base / ours / theirs per hunk):
 | `n` | Create a new tag at HEAD |
 | `d` | Delete the selected tag |
 | `p` | Push the selected tag to origin (confirm required) |
+| `tab` | Toggle between lightweight and annotated tag (in create form; annotated adds a message step) |
 | `esc` | Back |
 
 ## Worktree list panel
@@ -284,6 +288,7 @@ Three-way merge editor (base / ours / theirs per hunk):
 | `↑` / `↓` | Scroll |
 | `a` | Add a new worktree |
 | `d` | Remove the selected worktree |
+| `p` | Prune stale worktree refs (cleans up manually-deleted worktree directories) |
 | `esc` | Back |
 
 ## Remote list panel
@@ -294,6 +299,7 @@ Three-way merge editor (base / ours / theirs per hunk):
 | `a` | Add a new remote |
 | `d` | Remove the selected remote |
 | `r` | Rename the selected remote |
+| `p` | Prune stale remote-tracking refs for the selected remote |
 | `esc` | Back |
 
 ## Submodule list panel
@@ -364,11 +370,22 @@ Step 2: edit the todo list, then press `enter` to execute.
 
 | Key | Action |
 |-----|--------|
-| `s` | Start bisect |
+| `s` | Start bisect (when inactive) / skip current commit (when session is active) |
 | `b` | Mark current as bad |
 | `g` | Mark current as good (or enter a specific hash) |
 | `r` | Reset bisect |
 | `esc` | Back |
+
+## Revert
+
+Initiated with `r` from the commit detail panel.
+
+When a revert is in progress (banner shown at the top):
+
+| Key | Action |
+|-----|--------|
+| `c` | Continue after resolving conflicts |
+| `a` | Abort revert |
 
 ## Blame panel
 

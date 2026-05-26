@@ -149,8 +149,23 @@ From the commit detail view:
 | `↑`/`↓` | Scroll |
 | `d` | View the full diff for this commit |
 | `p` | Cherry-pick this commit onto the current branch |
+| `R` | Cherry-pick a range — enter the starting commit hash; bonsai picks from that commit through the selected commit onto the current branch |
+| `r` | Revert this commit — creates a new commit that undoes the changes (safe on shared branches) |
 | `y` | Copy the commit hash to the clipboard |
 | `esc` | Back |
+
+### Reverting a commit
+
+Press `r` on any commit in the log or commit detail view to create a revert commit. A banner appears at the top of the main panel while the revert is in progress.
+
+If the revert produces conflicts, resolve them in the file list, then:
+
+| Key | Action |
+|-----|--------|
+| `c` | Continue the revert after resolving conflicts |
+| `a` | Abort the revert and restore the previous state |
+
+Unlike `reset`, revert does not rewrite history — it adds a new commit. This makes it safe to use on branches that have already been pushed to a shared remote.
 
 ## Stash
 
@@ -197,9 +212,12 @@ Press `n` from the PR list to open the create form. Three fields are shown - tit
 | Key | Action |
 |-----|--------|
 | `tab` / `shift+tab` | Move between fields |
+| `d` | Toggle draft mode on/off before submitting |
 | `enter` | Submit (from title or base branch field) |
 | `ctrl+s` | Submit from any field |
 | `esc` | Cancel |
+
+Press `d` to mark the PR as a draft before submitting. Draft PRs are supported by GitHub and GitLab; Bitbucket does not support draft status.
 
 ### Merging a PR
 
@@ -223,11 +241,13 @@ Select a staged file and press `u` to remove it from the git index (`git rm --ca
 
 ### Reset
 
-Press `z` to open the reset menu. Choose between soft (keep staged), mixed (keep unstaged), or hard (discard all changes).
+Press `z` to open the reset menu. Choose between soft (keep staged), mixed (keep unstaged), or hard (discard all changes). All three modes require confirmation — each dialog describes exactly what will happen to your staged and working tree changes before anything is applied.
 
 ### Tags
 
 Press `t` to list tags. From the tag list you can create a new tag at HEAD or delete an existing one.
+
+In the tag create form, press `tab` to toggle between **lightweight** and **annotated** tag types. Annotated tags require a message and store the tagger identity, date, and an optional signature — they are preferred for releases. Lightweight tags are just a named pointer to a commit.
 
 ### Blame
 
@@ -236,6 +256,8 @@ Select a file and press `e` to open the blame view. Each line is annotated with 
 ### Bisect
 
 Press `i` to open the bisect panel. Mark commits as good or bad to find the commit that introduced a bug.
+
+When a bisect session is active, press `s` to skip the current commit if it cannot be tested (e.g. it does not compile or is otherwise untestable). Git will move to a different commit in the search range.
 
 ### Interactive rebase
 
@@ -247,11 +269,11 @@ Press `A` to open the amend panel. You can change the commit message, author, da
 
 ### Worktrees
 
-Press `W` to list linked worktrees. You can add a new worktree (checked out to a different branch) or remove an existing one.
+Press `W` to list linked worktrees. You can add a new worktree (checked out to a different branch) or remove an existing one. Press `p` to prune stale worktree refs — this removes administrative files for worktrees whose directories no longer exist on disk (`git worktree prune`).
 
 ### Remotes
 
-Press `O` to open remote management. From there you can list all configured remotes, add a new one, remove, or rename an existing one.
+Press `O` to open remote management. From there you can list all configured remotes, add a new one, remove, or rename an existing one. With a remote selected, press `p` to prune stale remote-tracking refs — this removes local refs for branches that have been deleted on that remote (`git remote prune <name>`).
 
 ### Submodules
 
