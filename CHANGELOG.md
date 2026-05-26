@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.80.0] - 2026-05-26
+
+### Features
+- Improve branch list UX — scroll indicator, gone sweep, status colors
+([52c7d19](https://github.com/AgusRdz/bonsai/commit/52c7d192bf781376b72b48d4ac9531b73993fe38))
 ## [0.79.2] - 2026-05-22
 
 ### Bug Fixes
