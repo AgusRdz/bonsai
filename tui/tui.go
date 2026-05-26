@@ -5950,14 +5950,19 @@ func allResolved(res []int) bool {
 func (m model) updateResetPickPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "s":
-		m.panel = panelMain
-		return m, m.doReset("soft")
+		m.confirmPrompt = "soft reset HEAD~1? the commit will be removed but all changes remain staged"
+		m.confirmCmd = m.doReset("soft")
+		m.confirmOrigin = panelResetPick
+		m.panel = panelConfirm
 	case "m":
-		m.panel = panelMain
-		return m, m.doReset("mixed")
+		m.confirmPrompt = "mixed reset HEAD~1? the commit will be removed and changes moved back to working tree"
+		m.confirmCmd = m.doReset("mixed")
+		m.confirmOrigin = panelResetPick
+		m.panel = panelConfirm
 	case "h":
 		m.confirmPrompt = "hard reset HEAD~1? uncommitted changes will be permanently discarded"
 		m.confirmCmd = m.doReset("hard")
+		m.confirmOrigin = panelResetPick
 		m.panel = panelConfirm
 	case "esc", m.cfg.Keybindings.Quit:
 		m.panel = panelMain
