@@ -169,6 +169,8 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	migrateRoamingConfig(globalPath)
+
 	cfg := defaults()
 
 	if _, err := os.Stat(globalPath); os.IsNotExist(err) {
@@ -343,9 +345,9 @@ func WriteLocalTemplate(path string) error {
 func globalConfigPath() (string, error) {
 	var base string
 	if runtime.GOOS == "windows" {
-		base = os.Getenv("APPDATA")
+		base = os.Getenv("LOCALAPPDATA")
 		if base == "" {
-			return "", fmt.Errorf("%%APPDATA%% is not set")
+			return "", fmt.Errorf("%%LOCALAPPDATA%% is not set")
 		}
 	} else {
 		base = os.Getenv("XDG_CONFIG_HOME")
@@ -358,6 +360,51 @@ func globalConfigPath() (string, error) {
 		}
 	}
 	return filepath.Join(base, "bonsai", "config.toml"), nil
+}
+
+// roamingConfigPath returns the legacy Windows config path (AppData\Roaming)
+// used before v0.80.1. Only meaningful on Windows.
+func roamingConfigPath() string {
+	base := os.Getenv("APPDATA")
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, "bonsai", "config.toml")
+}
+
+// migrateRoamingConfig moves config.toml from the legacy AppData\Roaming
+// location to AppData\Local when upgrading from v0.80.0 and earlier.
+// It is a no-op on non-Windows platforms and when the destination already
+// exists (user has an intentional config there).
+func migrateRoamingConfig(localPath string) {
+	if runtime.GOOS != "windows" {
+		return
+	}
+	oldPath := roamingConfigPath()
+	if oldPath == "" {
+		return
+	}
+	// Nothing to migrate if the old file doesn't exist.
+	if _, err := os.Stat(oldPath); err != nil {
+		return
+	}
+	// Don't overwrite an already-present Local config.
+	if _, err := os.Stat(localPath); err == nil {
+		return
+	}
+	data, err := os.ReadFile(oldPath)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
+		return
+	}
+	if err := os.WriteFile(localPath, data, 0o644); err != nil {
+		return
+	}
+	// Best-effort cleanup of the old location.
+	_ = os.Remove(oldPath)
+	_ = os.Remove(filepath.Dir(oldPath)) // removes dir only if empty
 }
 
 func writeDefaults(path string, cfg *Config) error {
