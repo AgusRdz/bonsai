@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.82.0] - 2026-05-26
+
+### Features
+- Add worktree prune, bisect skip, remote prune, annotated tags, draft PRs, CI status, cherry-pick range, --follow file history
+([d7c91f6](https://github.com/AgusRdz/bonsai/commit/d7c91f60218ebe9f1f1a3052a6d3c3e8c6189d6c))
 ## [0.81.0] - 2026-05-26
 
 ### Features
