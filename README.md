@@ -259,7 +259,10 @@ Open bonsai and press `?` for the full in-app reference. Key highlights:
 | `d` | Delete local branch |
 | `n` | Rename branch |
 | `D` | Delete remote tracking branch |
+| `X` | Sweep all `gone` branches (bulk delete with confirmation) |
 | `esc` | Back |
+
+Each branch shows its status: `↑↓ synced` (green), `↑N`/`↓N` (ahead/behind), `gone` (red — remote was deleted), `merged` (purple), `(protected)` (red). When the list is longer than the terminal, the title shows your scroll position (`5/36 ↓`).
 
 ### PR / MR panel
 

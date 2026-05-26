@@ -266,8 +266,13 @@ From the log panel (`l`), open any commit with `enter`. In the commit detail pan
 | `d` | Delete selected local branch |
 | `n` | Rename selected branch |
 | `D` | Delete the remote tracking branch for the selected branch |
+| `X` | Sweep all `gone` branches — bulk-delete every local branch whose remote was deleted |
 
-`d` uses `git branch -d` (safe delete - fails on unmerged work). `D` uses `git push <remote> --delete <branch>` and requires the branch to have a configured upstream. Both require confirmation.
+`d` uses `git branch -d` (safe delete - fails on unmerged work). `D` uses `git push <remote> --delete <branch>` and requires the branch to have a configured upstream. `X` uses `git branch -D` (force) on all `gone` branches — safe because the remote already merged and deleted them. All destructive operations require confirmation.
+
+### Gone branches
+
+A branch shows `gone` (red) when its remote tracking ref no longer exists — typically because it was merged and deleted on the remote. These branches are safe to remove: they cannot be accidentally re-pushed without creating a new remote branch. Use `d` to delete a single one or `X` to sweep all of them at once. When the cursor is on a `gone` branch the hint line explains this and shows both options.
 
 ## Stash operations (from stash list `S`)
 

@@ -115,7 +115,17 @@ Press `P` to pull, `f` to open the fetch menu (origin / all / prune).
 | `b` | Create a new branch (or open the flow picker in gitflow mode) |
 | `B` | List all branches - switch, merge, rebase, delete, rename, delete remote |
 
-The branch list shows the remote tracking ref next to each branch name (`<- origin/feat/login`). See [advanced-git.md](advanced-git.md) for the full key reference.
+The branch list shows status badges next to each branch name:
+
+| Badge | Colour | Meaning |
+|-------|--------|---------|
+| `↑↓ synced` | green | Tracking ref exists and is in sync |
+| `↑N` / `↓N` | green / red | Commits ahead or behind remote |
+| `gone` | red | Remote tracking ref was deleted (branch can be pruned) |
+| `merged` | purple | Already merged into the default branch |
+| `(protected)` | red | Protected on the remote — cannot be force-pushed |
+
+When the list is taller than the terminal the title shows your scroll position (e.g. `↑ 5/36 ↓`). Use `↑`/`↓` (or `k`/`j`) to navigate and `/` to filter. See [advanced-git.md](advanced-git.md) for the full key reference.
 
 ## Log
 
