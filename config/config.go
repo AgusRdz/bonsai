@@ -375,39 +375,63 @@ func roamingConfigPath() string {
 	return filepath.Join(base, "bonsai", "config.toml")
 }
 
-// migrateRoamingConfig moves config.toml from the legacy AppData\Roaming
-// location to AppData\Local when upgrading from v0.80.0 and earlier.
-// It is a no-op on non-Windows platforms and when the destination already
-// exists (user has an intentional config there).
+// migrateRoamingConfig moves bonsai data files (config.toml and usage.json)
+// from the legacy AppData\Roaming location to AppData\Local when upgrading
+// from v0.80.1 and earlier. It is a no-op on non-Windows platforms and when
+// the destination config already exists (user has an intentional config there).
 func migrateRoamingConfig(localPath string) {
 	if runtime.GOOS != "windows" {
 		return
 	}
-	oldPath := roamingConfigPath()
-	if oldPath == "" {
+	oldConfigPath := roamingConfigPath()
+	if oldConfigPath == "" {
 		return
 	}
-	// Nothing to migrate if the old file doesn't exist.
-	if _, err := os.Stat(oldPath); err != nil {
+	// Nothing to migrate if the old config doesn't exist.
+	if _, err := os.Stat(oldConfigPath); err != nil {
 		return
 	}
 	// Don't overwrite an already-present Local config.
 	if _, err := os.Stat(localPath); err == nil {
 		return
 	}
-	data, err := os.ReadFile(oldPath)
-	if err != nil {
-		return
-	}
 	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "bonsai: migration: could not create config dir: %v\n", err)
 		return
 	}
-	if err := os.WriteFile(localPath, data, 0o644); err != nil {
+	if err := moveFile(oldConfigPath, localPath); err != nil {
+		fmt.Fprintf(os.Stderr, "bonsai: migration: could not move config.toml: %v\n", err)
 		return
 	}
-	// Best-effort cleanup of the old location.
-	_ = os.Remove(oldPath)
-	_ = os.Remove(filepath.Dir(oldPath)) // removes dir only if empty
+	// Also migrate usage.json so command-frequency history is preserved.
+	oldUsagePath := filepath.Join(filepath.Dir(oldConfigPath), "usage.json")
+	newUsagePath := filepath.Join(filepath.Dir(localPath), "usage.json")
+	if _, err := os.Stat(oldUsagePath); err == nil {
+		if _, err := os.Stat(newUsagePath); err != nil {
+			if err := moveFile(oldUsagePath, newUsagePath); err != nil {
+				fmt.Fprintf(os.Stderr, "bonsai: migration: could not move usage.json: %v\n", err)
+			}
+		}
+	}
+	// Best-effort cleanup of the old directory (only removes if empty).
+	_ = os.Remove(filepath.Dir(oldConfigPath))
+}
+
+// moveFile moves src to dst, falling back to copy+delete if rename fails
+// (e.g. src and dst are on different volumes).
+func moveFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
+		return err
+	}
+	_ = os.Remove(src)
+	return nil
 }
 
 func writeDefaults(path string, cfg *Config) error {

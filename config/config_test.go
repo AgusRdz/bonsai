@@ -233,3 +233,114 @@ default = "learning"
 		t.Errorf("modes.default = %q, want standard (migrated from learning)", cfg.Modes.Default)
 	}
 }
+
+// TestMigrateRoamingToLocal verifies that config.toml and usage.json are moved
+// from AppData\Roaming to AppData\Local on Windows (or the XDG equivalent in
+// the test harness) when no Local config exists yet.
+func TestMigrateRoamingToLocal(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Roaming migration is Windows-only")
+	}
+
+	roamingDir := t.TempDir()
+	localDir := t.TempDir()
+	t.Setenv("APPDATA", roamingDir)
+	t.Setenv("LOCALAPPDATA", localDir)
+
+	// Seed legacy files in Roaming.
+	roamingBonsai := filepath.Join(roamingDir, "bonsai")
+	if err := os.MkdirAll(roamingBonsai, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configContent := []byte("[flow]\ntype = \"trunk\"\n")
+	usageContent := []byte(`{"bonsai":1}`)
+	if err := os.WriteFile(filepath.Join(roamingBonsai, "config.toml"), configContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(roamingBonsai, "usage.json"), usageContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	localConfigPath := filepath.Join(localDir, "bonsai", "config.toml")
+	localUsagePath := filepath.Join(localDir, "bonsai", "usage.json")
+
+	// Migration fires inside GlobalExists.
+	exists, err := GlobalExists()
+	if err != nil {
+		t.Fatalf("GlobalExists: %v", err)
+	}
+	if !exists {
+		t.Fatal("GlobalExists = false after migration, want true")
+	}
+
+	// config.toml must be in Local.
+	got, err := os.ReadFile(localConfigPath)
+	if err != nil {
+		t.Fatalf("config.toml not found in Local: %v", err)
+	}
+	if string(got) != string(configContent) {
+		t.Errorf("config.toml content mismatch: got %q, want %q", got, configContent)
+	}
+
+	// usage.json must be in Local.
+	gotUsage, err := os.ReadFile(localUsagePath)
+	if err != nil {
+		t.Fatalf("usage.json not found in Local: %v", err)
+	}
+	if string(gotUsage) != string(usageContent) {
+		t.Errorf("usage.json content mismatch: got %q, want %q", gotUsage, usageContent)
+	}
+
+	// Old Roaming files must be gone.
+	if _, err := os.Stat(filepath.Join(roamingBonsai, "config.toml")); err == nil {
+		t.Error("config.toml still exists in Roaming after migration")
+	}
+	if _, err := os.Stat(filepath.Join(roamingBonsai, "usage.json")); err == nil {
+		t.Error("usage.json still exists in Roaming after migration")
+	}
+}
+
+// TestMigrateRoamingNoOpWhenLocalExists verifies that an existing Local config
+// is never overwritten by the migration.
+func TestMigrateRoamingNoOpWhenLocalExists(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Roaming migration is Windows-only")
+	}
+
+	roamingDir := t.TempDir()
+	localDir := t.TempDir()
+	t.Setenv("APPDATA", roamingDir)
+	t.Setenv("LOCALAPPDATA", localDir)
+
+	roamingBonsai := filepath.Join(roamingDir, "bonsai")
+	localBonsai := filepath.Join(localDir, "bonsai")
+	if err := os.MkdirAll(roamingBonsai, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(localBonsai, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	roamingConfig := []byte("[flow]\ntype = \"trunk\"\n")
+	localConfig := []byte("[flow]\ntype = \"gitflow\"\n")
+	if err := os.WriteFile(filepath.Join(roamingBonsai, "config.toml"), roamingConfig, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	localConfigPath := filepath.Join(localBonsai, "config.toml")
+	if err := os.WriteFile(localConfigPath, localConfig, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := GlobalExists(); err != nil {
+		t.Fatalf("GlobalExists: %v", err)
+	}
+
+	// Local config must be unchanged.
+	got, err := os.ReadFile(localConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(localConfig) {
+		t.Errorf("local config was overwritten: got %q, want %q", got, localConfig)
+	}
+}

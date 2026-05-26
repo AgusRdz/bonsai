@@ -165,6 +165,14 @@ func runSetup(args []string) {
 			local = true
 		}
 	}
+	// Trigger migration before running the wizard so that existing settings
+	// from AppData\Roaming are pre-populated rather than lost.
+	if !local {
+		if _, err := config.GlobalExists(); err != nil {
+			fmt.Fprintf(os.Stderr, "bonsai: config: %v\n", err)
+			os.Exit(1)
+		}
+	}
 	if local {
 		if err := setup.RunLocal(); err != nil {
 			fmt.Fprintln(os.Stderr, "bonsai: setup:", err)
