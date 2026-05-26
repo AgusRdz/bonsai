@@ -73,6 +73,12 @@ func commandKey(cmd string) string {
 		return "merge"
 	case strings.HasPrefix(cmd, "git cherry-pick"):
 		return "cherry-pick"
+	case strings.HasPrefix(cmd, "git revert --abort"):
+		return "revert"
+	case strings.HasPrefix(cmd, "git revert --continue"):
+		return "revert"
+	case strings.HasPrefix(cmd, "git revert"):
+		return "revert"
 	case strings.HasPrefix(cmd, "git reset --soft"):
 		return "reset-soft"
 	case strings.HasPrefix(cmd, "git reset --mixed"):
@@ -118,6 +124,7 @@ var masteryThresholds = map[string]int{
 	"restore":              8,
 	"amend":                8,
 	"cherry-pick":          8,
+	"revert":               8,
 	"reset-soft":           6,
 	"reset-mixed":          6,
 	"reset-hard":           6,
@@ -149,6 +156,7 @@ func masteryThreshold(key string) int {
 var proComplexCommands = map[string]bool{
 	"rebase":               true,
 	"cherry-pick":          true,
+	"revert":               true,
 	"amend":                true,
 	"restore":              true,
 	"reset-soft":           true,
@@ -226,6 +234,12 @@ func actionTitle(cmd string, err error) string {
 		return "Cherry-pick aborted"
 	case strings.HasPrefix(cmd, "git cherry-pick"):
 		return "Commit cherry-picked"
+	case strings.HasPrefix(cmd, "git revert --abort"):
+		return "Revert aborted"
+	case strings.HasPrefix(cmd, "git revert --continue"):
+		return "Revert continued"
+	case strings.HasPrefix(cmd, "git revert"):
+		return "Commit reverted"
 	case strings.HasPrefix(cmd, "git reset --soft"):
 		return "Soft reset done"
 	case strings.HasPrefix(cmd, "git reset --mixed"):
@@ -331,6 +345,16 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git cherry-pick"):
 		return "The selected commit was applied on top of your current branch as a new commit. " +
 			"Cherry-pick copies the diff from that commit - the original commit remains unchanged in its branch."
+	case strings.HasPrefix(cmd, "git revert --abort"):
+		return "The revert was cancelled and your branch was restored to its previous state. " +
+			"No new commit was created and your working tree is clean."
+	case strings.HasPrefix(cmd, "git revert --continue"):
+		return "The revert resumed after you resolved the conflicts. " +
+			"A new commit was created that undoes the changes from the original commit."
+	case strings.HasPrefix(cmd, "git revert"):
+		return "A new commit was created that undoes the changes introduced by the selected commit. " +
+			"Unlike reset, revert is safe on shared branches because it adds a commit rather than rewriting history. " +
+			"Use [U] to undo the revert commit if you change your mind."
 	case strings.HasPrefix(cmd, "git reset --soft"):
 		return "The last commit was removed from history but all its changes are still staged. " +
 			"You can amend the commit message or add more files before committing again."

@@ -187,6 +187,7 @@ func detectMergeState(ctx context.Context) string {
 	}{
 		{filepath.Join(gitDir, "MERGE_HEAD"), "merge"},
 		{filepath.Join(gitDir, "CHERRY_PICK_HEAD"), "cherry-pick"},
+		{filepath.Join(gitDir, "REVERT_HEAD"), "revert"},
 		{filepath.Join(gitDir, "rebase-merge"), "rebase"},
 		{filepath.Join(gitDir, "rebase-apply"), "rebase"},
 	}
@@ -1361,6 +1362,29 @@ func (r *Runner) MergeAbort(ctx context.Context) error {
 // CherryPickAbort aborts an in-progress cherry-pick.
 func (r *Runner) CherryPickAbort(ctx context.Context) error {
 	_, err := r.run(ctx, "cherry-pick", "--abort")
+	return err
+}
+
+// Revert creates a new commit that undoes the changes introduced by hash.
+// --no-edit accepts the auto-generated commit message without opening an editor.
+// If conflicts arise the repo is left in REVERT_HEAD state; call RevertContinue
+// after resolving them or RevertAbort to cancel.
+func (r *Runner) Revert(ctx context.Context, hash string) error {
+	_, err := r.run(ctx, "revert", "--no-edit", hash)
+	return err
+}
+
+// RevertContinue resumes a revert after the user has resolved conflicts and
+// staged the result.
+func (r *Runner) RevertContinue(ctx context.Context) error {
+	_, err := r.run(ctx, "revert", "--continue")
+	return err
+}
+
+// RevertAbort cancels an in-progress revert, restoring the repo to the state
+// it was in before the revert began.
+func (r *Runner) RevertAbort(ctx context.Context) error {
+	_, err := r.run(ctx, "revert", "--abort")
 	return err
 }
 

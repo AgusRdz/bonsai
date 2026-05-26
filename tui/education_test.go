@@ -37,6 +37,10 @@ func TestCommandKey(t *testing.T) {
 		{"git merge --abort", "merge"},
 		{"git cherry-pick abc123", "cherry-pick"},
 		{"git cherry-pick --abort", "cherry-pick"},
+		{"git revert abc123", "revert"},
+		{"git revert --no-edit abc123", "revert"},
+		{"git revert --abort", "revert"},
+		{"git revert --continue", "revert"},
 		{"git reset --soft HEAD~1", "reset-soft"},
 		{"git reset --mixed HEAD~1", "reset-mixed"},
 		{"git reset --hard HEAD~1", "reset-hard"},
@@ -138,6 +142,9 @@ func TestExplainReturnsContentForKnownCommands(t *testing.T) {
 		"git merge --abort",
 		"git cherry-pick abc123",
 		"git cherry-pick --abort",
+		"git revert --no-edit abc123",
+		"git revert --abort",
+		"git revert --continue",
 		"git reset --soft HEAD~1",
 		"git reset --mixed HEAD~1",
 		"git reset --hard HEAD~1",
@@ -242,7 +249,7 @@ func TestMasteryThreshold(t *testing.T) {
 
 func TestIsProComplex(t *testing.T) {
 	complex := []string{
-		"rebase", "cherry-pick", "amend", "restore",
+		"rebase", "cherry-pick", "revert", "amend", "restore",
 		"reset-soft", "reset-mixed", "reset-hard",
 		"worktree", "submodule", "notes", "remote",
 		"clean", "branch-rename", "branch-delete", "remote-branch-delete",

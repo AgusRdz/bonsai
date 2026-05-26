@@ -1618,6 +1618,37 @@ func (m model) doCherryPickAbort() tea.Cmd {
 	}
 }
 
+func (m model) doRevert(hash string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.Revert(ctx, hash)
+		var info string
+		if err == nil {
+			info = "reverted " + hash
+		}
+		return actionDoneMsg{cmd: "git revert --no-edit " + hash, err: err, info: info}
+	}
+}
+
+func (m model) doRevertContinue() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.RevertContinue(ctx)
+		return actionDoneMsg{cmd: "git revert --continue", err: err}
+	}
+}
+
+func (m model) doRevertAbort() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.RevertAbort(ctx)
+		return actionDoneMsg{cmd: "git revert --abort", err: err}
+	}
+}
+
 func (m model) doFetchBisectState() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -2741,6 +2772,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "cherry-pick":
 				m.undoCmd = m.doReset("soft")
 				m.undoDesc = "undo cherry-pick"
+			case "revert":
+				m.undoCmd = m.doReset("soft")
+				m.undoDesc = "undo revert"
 			}
 		}
 
@@ -3270,6 +3304,13 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.doRebaseContinue()
 		}
+		if m.status != nil && m.status.MergeState == "revert" {
+			if len(m.status.Conflicts) > 0 {
+				m.actionErr = fmt.Errorf("resolve all conflicts first, then press [c] to continue the revert")
+				break
+			}
+			return m, m.doRevertContinue()
+		}
 		if m.status == nil || len(m.status.Staged) == 0 {
 			m.actionErr = fmt.Errorf("nothing staged - use space to stage files first")
 			break
@@ -3617,6 +3658,9 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "cherry-pick":
 			m.confirmPrompt = "abort cherry-pick? the operation will be cancelled"
 			m.confirmCmd = m.doCherryPickAbort()
+		case "revert":
+			m.confirmPrompt = "abort revert? the operation will be cancelled"
+			m.confirmCmd = m.doRevertAbort()
 		}
 		m.panel = panelConfirm
 		m.actionErr = nil
@@ -3981,6 +4025,21 @@ func (m model) updateCommitDetailPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.confirmPrompt = fmt.Sprintf("cherry-pick %s onto %s?", short, current)
 			m.confirmCmd = m.doCherryPick(hash)
+			m.panel = panelConfirm
+		}
+	case "r":
+		if m.commitDetail != nil && m.commitDetail.Hash != "" {
+			hash := m.commitDetail.Hash
+			short := hash
+			if len(short) > 7 {
+				short = short[:7]
+			}
+			current := ""
+			if m.status != nil {
+				current = m.status.Branch
+			}
+			m.confirmPrompt = fmt.Sprintf("revert %s on %s? (creates a new undo-commit)", short, current)
+			m.confirmCmd = m.doRevert(hash)
 			m.panel = panelConfirm
 		}
 	case "esc", m.cfg.Keybindings.Quit:
@@ -6186,6 +6245,12 @@ func (m model) mainView() string {
 				} else {
 					banner = "cherry-pick in progress - conflicts resolved, press [c] to commit  [a] to abort"
 				}
+			case "revert":
+				if len(m.status.Conflicts) > 0 {
+					banner = fmt.Sprintf("revert in progress - resolve %d conflict(s), then [c] to continue  [a] to abort", len(m.status.Conflicts))
+				} else {
+					banner = "revert in progress - conflicts resolved, press [c] to continue  [a] to abort"
+				}
 			default: // merge
 				if len(m.status.Conflicts) > 0 {
 					banner = fmt.Sprintf("merge in progress - resolve %d conflict(s), then [c] to commit  [a] to abort", len(m.status.Conflicts))
@@ -6709,13 +6774,13 @@ func (m model) helpView() string {
 	section("Advanced")
 	row("i", "bisect - binary search for a bug-introducing commit")
 	row("z", "reset menu (soft / mixed / hard)")
-	row("U", "undo last commit / merge / rebase / cherry-pick (shown when available)")
+	row("U", "undo last commit / merge / rebase / cherry-pick / revert (shown when available)")
 	row("W", "worktree list - add, remove linked worktrees")
 	row("O", "remote management - add, remove, rename")
 	row("M", "submodule management - add, update, deinit")
 	row("n", "git notes for HEAD commit")
 	row("X", "clean untracked files (preview + confirm)")
-	row("a", "abort in-progress merge / rebase / cherry-pick")
+	row("a", "abort in-progress merge / rebase / cherry-pick / revert")
 	row("`", "SSH key manager - list keys, test connections")
 	row("V", "LFS panel - tracked files and status")
 	row("D", "multi-repo dashboard (configure repos in [dashboard] config)")
@@ -7105,7 +7170,7 @@ func (m model) commitDetailView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	bar := "  [↑↓] scroll  [esc] back  [y] copy hash  [p] cherry-pick"
+	bar := "  [↑↓] scroll  [esc] back  [y] copy hash  [p] cherry-pick  [r] revert"
 	if m.commitDetail != nil {
 		total := commitDetailLineCount(m.commitDetail)
 		visibleLines := m.height - 6
