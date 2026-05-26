@@ -39,6 +39,12 @@ var (
 	styleAdded = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Dark: "10", Light: "2"})
 
+	styleMerged = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Dark: "141", Light: "5"})
+
+	styleSynced = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Dark: "10", Light: "2"})
+
 	styleConflict = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Dark: "9", Light: "1"})
 

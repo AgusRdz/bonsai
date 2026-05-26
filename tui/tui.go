@@ -905,6 +905,27 @@ func (m model) doDeleteRemoteBranch(remote, branch string) tea.Cmd {
 	}
 }
 
+func (m model) doDeleteGoneBranches(branches []git.Branch) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		deleted := 0
+		var lastErr error
+		for _, b := range branches {
+			if err := m.git.DeleteBranch(ctx, b.Name, true); err != nil {
+				lastErr = err
+			} else {
+				deleted++
+			}
+		}
+		info := ""
+		if deleted > 0 {
+			info = fmt.Sprintf("deleted %d gone branch(es)", deleted)
+		}
+		return actionDoneMsg{cmd: "git branch -D (gone)", err: lastErr, info: info}
+	}
+}
+
 func (m model) doRenameBranch(oldName, newName string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -4178,6 +4199,25 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirmPrompt = fmt.Sprintf("delete %s from remote %s?", remoteBranch, remote)
 		m.confirmCmd = m.doDeleteRemoteBranch(remote, remoteBranch)
 		m.panel = panelConfirm
+	case "X":
+		var gone []git.Branch
+		for _, b := range m.branches {
+			if b.Gone && !b.Current {
+				gone = append(gone, b)
+			}
+		}
+		if len(gone) == 0 {
+			m.actionErr = fmt.Errorf("no gone branches to clean up")
+			break
+		}
+		names := make([]string, len(gone))
+		for i, b := range gone {
+			names[i] = "  · " + b.Name
+		}
+		m.confirmPrompt = fmt.Sprintf("delete %d gone branch(es)?\n\n%s", len(gone), strings.Join(names, "\n"))
+		m.confirmCmd = m.doDeleteGoneBranches(gone)
+		m.panel = panelConfirm
+		m.actionErr = nil
 	case "/":
 		m.branchFiltering = true
 		m.branchFilterInput.Focus()
@@ -6477,6 +6517,24 @@ func (m model) branchListView() string {
 	var b strings.Builder
 	b.WriteString("\n")
 
+	// Pre-calculate scroll position so we can show it in the title.
+	overhead := 6
+	if m.branchFiltering {
+		overhead += 2
+	}
+	visibleLines := m.height - overhead
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+	start := 0
+	if m.branchCursor >= visibleLines {
+		start = m.branchCursor - visibleLines + 1
+	}
+	end := start + visibleLines
+	if end > len(visible) {
+		end = len(visible)
+	}
+
 	title := "Branches"
 	if len(m.branches) > 0 {
 		if m.branchFilter != "" {
@@ -6488,7 +6546,18 @@ func (m model) branchListView() string {
 	if m.branchFilter != "" {
 		title += "  " + styleCmd.Render("["+m.branchFilter+"]")
 	}
-	b.WriteString("  " + styleSection.Render(title) + "\n\n")
+	titleLine := "  " + styleSection.Render(title)
+	if len(visible) > visibleLines {
+		scrollPos := fmt.Sprintf("%d/%d", m.branchCursor+1, len(visible))
+		if start > 0 {
+			scrollPos = "↑ " + scrollPos
+		}
+		if end < len(visible) {
+			scrollPos += " ↓"
+		}
+		titleLine += "  " + styleDim.Render(scrollPos)
+	}
+	b.WriteString(titleLine + "\n\n")
 
 	if m.branchFiltering {
 		b.WriteString("  " + styleDim.Render("/") + " " + m.branchFilterInput.View() + "\n\n")
@@ -6503,22 +6572,6 @@ func (m model) branchListView() string {
 			b.WriteString("  " + styleDim.Render("no branches found") + "\n")
 		}
 	} else {
-		overhead := 6
-		if m.branchFiltering {
-			overhead += 2
-		}
-		visibleLines := m.height - overhead
-		if visibleLines < 1 {
-			visibleLines = 1
-		}
-		start := 0
-		if m.branchCursor >= visibleLines {
-			start = m.branchCursor - visibleLines + 1
-		}
-		end := start + visibleLines
-		if end > len(visible) {
-			end = len(visible)
-		}
 		for i := start; i < end; i++ {
 			br := visible[i]
 			cursor := "  "
@@ -6549,10 +6602,10 @@ func (m model) branchListView() string {
 				}
 				name += "  " + track
 			} else if br.Upstream != "" {
-				name += "  " + styleDim.Render("↑↓ synced")
+				name += "  " + styleSynced.Render("↑↓ synced")
 			}
 			if m.mergedBranches[br.Name] && !br.Current {
-				name += "  " + styleDim.Render("merged")
+				name += "  " + styleMerged.Render("merged")
 			}
 			if m.protectedBranches[br.Name] {
 				name += "  " + styleChanged.Render("(protected)")
@@ -6567,7 +6620,26 @@ func (m model) branchListView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [enter] switch  [m] merge  [r] rebase  [d] delete  [n] rename  [D] delete remote  [/] search  [esc] back") + "\n"
+
+	// Context-sensitive hint line.
+	var hint string
+	if len(visible) > 0 && m.branchCursor < len(visible) && visible[m.branchCursor].Gone {
+		hint = styleDim.Render("  gone — remote tracking ref deleted, safe to remove  [d] delete  [X] sweep all gone  [esc] back")
+	} else {
+		goneCount := 0
+		for _, br := range m.branches {
+			if br.Gone {
+				goneCount++
+			}
+		}
+		h := "  [enter] switch  [m] merge  [r] rebase  [d] delete  [n] rename  [D] delete remote  [/] search"
+		if goneCount > 0 {
+			h += fmt.Sprintf("  [X] sweep gone (%d)", goneCount)
+		}
+		h += "  [esc] back"
+		hint = styleDim.Render(h)
+	}
+	return content + hint + "\n"
 }
 
 func (m model) confirmView() string {
