@@ -2,6 +2,15 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.80.1] - 2026-05-26
+
+### Bug Fixes
+- Migrate config from AppData\Roaming to AppData\Local on Windows
+([2a719f1](https://github.com/AgusRdz/bonsai/commit/2a719f107466d224a03503b56ef7840eb70ad9fc))
+
+### Documentation
+- Update branch list panel — gone sweep, scroll indicator, status badges
+([3aaea56](https://github.com/AgusRdz/bonsai/commit/3aaea565c8b0fd794753a4801d6469fa211bf252))
 ## [0.80.0] - 2026-05-26
 
 ### Features
