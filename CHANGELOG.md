@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.80.2] - 2026-05-26
+
+### Bug Fixes
+- Run config migration before first-run setup check on Windows
+([e51112a](https://github.com/AgusRdz/bonsai/commit/e51112ac5464a9bb83f898145a212ad025ebe1ee))
 ## [0.80.1] - 2026-05-26
 
 ### Bug Fixes
