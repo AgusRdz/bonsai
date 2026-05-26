@@ -2,6 +2,21 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.82.1] - 2026-05-26
+
+### Bug Fixes
+- Require confirmation for soft and mixed reset, return to picker on cancel
+([2d34bdf](https://github.com/AgusRdz/bonsai/commit/2d34bdf6f26b4e1cec6df13c3cd66b7729f0e66c))
+- Force LC_ALL=C on all git commands to prevent locale-sensitive parsing failures
+([725fc90](https://github.com/AgusRdz/bonsai/commit/725fc90fd23599825838beacd137f5f242551640))
+
+### Documentation
+- Update keybindings, advanced-git, tui-guide, README for v0.81–v0.82 features
+([8fe2261](https://github.com/AgusRdz/bonsai/commit/8fe2261a43ac863daab24dcf4c1b36f74a6f00a1))
+
+### Testing
+- Add commandKey and explain coverage for worktree-prune, remote-prune, annotated tag, cp range
+([756e3e4](https://github.com/AgusRdz/bonsai/commit/756e3e40e7074d79dd3bc7fc4209a9259faf88e4))
 ## [0.82.0] - 2026-05-26
 
 ### Features
