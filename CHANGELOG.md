@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.80.3] - 2026-05-26
+
+### Bug Fixes
+- Migrate usage.json, add migration tests, guard bonsai setup path
+([df3a30f](https://github.com/AgusRdz/bonsai/commit/df3a30f673b1b651cc3e697b7c39d8aad3637211))
 ## [0.80.2] - 2026-05-26
 
 ### Bug Fixes
