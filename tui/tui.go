@@ -7475,8 +7475,12 @@ func (m model) stashListView() string {
 			if a := timeAgo(st.Date); a != "" {
 				age = styleDim.Render(a) + "  "
 			}
+			stale := ""
+			if st.Stale {
+				stale = styleChanged.Render("⚠ stale") + "  "
+			}
 			desc := st.Description
-			b.WriteString(cursor + "  " + ref + "  " + age + desc + "\n")
+			b.WriteString(cursor + "  " + ref + "  " + age + stale + desc + "\n")
 		}
 	}
 	b.WriteString("\n")
