@@ -7571,7 +7571,7 @@ func (m model) diffView() string {
 			parts = append(parts, "[↑↓] scroll")
 		}
 		if hasHunks {
-			parts = append(parts, "[][]] hunk")
+			parts = append(parts, "[[/]] hunk")
 		}
 		if m.stashPendingAction == "pop" {
 			parts = append(parts, "[enter] pop  [a] apply  [esc] back")
