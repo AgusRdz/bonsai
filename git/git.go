@@ -882,8 +882,9 @@ func (r *Runner) StashCheckoutFiles(ctx context.Context, ref string, files []str
 
 // StashList returns all stash entries in order.
 func (r *Runner) StashList(ctx context.Context) ([]StashEntry, error) {
-	// Use NUL-delimited format: ref\x00ISO-date\x00subject\n
-	out, err := r.run(ctx, "stash", "list", "--format=%gd\x00%ci\x00%s")
+	// Use NUL-delimited format: ref NUL ISO-date NUL subject LF
+	// %x00 tells git to emit a null byte in the output (safe through exec args).
+	out, err := r.run(ctx, "stash", "list", "--format=%gd%x00%ci%x00%s")
 	if err != nil {
 		return nil, err
 	}

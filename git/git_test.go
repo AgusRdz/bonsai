@@ -198,6 +198,7 @@ func TestParseWorktreesEmpty(t *testing.T) {
 }
 
 func TestParseStashList(t *testing.T) {
+	// legacy plain format (fallback)
 	output := "stash@{0}: On main: WIP on login flow\nstash@{1}: On feat/x: half-done refactor\n"
 	entries := parseStashList(output)
 
@@ -218,6 +219,28 @@ func TestParseStashList(t *testing.T) {
 		if entries[i].Description != c.desc {
 			t.Errorf("entries[%d].Description = %q, want %q", i, entries[i].Description, c.desc)
 		}
+	}
+}
+
+func TestParseStashListNulFormat(t *testing.T) {
+	// new NUL-delimited format produced by --format=%gd%x00%ci%x00%s
+	output := "stash@{0}\x002026-05-28 14:30:00 +0000\x00On main: WIP on login flow\nstash@{1}\x002026-05-25 09:00:00 +0000\x00On feat/x: half-done refactor\n"
+	entries := parseStashList(output)
+
+	if len(entries) != 2 {
+		t.Fatalf("entry count = %d, want 2", len(entries))
+	}
+	if entries[0].Ref != "stash@{0}" {
+		t.Errorf("entries[0].Ref = %q, want stash@{0}", entries[0].Ref)
+	}
+	if entries[0].Description != "On main: WIP on login flow" {
+		t.Errorf("entries[0].Description = %q", entries[0].Description)
+	}
+	if entries[0].Date.IsZero() {
+		t.Error("entries[0].Date should not be zero")
+	}
+	if entries[1].Ref != "stash@{1}" {
+		t.Errorf("entries[1].Ref = %q, want stash@{1}", entries[1].Ref)
 	}
 }
 
