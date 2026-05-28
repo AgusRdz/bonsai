@@ -3,7 +3,8 @@
     "allow": [
       "Bash(dir *)",
       "Bash(make test *)",
-      "Bash(make release *)"
+      "Bash(make release *)",
+      "Bash(grep -n \"updateHelpPanel\\\\|helpView\\\\|panelHelp\\\\|\\\\\"\\\\\\\\[/\\\\\\\\].*search\\\\\"\\\\|\\\\\"\\\\\\\\[o\\\\\\\\]\\\\\"\\\\|\\\\\\\\.diffWordDiff\\\\|\\\\\\\\[w\\\\\\\\]\\\\|\\\\\\\\[\\\\\\\\+/-\\\\\\\\]\" tui/tui.go)"
     ]
   }
 }

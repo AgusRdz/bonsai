@@ -616,8 +616,9 @@ type lfsDataMsg struct {
 type dashboardMsg []git.DashboardEntry
 
 type diffMsg struct {
-	title string
-	lines []string
+	title    string
+	lines    []string
+	wordDiff bool // true when loaded with --word-diff=plain; skips syntax highlighting
 }
 
 type diffLinePos struct {
@@ -2040,7 +2041,7 @@ func (m model) doCompareDiff(branch string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		title := "HEAD → " + branch
-		content, err := m.git.DiffRange(ctx, "HEAD", branch, false, 3, nil)
+		content, err := m.git.DiffRange(ctx, "HEAD", branch, false, m.diffContext, nil)
 		if err != nil || content == "" {
 			return diffMsg{title: title, lines: []string{}}
 		}
@@ -2060,10 +2061,10 @@ func (m model) doFetchWordDiff(path string, staged bool) tea.Cmd {
 		}
 		content, err := m.git.DiffWordDiff(ctx, path, staged, m.diffContext)
 		if err != nil || content == "" {
-			return diffMsg{title: title, lines: []string{}}
+			return diffMsg{title: title, lines: []string{}, wordDiff: true}
 		}
 		lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
-		return diffMsg{title: title, lines: lines}
+		return diffMsg{title: title, lines: lines, wordDiff: true}
 	}
 }
 
@@ -2733,14 +2734,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case diffMsg:
 		m.diffPositions = parseDiffLinePositions(msg.lines)
-		m.diffLines = syntaxHighlightDiff(msg.lines)
+		// Word diff output uses [-...-]/{+...+} markers — skip syntax highlighting
+		// so chroma doesn't corrupt them.
+		if msg.wordDiff {
+			m.diffLines = msg.lines
+		} else {
+			m.diffLines = syntaxHighlightDiff(msg.lines)
+		}
+		m.diffWordDiff = msg.wordDiff
 		m.diffTitle = msg.title
 		m.diffCursor = 0
 		m.diffSearch = ""
 		m.diffSearchMatches = nil
 		m.diffSearchCursor = 0
 		m.diffSearching = false
-		m.diffWordDiff = false
 
 	case stashListMsg:
 		m.stashes = []git.StashEntry(msg)
@@ -7368,7 +7375,7 @@ func (m model) helpView() string {
 
 	section("Branches & history")
 	row("b", "create new branch (flow picker in gitflow mode)")
-	row("B", "branch list - switch, merge, rebase, delete, rename, delete remote")
+	row("B", "branch list - switch, merge, rebase, delete, rename, delete remote, [v] compare diff vs HEAD")
 	row("l", "commit log (search with ctrl+/ or ctrl+r); [p] cherry-pick, [R] range cherry-pick, [r] revert")
 	row("L", "reflog - full HEAD history with reset-to")
 	row(kb.Graph+" / g", "branch graph (git log --graph --all)")
@@ -7384,7 +7391,7 @@ func (m model) helpView() string {
 	section("Advanced")
 	row("i", "bisect - binary search for a bug-introducing commit ([b] bad, [G/g] good, [s] skip)")
 	row("z", "reset menu (soft / mixed / hard)")
-	row("U", "undo last commit / merge / rebase / cherry-pick / revert (shown when available)")
+	row("U", "undo — pops the most recent reversible action (up to 5 levels: commit, merge, rebase, cherry-pick, revert)")
 	row("W", "worktree list - add, remove linked worktrees; [p] prune stale entries")
 	row("O", "remote management - add, remove, rename; [p] prune stale tracking refs")
 	row("M", "submodule management - add, update, deinit")
