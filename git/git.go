@@ -99,8 +99,9 @@ type Branch struct {
 
 // StashEntry is one entry from `git stash list`.
 type StashEntry struct {
-	Ref         string // e.g. stash@{0}
-	Description string // e.g. "On main: WIP on login flow"
+	Ref         string    // e.g. stash@{0}
+	Description string    // e.g. "On main: WIP on login flow"
+	Date        time.Time // when the stash was created
 }
 
 // Runner wraps the git binary. All commands run in the current working directory.
@@ -881,7 +882,8 @@ func (r *Runner) StashCheckoutFiles(ctx context.Context, ref string, files []str
 
 // StashList returns all stash entries in order.
 func (r *Runner) StashList(ctx context.Context) ([]StashEntry, error) {
-	out, err := r.run(ctx, "stash", "list")
+	// Use NUL-delimited format: ref\x00ISO-date\x00subject\n
+	out, err := r.run(ctx, "stash", "list", "--format=%gd\x00%ci\x00%s")
 	if err != nil {
 		return nil, err
 	}
@@ -895,6 +897,17 @@ func parseStashList(output string) []StashEntry {
 		if line == "" {
 			continue
 		}
+		parts := strings.SplitN(line, "\x00", 3)
+		if len(parts) == 3 {
+			t, _ := time.Parse("2006-01-02 15:04:05 -0700", parts[1])
+			entries = append(entries, StashEntry{
+				Ref:         parts[0],
+				Description: parts[2],
+				Date:        t,
+			})
+			continue
+		}
+		// fallback: old plain format "stash@{N}: description"
 		idx := strings.Index(line, ": ")
 		if idx < 0 {
 			continue

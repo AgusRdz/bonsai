@@ -7471,8 +7471,12 @@ func (m model) stashListView() string {
 				cursor = styleSelected.Render("> ")
 			}
 			ref := styleCmd.Render(st.Ref)
-			desc := styleDim.Render(st.Description)
-			b.WriteString(cursor + "  " + ref + "  " + desc + "\n")
+			age := ""
+			if a := timeAgo(st.Date); a != "" {
+				age = styleDim.Render(a) + "  "
+			}
+			desc := st.Description
+			b.WriteString(cursor + "  " + ref + "  " + age + desc + "\n")
 		}
 	}
 	b.WriteString("\n")
@@ -10152,6 +10156,55 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// timeAgo returns a human-readable relative time string ("2 hours ago", "3 days ago", etc.).
+// Returns an empty string when t is the zero value.
+func timeAgo(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		m := int(d.Minutes())
+		if m == 1 {
+			return "1 minute ago"
+		}
+		return fmt.Sprintf("%d minutes ago", m)
+	case d < 24*time.Hour:
+		h := int(d.Hours())
+		if h == 1 {
+			return "1 hour ago"
+		}
+		return fmt.Sprintf("%d hours ago", h)
+	case d < 7*24*time.Hour:
+		days := int(d.Hours() / 24)
+		if days == 1 {
+			return "1 day ago"
+		}
+		return fmt.Sprintf("%d days ago", days)
+	case d < 30*24*time.Hour:
+		weeks := int(d.Hours() / 24 / 7)
+		if weeks == 1 {
+			return "1 week ago"
+		}
+		return fmt.Sprintf("%d weeks ago", weeks)
+	case d < 365*24*time.Hour:
+		months := int(d.Hours() / 24 / 30)
+		if months == 1 {
+			return "1 month ago"
+		}
+		return fmt.Sprintf("%d months ago", months)
+	default:
+		years := int(d.Hours() / 24 / 365)
+		if years == 1 {
+			return "1 year ago"
+		}
+		return fmt.Sprintf("%d years ago", years)
+	}
 }
 
 // writeClipboard is isolated to make it easy to stub in tests and to contain
