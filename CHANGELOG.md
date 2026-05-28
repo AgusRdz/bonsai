@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.86.1] - 2026-05-28
+
+### Bug Fixes
+- Stash list — use %x00 format (not literal null byte), add parseStashList NUL test
+([0b7235b](https://github.com/AgusRdz/bonsai/commit/0b7235b3f5a08f515e968bf906bb5f0b48d7c9ff))
 ## [0.86.0] - 2026-05-28
 
 ### Features
