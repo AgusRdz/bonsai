@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.83.0] - 2026-05-28
+
+### Features
+- Intra-line diff highlighting — background highlight on changed characters within -/+ pairs
+([da7f7a0](https://github.com/AgusRdz/bonsai/commit/da7f7a093fa05de512cb62150f525fed33a7d977))
 ## [0.82.3] - 2026-05-28
 
 ### Documentation
