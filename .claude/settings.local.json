@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(dir *)",
-      "Bash(make test *)"
+      "Bash(make test *)",
+      "Bash(make release *)"
     ]
   }
 }

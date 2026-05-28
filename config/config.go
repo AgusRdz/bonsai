@@ -161,7 +161,7 @@ func Write(path string, cfg *Config) error {
 	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
 		return err
 	}
-	return os.WriteFile(path, buf.Bytes(), 0o644)
+	return os.WriteFile(path, buf.Bytes(), 0o600)
 }
 
 // Load reads the global config (creating it with defaults on first run) and
@@ -427,7 +427,7 @@ func moveFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(dst, data, 0o644); err != nil {
+	if err := os.WriteFile(dst, data, 0o600); err != nil {
 		return err
 	}
 	_ = os.Remove(src)
@@ -442,7 +442,7 @@ func writeDefaults(path string, cfg *Config) error {
 	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
 		return err
 	}
-	return os.WriteFile(path, buf.Bytes(), 0o644)
+	return os.WriteFile(path, buf.Bytes(), 0o600)
 }
 
 func defaults() Config {

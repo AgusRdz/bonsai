@@ -708,7 +708,17 @@ func (r *Runner) Diff(ctx context.Context, path string, staged bool, contextLine
 	if err != nil {
 		return "", err
 	}
-	return string(out), nil
+
+	const maxDiffLines = 5000
+	diffStr := string(out)
+	lines := strings.Split(diffStr, "\n")
+	if len(lines) > maxDiffLines {
+		lines = lines[:maxDiffLines]
+		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("[ diff truncated — showing %d of %d lines ]", maxDiffLines, len(strings.Split(diffStr, "\n"))))
+		diffStr = strings.Join(lines, "\n")
+	}
+	return diffStr, nil
 }
 
 // Rename renames the current branch.
@@ -898,7 +908,20 @@ func (r *Runner) RemoveConflict(ctx context.Context, path string) error {
 // ConflictLines reads a conflicted file from the working tree and returns its
 // lines. The caller is responsible for rendering the conflict markers.
 func (r *Runner) ConflictLines(path string) ([]string, error) {
-	data, err := os.ReadFile(path)
+	// Validate the path stays within the working directory to prevent traversal.
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolving path: %w", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("getting working directory: %w", err)
+	}
+	repoRoot := filepath.Clean(cwd)
+	if !strings.HasPrefix(absPath, repoRoot+string(filepath.Separator)) {
+		return nil, fmt.Errorf("path %q is outside the repository", path)
+	}
+	data, err := os.ReadFile(absPath)
 	if err != nil {
 		return nil, err
 	}
@@ -1254,7 +1277,8 @@ func (r *Runner) RebaseInteractive(ctx context.Context, base string, todoLines [
 	tmpFile.Close()
 
 	cmd := exec.CommandContext(ctx, "git", "rebase", "-i", base)
-	cmd.Env = append(os.Environ(), "GIT_SEQUENCE_EDITOR=cp "+tmpFile.Name())
+	escapedPath := strings.ReplaceAll(tmpFile.Name(), `'`, `'\''`)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("GIT_SEQUENCE_EDITOR=cp '%s'", escapedPath))
 	out, err := cmd.CombinedOutput()
 	r.lastCmd = "git rebase -i " + base
 	if err != nil {
@@ -2751,7 +2775,17 @@ func (r *Runner) ShowDiff(ctx context.Context, ref string, contextLines int) (st
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimPrefix(string(out), "\n"), nil
+
+	const maxDiffLines = 5000
+	diffStr := strings.TrimPrefix(string(out), "\n")
+	lines := strings.Split(diffStr, "\n")
+	if len(lines) > maxDiffLines {
+		lines = lines[:maxDiffLines]
+		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("[ diff truncated — showing %d of %d lines ]", maxDiffLines, len(strings.Split(diffStr, "\n"))))
+		diffStr = strings.Join(lines, "\n")
+	}
+	return diffStr, nil
 }
 
 // ShowNameStatus returns a path -> status map for files changed in a single commit.

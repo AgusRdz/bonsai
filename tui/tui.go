@@ -470,8 +470,9 @@ type model struct {
 	commitDetailOrigin panel
 
 	// branch graph
-	graphLines  []string
-	graphScroll int
+	graphLines   []string
+	graphColored []string // colorized version of graphLines, cached
+	graphScroll  int
 
 	// branch rename from branch list
 	branchRenameTarget string
@@ -849,7 +850,7 @@ func (m model) doGraph() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
-		out, err := m.git.Graph(ctx, 300)
+		out, err := m.git.Graph(ctx, 150)
 		if err != nil {
 			return graphMsg("")
 		}
@@ -2782,6 +2783,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.graphLines = strings.Split(strings.TrimRight(raw, "\n"), "\n")
 		}
+		m.graphColored = colorizeGraphLines(m.graphLines)
 		m.graphScroll = 0
 		m.panel = panelGraph
 
@@ -8795,7 +8797,10 @@ func (m model) graphView() string {
 	if len(m.graphLines) == 0 {
 		b.WriteString("  " + styleDim.Render("no commits found") + "\n")
 	} else {
-		colored := colorizeGraphLines(m.graphLines)
+		colored := m.graphColored
+		if colored == nil {
+			colored = colorizeGraphLines(m.graphLines)
+		}
 		visible := m.height - 6
 		if visible < 1 {
 			visible = 1
