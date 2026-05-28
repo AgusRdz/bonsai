@@ -5,15 +5,8 @@ All notable changes to bonsai are documented here.
 ## [0.85.0] - 2026-05-28
 
 ### Features
-- Diff search — `/` to search within a diff, `n`/`N` to jump between matches
-- Open file in editor from diff — `o` opens the file at the current scroll line
-- Commit multi-line body — `tab` to focus body textarea, `ctrl+d` to submit
-- Branch comparison diff — `v` in branch list shows diff between HEAD and selected branch
-- Mouse scroll — wheel up/down scrolls the active panel
-- Word diff mode — `w` in diff panel toggles word-level highlighting
-- Diff context lines — `+`/`-` adjusts context lines around each hunk
-- Multi-level undo — `U` pops from a 5-entry undo stack
-
+- Diff search, open-in-editor, commit body, branch compare, mouse scroll, word diff, context lines, multi-undo
+([cb1c3bb](https://github.com/AgusRdz/bonsai/commit/cb1c3bb8a379471e6ee4298b9640d9d92fd46c75))
 ## [0.84.0] - 2026-05-28
 
 ### Features
