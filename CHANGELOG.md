@@ -2,6 +2,15 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.82.3] - 2026-05-28
+
+### Documentation
+- Add SECURITY.md — trust model, hook permissions, file perms, scope of exec
+([e257dda](https://github.com/AgusRdz/bonsai/commit/e257dda2b86832ad87789a7cb0d12453de374d57))
+
+### Performance
+- Smart auto-refresh (skip git status when .git unchanged), branch list cap 500 sorted by recent
+([f6e0199](https://github.com/AgusRdz/bonsai/commit/f6e019963ce2540ca50e2281fe114aad38144d1d))
 ## [0.82.2] - 2026-05-28
 
 ### Bug Fixes
