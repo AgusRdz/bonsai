@@ -88,9 +88,20 @@ panel_duration = 4
 
 # ── Editor ──────────────────────────────────────────────────────────────────
 [editor]
-# Editor used by `bonsai config` and `bonsai config --local`.
+# Editor used by:
+#   - `bonsai config` / `bonsai config --local`  (open config file)
+#   - [o] in the diff panel  (open file at the current line)
 # Falls back to $VISUAL, then $EDITOR, then vi.
-command = ""   # e.g. "vim", "nano", "code --wait", "hx"
+#
+# bonsai automatically adds the correct line-jump flag based on the binary name:
+#   vim / nvim / vi / nano  →  +LINE file
+#   hx / helix              →  file:LINE
+#   code / codium / vscodium →  --goto file:LINE
+#   anything else           →  +LINE file  (vim-style; may not work for all editors)
+#
+# If your editor uses a different flag, set command to a wrapper script that
+# handles positioning, e.g.: command = "/usr/local/bin/my-editor-wrapper"
+command = ""   # e.g. "vim", "nvim", "hx", "nano", "code --wait"
 
 # ── Keybindings ─────────────────────────────────────────────────────────────
 # Remappable keys. Single-character strings only.

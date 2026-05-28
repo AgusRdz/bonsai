@@ -2000,8 +2000,28 @@ func (m model) doOpenEditorAtLine(path string, line int) tea.Cmd {
 	case "code", "codium", "vscodium":
 		// code --goto file:line
 		args = append(parts[1:], "--goto", fmt.Sprintf("%s:%d", path, line))
+	case "subl", "sublime_text":
+		// subl file:line
+		args = append(parts[1:], fmt.Sprintf("%s:%d", path, line))
+	case "zed":
+		// zed file:line
+		args = append(parts[1:], fmt.Sprintf("%s:%d", path, line))
+	case "emacs", "emacsclient":
+		// emacs +line file
+		if line > 0 {
+			args = append(parts[1:], fmt.Sprintf("+%d", line), path)
+		} else {
+			args = append(parts[1:], path)
+		}
+	case "idea", "goland", "pycharm", "webstorm", "clion", "rider":
+		// JetBrains: idea --line LINE file
+		if line > 0 {
+			args = append(parts[1:], "--line", fmt.Sprintf("%d", line), path)
+		} else {
+			args = append(parts[1:], path)
+		}
 	default:
-		// vim, nvim, vi, nano, and most others: +LINE file
+		// vim, nvim, vi, nano, and others that accept +LINE file
 		if line > 0 {
 			args = append(parts[1:], fmt.Sprintf("+%d", line), path)
 		} else {
