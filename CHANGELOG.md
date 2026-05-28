@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.85.1] - 2026-05-28
+
+### Bug Fixes
+- Open-in-editor — add subl/zed/emacs/JetBrains line flags, document editor config
+([ca3c05f](https://github.com/AgusRdz/bonsai/commit/ca3c05f5b9bf6ae80a73309634335bcae833a96c))
 ## [0.85.0] - 2026-05-28
 
 ### Features
