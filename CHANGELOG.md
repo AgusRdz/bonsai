@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.83.1] - 2026-05-28
+
+### Bug Fixes
+- Intra-line diff — apply line color to unchanged segments, fix colorless prefix/suffix
+([8a89350](https://github.com/AgusRdz/bonsai/commit/8a89350a8437e0f3a27785785680934fd87e88cf))
 ## [0.83.0] - 2026-05-28
 
 ### Features
