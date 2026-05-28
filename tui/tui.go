@@ -7282,15 +7282,22 @@ func intraLineDiff(removed, added string) (hlRemoved, hlAdded string) {
 		suffix = removed[len(removed)-suffixLen:]
 	}
 
+	// Apply line colors to unchanged segments so they stay red/green, and use
+	// background highlights only on the characters that actually changed.
+	rPrefix := styleChanged.Render(prefix)
+	rSuffix := styleChanged.Render(suffix)
+	aPrefix := styleStaged.Render(prefix)
+	aSuffix := styleStaged.Render(suffix)
+
 	if removedMid == "" {
 		hlRemoved = removed
 	} else {
-		hlRemoved = prefix + styleRemovedHL.Render(removedMid) + suffix
+		hlRemoved = rPrefix + styleRemovedHL.Render(removedMid) + rSuffix
 	}
 	if addedMid == "" {
 		hlAdded = added
 	} else {
-		hlAdded = prefix + styleAddedHL.Render(addedMid) + suffix
+		hlAdded = aPrefix + styleAddedHL.Render(addedMid) + aSuffix
 	}
 	return hlRemoved, hlAdded
 }
