@@ -4505,6 +4505,21 @@ func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+		case "]":
+			next := jumpHunk(m.diffLines, m.diffCursor, +1)
+			m.diffCursor = next
+			if m.diffCursor >= m.diffScroll+visibleLines {
+				m.diffScroll = m.diffCursor - visibleLines + 1
+				if m.diffScroll > maxScroll {
+					m.diffScroll = maxScroll
+				}
+			}
+		case "[":
+			prev := jumpHunk(m.diffLines, m.diffCursor, -1)
+			m.diffCursor = prev
+			if m.diffCursor < m.diffScroll {
+				m.diffScroll = m.diffCursor
+			}
 		case "c":
 			if m.diffCursor < len(m.diffPositions) && m.diffPositions[m.diffCursor].position > 0 {
 				ti := textinput.New()
@@ -4536,6 +4551,10 @@ func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.diffScroll < ms {
 			m.diffScroll++
 		}
+	case "]":
+		m.diffScroll = jumpHunk(m.diffLines, m.diffScroll, +1)
+	case "[":
+		m.diffScroll = jumpHunk(m.diffLines, m.diffScroll, -1)
 	case " ":
 		if m.diffOrigin == panelMain && m.diffFilePath != "" {
 			return m, m.doStageFromDiff(m.diffFilePath, !m.diffFileStaged)
@@ -7112,13 +7131,29 @@ func (m model) diffView() string {
 	if scrollable {
 		pos = fmt.Sprintf("  (%d/%d)", m.diffScroll+1, len(m.diffLines))
 	}
+	hasHunks := func() bool {
+		for _, l := range m.diffLines {
+			if strings.HasPrefix(l, "@@") {
+				return true
+			}
+		}
+		return false
+	}()
 	var hint string
 	if m.diffOrigin == panelPR {
-		hint = "  [↑↓] move cursor  [c] comment line  [esc] back"
+		parts := []string{"[↑↓] move cursor"}
+		if hasHunks {
+			parts = append(parts, "[]/[] hunk")
+		}
+		parts = append(parts, "[c] comment line  [esc] back")
+		hint = "  " + strings.Join(parts, "  ")
 	} else if m.diffOrigin == panelStashList {
 		var parts []string
 		if scrollable {
 			parts = append(parts, "[↑↓] scroll")
+		}
+		if hasHunks {
+			parts = append(parts, "[][]] hunk")
 		}
 		if m.stashPendingAction == "pop" {
 			parts = append(parts, "[enter] pop  [a] apply  [esc] back")
@@ -7131,6 +7166,9 @@ func (m model) diffView() string {
 		if scrollable {
 			parts = append(parts, "[↑↓] scroll")
 		}
+		if hasHunks {
+			parts = append(parts, "[[/]] hunk")
+		}
 		if m.diffOrigin == panelMain && m.diffFilePath != "" {
 			if m.diffFileStaged {
 				parts = append(parts, "[space] unstage")
@@ -7142,6 +7180,26 @@ func (m model) diffView() string {
 		hint = "  " + strings.Join(parts, "  ")
 	}
 	return content + styleDim.Render(hint+pos) + "\n"
+}
+
+// jumpHunk returns the scroll position of the next (dir=+1) or previous
+// (dir=-1) @@ hunk header relative to currentScroll. Returns currentScroll
+// unchanged when no hunk is found in that direction.
+func jumpHunk(lines []string, currentScroll, dir int) int {
+	if dir > 0 {
+		for i := currentScroll + 1; i < len(lines); i++ {
+			if strings.HasPrefix(lines[i], "@@") {
+				return i
+			}
+		}
+	} else {
+		for i := currentScroll - 1; i >= 0; i-- {
+			if strings.HasPrefix(lines[i], "@@") {
+				return i
+			}
+		}
+	}
+	return currentScroll
 }
 
 func renderDiffLine(line string, cursor bool) string {
