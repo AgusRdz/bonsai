@@ -477,6 +477,11 @@ type model struct {
 	// branch rename from branch list
 	branchRenameTarget string
 
+	// smart auto-refresh: track .git/index and .git/HEAD mtimes so we only
+	// call git status when the working tree or HEAD actually changed.
+	gitIndexMtime time.Time
+	gitHeadMtime  time.Time
+
 	// education manager
 	eduMgrKeys   []string // ordered list of command keys shown
 	eduMgrCursor int
@@ -709,6 +714,18 @@ func autoRefreshCmd() tea.Cmd {
 	return tea.Tick(autoRefreshInterval, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
+}
+
+// gitRepoChanged returns the latest mtimes of .git/index and .git/HEAD.
+// Returns zero times on error (e.g. not in a git repo yet).
+func gitRepoChanged() (indexMtime, headMtime time.Time) {
+	if info, err := os.Stat(".git/index"); err == nil {
+		indexMtime = info.ModTime()
+	}
+	if info, err := os.Stat(".git/HEAD"); err == nil {
+		headMtime = info.ModTime()
+	}
+	return
 }
 
 // --- commands ---
@@ -2356,10 +2373,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case tickMsg:
-		// Silently refresh status on the main panel so external file edits
-		// appear without the user needing to restart bonsai.
+		// Silently refresh status on the main panel only when the working tree
+		// or HEAD actually changed, avoiding spurious git status calls.
 		if m.panel == panelMain && !m.pushing && !m.pulling && !m.committing {
-			return m, tea.Batch(m.fetchStatus(), autoRefreshCmd())
+			idx, head := gitRepoChanged()
+			if idx != m.gitIndexMtime || head != m.gitHeadMtime {
+				m.gitIndexMtime = idx
+				m.gitHeadMtime = head
+				return m, tea.Batch(m.fetchStatus(), autoRefreshCmd())
+			}
 		}
 		return m, autoRefreshCmd()
 
@@ -6777,6 +6799,8 @@ func (m model) branchListView() string {
 	if len(m.branches) > 0 {
 		if m.branchFilter != "" {
 			title = fmt.Sprintf("Branches (%d/%d)", len(visible), len(m.branches))
+		} else if len(m.branches) >= git.MaxBranches {
+			title = fmt.Sprintf("Branches (%d+ — use filter to search)", len(m.branches))
 		} else {
 			title = fmt.Sprintf("Branches (%d)", len(m.branches))
 		}

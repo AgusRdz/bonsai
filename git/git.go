@@ -451,13 +451,23 @@ func (r *Runner) ShowStat(ctx context.Context, hash string) (*CommitDetail, erro
 	return detail, nil
 }
 
-// Branches returns all local branches.
+// MaxBranches caps the number of branches returned to keep the UI responsive.
+const MaxBranches = 500
+
+// Branches returns local branches sorted by most recently committed, capped at
+// maxBranches. Repos with more branches should use the filter to narrow results.
 func (r *Runner) Branches(ctx context.Context) ([]Branch, error) {
-	out, err := r.run(ctx, "branch", "--format=%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(authordate:short)\t%(upstream:track)")
+	out, err := r.run(ctx, "branch",
+		"--sort=-committerdate",
+		"--format=%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(authordate:short)\t%(upstream:track)")
 	if err != nil {
 		return nil, err
 	}
-	return parseBranches(string(out)), nil
+	branches := parseBranches(string(out))
+	if len(branches) > MaxBranches {
+		branches = branches[:MaxBranches]
+	}
+	return branches, nil
 }
 
 // Switch changes to an existing branch.
