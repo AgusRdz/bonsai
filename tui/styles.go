@@ -51,4 +51,14 @@ var (
 	styleTitle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.AdaptiveColor{Dark: "14", Light: "6"})
+
+	// Intra-line diff: background highlight for the specific characters that
+	// changed within a removed or added line.
+	styleRemovedHL = lipgloss.NewStyle().
+			Background(lipgloss.AdaptiveColor{Dark: "88", Light: "224"}).
+			Foreground(lipgloss.AdaptiveColor{Dark: "255", Light: "0"})
+
+	styleAddedHL = lipgloss.NewStyle().
+			Background(lipgloss.AdaptiveColor{Dark: "22", Light: "194"}).
+			Foreground(lipgloss.AdaptiveColor{Dark: "255", Light: "0"})
 )

@@ -7154,12 +7154,20 @@ func renderDiffLine(line string, cursor bool) string {
 		return pfx + styleCmd.Render(line)
 	case strings.HasPrefix(line, "+"):
 		content := line[1:]
+		if strings.HasPrefix(content, intraLineDiffSentinel) {
+			// Intra-line highlights embedded — colorize prefix only.
+			return pfx + styleStaged.Render("+") + content[len(intraLineDiffSentinel):]
+		}
 		if isLFSPointerLine(content) {
 			return pfx + styleStaged.Render("+") + lfsPointerStyle(content)
 		}
 		return pfx + styleStaged.Render(line)
 	case strings.HasPrefix(line, "-"):
 		content := line[1:]
+		if strings.HasPrefix(content, intraLineDiffSentinel) {
+			// Intra-line highlights embedded — colorize prefix only.
+			return pfx + styleChanged.Render("-") + content[len(intraLineDiffSentinel):]
+		}
 		if isLFSPointerLine(content) {
 			return pfx + styleChanged.Render("-") + lfsPointerStyle(content)
 		}
@@ -7223,6 +7231,70 @@ func parseDiffLinePositions(lines []string) []diffLinePos {
 	return result
 }
 
+// intraLineDiffSentinel is prepended to diff lines that have had intra-line
+// character-level highlights embedded, so renderDiffLine knows to only
+// colorize the +/- prefix rather than wrapping the whole line.
+const intraLineDiffSentinel = "\x01"
+
+// intraLineDiff computes character-level diff between a removed and an added
+// line (content only, without the leading -/+). Returns versions with
+// background-highlighted changed segments, or the originals unchanged when
+// the lines are too dissimilar to produce useful highlights.
+func intraLineDiff(removed, added string) (hlRemoved, hlAdded string) {
+	if removed == added || removed == "" || added == "" {
+		return removed, added
+	}
+
+	// Find common prefix length.
+	prefixLen := 0
+	minLen := len(removed)
+	if len(added) < minLen {
+		minLen = len(added)
+	}
+	for prefixLen < minLen && removed[prefixLen] == added[prefixLen] {
+		prefixLen++
+	}
+
+	// Find common suffix length (must not overlap with prefix).
+	suffixLen := 0
+	for suffixLen < minLen-prefixLen &&
+		removed[len(removed)-1-suffixLen] == added[len(added)-1-suffixLen] {
+		suffixLen++
+	}
+
+	// Skip highlighting when lines share less than 20% of their content —
+	// they are probably unrelated lines that happen to be adjacent, and
+	// a full-line highlight would be more confusing than helpful.
+	shared := prefixLen + suffixLen
+	longer := len(removed)
+	if len(added) > longer {
+		longer = len(added)
+	}
+	if longer == 0 || shared*100/longer < 20 {
+		return removed, added
+	}
+
+	prefix := removed[:prefixLen]
+	removedMid := removed[prefixLen : len(removed)-suffixLen]
+	addedMid := added[prefixLen : len(added)-suffixLen]
+	suffix := ""
+	if suffixLen > 0 {
+		suffix = removed[len(removed)-suffixLen:]
+	}
+
+	if removedMid == "" {
+		hlRemoved = removed
+	} else {
+		hlRemoved = prefix + styleRemovedHL.Render(removedMid) + suffix
+	}
+	if addedMid == "" {
+		hlAdded = added
+	} else {
+		hlAdded = prefix + styleAddedHL.Render(addedMid) + suffix
+	}
+	return hlRemoved, hlAdded
+}
+
 func syntaxHighlightDiff(lines []string) []string {
 	out := make([]string, len(lines))
 	var lexer chroma.Lexer = chromaLexers.Fallback
@@ -7254,6 +7326,24 @@ func syntaxHighlightDiff(lines []string) []string {
 		}
 		out[i] = prefix + chromaHighlightLine(content, lexer)
 	}
+
+	// Second pass: apply intra-line character-level diff highlighting to
+	// consecutive - / + line pairs (real changes, not file header lines).
+	for i := 0; i < len(lines)-1; i++ {
+		curr := lines[i]
+		next := lines[i+1]
+		if strings.HasPrefix(curr, "-") && !strings.HasPrefix(curr, "---") &&
+			strings.HasPrefix(next, "+") && !strings.HasPrefix(next, "+++") {
+			hlR, hlA := intraLineDiff(curr[1:], next[1:])
+			// Only replace when at least one side was actually highlighted.
+			if hlR != curr[1:] || hlA != next[1:] {
+				out[i] = "-" + intraLineDiffSentinel + hlR
+				out[i+1] = "+" + intraLineDiffSentinel + hlA
+				i++ // skip the paired + line — already handled
+			}
+		}
+	}
+
 	return out
 }
 
