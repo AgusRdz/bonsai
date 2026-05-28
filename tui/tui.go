@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -546,9 +547,8 @@ type model struct {
 	dashCursor  int
 	dashLoading bool
 
-	// undo: last reversible operation
-	undoCmd  tea.Cmd
-	undoDesc string
+	// undo: up to 5 reversible operations (most recent last)
+	undoStack []undoEntry
 
 	// which panel to return to when escaping the diff viewer
 	diffOrigin panel
@@ -556,6 +556,20 @@ type model struct {
 	// context for the file currently shown in the diff viewer
 	diffFilePath   string
 	diffFileStaged bool
+
+	// diff search
+	diffSearch        string
+	diffSearchInput   textinput.Model
+	diffSearching     bool
+	diffSearchMatches []int
+	diffSearchCursor  int
+	// diff context lines
+	diffContext int
+	// diff word diff mode
+	diffWordDiff bool
+	// commit body (multi-line)
+	commitBodyTA     textarea.Model
+	commitBodyActive bool
 }
 
 // --- messages ---
@@ -609,6 +623,13 @@ type diffMsg struct {
 type diffLinePos struct {
 	file     string // empty = not commentable (header lines)
 	position int    // 0 = not commentable
+	newLine  int    // 1-based line number in the new file; 0 = unknown
+}
+
+// undoEntry records a reversible operation for multi-level undo.
+type undoEntry struct {
+	cmd  tea.Cmd
+	desc string
 }
 type stashListMsg []git.StashEntry
 
@@ -1197,7 +1218,7 @@ func (m model) doFetchDiff(path string, staged bool) tea.Cmd {
 		if staged {
 			title += "  (staged)"
 		}
-		content, err := m.git.Diff(ctx, path, staged, 0)
+		content, err := m.git.Diff(ctx, path, staged, m.diffContext)
 		if err != nil || content == "" {
 			return diffMsg{title: title, lines: []string{}}
 		}
@@ -1959,6 +1980,73 @@ func (m model) doOpenEditor(path string) tea.Cmd {
 	})
 }
 
+// doOpenEditorAtLine opens path at the given 1-based line number using the
+// configured editor, using editor-specific line flags.
+func (m model) doOpenEditorAtLine(path string, line int) tea.Cmd {
+	editorStr := config.ResolveEditor(m.cfg)
+	parts := strings.Fields(editorStr)
+	if len(parts) == 0 {
+		parts = []string{"vi"}
+	}
+	bin := parts[0]
+	binBase := filepath.Base(bin)
+	// Strip .exe suffix on Windows for matching
+	binBase = strings.TrimSuffix(binBase, ".exe")
+	var args []string
+	switch binBase {
+	case "hx", "helix":
+		// hx file:line
+		args = append(parts[1:], fmt.Sprintf("%s:%d", path, line))
+	case "code", "codium", "vscodium":
+		// code --goto file:line
+		args = append(parts[1:], "--goto", fmt.Sprintf("%s:%d", path, line))
+	default:
+		// vim, nvim, vi, nano, and most others: +LINE file
+		if line > 0 {
+			args = append(parts[1:], fmt.Sprintf("+%d", line), path)
+		} else {
+			args = append(parts[1:], path)
+		}
+	}
+	cmd := exec.Command(bin, args...)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return editorDoneMsg{err: err}
+	})
+}
+
+// doCompareDiff loads the diff between HEAD and the given branch name.
+func (m model) doCompareDiff(branch string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		title := "HEAD → " + branch
+		content, err := m.git.DiffRange(ctx, "HEAD", branch, false, 3, nil)
+		if err != nil || content == "" {
+			return diffMsg{title: title, lines: []string{}}
+		}
+		lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+		return diffMsg{title: title, lines: lines}
+	}
+}
+
+// doFetchWordDiff loads a word-level diff for path using --word-diff=plain.
+func (m model) doFetchWordDiff(path string, staged bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		title := path
+		if staged {
+			title += "  (staged)"
+		}
+		content, err := m.git.DiffWordDiff(ctx, path, staged, m.diffContext)
+		if err != nil || content == "" {
+			return diffMsg{title: title, lines: []string{}}
+		}
+		lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+		return diffMsg{title: title, lines: lines}
+	}
+}
+
 func (m model) doLoadRecommendations() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -2368,6 +2456,17 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
+	case tea.MouseMsg:
+		if msg.Action == tea.MouseActionPress {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				m = m.scrollUp()
+			case tea.MouseButtonWheelDown:
+				m = m.scrollDown()
+			}
+		}
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -2617,6 +2716,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.diffLines = syntaxHighlightDiff(msg.lines)
 		m.diffTitle = msg.title
 		m.diffCursor = 0
+		m.diffSearch = ""
+		m.diffSearchMatches = nil
+		m.diffSearchCursor = 0
+		m.diffSearching = false
+		m.diffWordDiff = false
 
 	case stashListMsg:
 		m.stashes = []git.StashEntry(msg)
@@ -2852,8 +2956,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch commandKey(msg.cmd) {
 			case "commit":
 				plugins.Fire(plugins.Request{Event: plugins.EventCommitCreated, Branch: branch})
-				m.undoCmd = m.doReset("soft")
-				m.undoDesc = "uncommit (soft reset)"
+				m.undoStack = appendUndo(m.undoStack, undoEntry{cmd: m.doReset("soft"), desc: "uncommit (soft reset)"})
 			case "amend":
 				plugins.Fire(plugins.Request{Event: plugins.EventCommitCreated, Branch: branch})
 			case "push":
@@ -2861,17 +2964,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "branch":
 				plugins.Fire(plugins.Request{Event: plugins.EventBranchCreated, Branch: branch})
 			case "merge":
-				m.undoCmd = m.doResetOrig()
-				m.undoDesc = "undo merge"
+				m.undoStack = appendUndo(m.undoStack, undoEntry{cmd: m.doResetOrig(), desc: "undo merge"})
 			case "rebase":
-				m.undoCmd = m.doResetOrig()
-				m.undoDesc = "undo rebase"
+				m.undoStack = appendUndo(m.undoStack, undoEntry{cmd: m.doResetOrig(), desc: "undo rebase"})
 			case "cherry-pick":
-				m.undoCmd = m.doReset("soft")
-				m.undoDesc = "undo cherry-pick"
+				m.undoStack = appendUndo(m.undoStack, undoEntry{cmd: m.doReset("soft"), desc: "undo cherry-pick"})
 			case "revert":
-				m.undoCmd = m.doReset("soft")
-				m.undoDesc = "undo revert"
+				m.undoStack = appendUndo(m.undoStack, undoEntry{cmd: m.doReset("soft"), desc: "undo revert"})
 			}
 		}
 
@@ -3239,8 +3338,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.panel == panelCommit {
+		if m.commitBodyActive {
+			var cmd tea.Cmd
+			m.commitBodyTA, cmd = m.commitBodyTA.Update(msg)
+			return m, cmd
+		}
 		var cmd tea.Cmd
 		m.commitMsg, cmd = m.commitMsg.Update(msg)
+		return m, cmd
+	}
+	if m.panel == panelDiff && m.diffSearching {
+		var cmd tea.Cmd
+		m.diffSearchInput, cmd = m.diffSearchInput.Update(msg)
 		return m, cmd
 	}
 	if m.panel == panelBranch {
@@ -3418,6 +3527,14 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		ti.CharLimit = 256
 		ti.Width = m.width - 6
 		m.commitMsg = ti
+		ta := textarea.New()
+		ta.Placeholder = "body (optional) — tab to focus, ctrl+d to submit..."
+		ta.SetWidth(m.width - 6)
+		ta.SetHeight(4)
+		ta.ShowLineNumbers = false
+		ta.Blur()
+		m.commitBodyTA = ta
+		m.commitBodyActive = false
 		m.panel = panelCommit
 		m.actionErr = nil
 
@@ -3719,15 +3836,14 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.actionErr = nil
 
 	case "U":
-		if m.undoCmd == nil {
+		if len(m.undoStack) == 0 {
 			m.actionErr = fmt.Errorf("nothing to undo - [z] for reset options")
 			break
 		}
-		cmd := m.undoCmd
-		m.undoCmd = nil
-		m.undoDesc = ""
+		top := m.undoStack[len(m.undoStack)-1]
+		m.undoStack = m.undoStack[:len(m.undoStack)-1]
 		m.actionErr = nil
-		return m, cmd
+		return m, top.cmd
 
 	case "t":
 		m.tags = nil
@@ -3905,18 +4021,62 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateCommitPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.commitBodyActive {
+		// Body textarea is focused — ctrl+d submits, esc returns to subject.
+		switch msg.String() {
+		case "ctrl+d":
+			subject := strings.TrimSpace(m.commitMsg.Value())
+			if subject == "" {
+				m.actionErr = fmt.Errorf("commit message cannot be empty")
+				m.panel = panelMain
+				return m, nil
+			}
+			body := strings.TrimSpace(m.commitBodyTA.Value())
+			message := subject
+			if body != "" {
+				message = subject + "\n\n" + body
+			}
+			m.commitBodyActive = false
+			m.panel = panelMain
+			m.committing = true
+			return m, m.doCommit(message)
+		case "esc":
+			m.commitBodyActive = false
+			m.commitBodyTA.Blur()
+			m.commitMsg.Focus()
+			return m, nil
+		case "ctrl+c":
+			return m, tea.Quit
+		default:
+			var cmd tea.Cmd
+			m.commitBodyTA, cmd = m.commitBodyTA.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
+
+	// Subject line is focused.
 	switch msg.String() {
 	case "enter":
-		message := strings.TrimSpace(m.commitMsg.Value())
-		if message == "" {
+		subject := strings.TrimSpace(m.commitMsg.Value())
+		if subject == "" {
 			m.actionErr = fmt.Errorf("commit message cannot be empty")
 			m.panel = panelMain
 			return m, nil
 		}
+		body := strings.TrimSpace(m.commitBodyTA.Value())
+		message := subject
+		if body != "" {
+			message = subject + "\n\n" + body
+		}
 		m.panel = panelMain
 		m.committing = true
 		return m, m.doCommit(message)
-
+	case "tab":
+		m.commitBodyActive = true
+		m.commitMsg.Blur()
+		m.commitBodyTA.Focus()
+		return m, nil
 	case "esc":
 		m.panel = panelMain
 		return m, nil
@@ -4393,6 +4553,22 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirmPrompt = fmt.Sprintf("delete %s from remote %s?", remoteBranch, remote)
 		m.confirmCmd = m.doDeleteRemoteBranch(remote, remoteBranch)
 		m.panel = panelConfirm
+	case "v":
+		if len(visible) == 0 {
+			break
+		}
+		b := visible[m.branchCursor]
+		if b.Current {
+			m.actionErr = fmt.Errorf("cannot compare branch with itself")
+			break
+		}
+		m.diffOrigin = panelBranchList
+		m.diffFilePath = ""
+		m.diffFileStaged = false
+		m.diffLines = nil
+		m.diffScroll = 0
+		m.panel = panelDiff
+		return m, m.doCompareDiff(b.Name)
 	case "X":
 		var gone []git.Branch
 		for _, b := range m.branches {
@@ -4442,6 +4618,94 @@ func (m model) diffViewport() (visibleLines, maxScroll int) {
 		maxScroll = 0
 	}
 	return
+}
+
+// scrollUp scrolls the currently active panel up by one line.
+func (m model) scrollUp() model {
+	switch m.panel {
+	case panelDiff:
+		if m.diffScroll > 0 {
+			m.diffScroll--
+		}
+	case panelLog:
+		if m.logCursor > 0 {
+			m.logCursor--
+		}
+	case panelBranchList:
+		if m.branchCursor > 0 {
+			m.branchCursor--
+		}
+	case panelCommitDetail:
+		if m.commitDetailScroll > 0 {
+			m.commitDetailScroll--
+		}
+	case panelBlame:
+		if m.blameScroll > 0 {
+			m.blameScroll--
+		}
+	case panelReflog:
+		if m.reflogCursor > 0 {
+			m.reflogCursor--
+		}
+	case panelStashList:
+		if m.stashCursor > 0 {
+			m.stashCursor--
+		}
+	case panelGraph:
+		if m.graphScroll > 0 {
+			m.graphScroll--
+		}
+	case panelMain:
+		if m.cursor > 0 {
+			m.cursor--
+		}
+	}
+	return m
+}
+
+// scrollDown scrolls the currently active panel down by one line.
+func (m model) scrollDown() model {
+	switch m.panel {
+	case panelDiff:
+		_, ms := m.diffViewport()
+		if m.diffScroll < ms {
+			m.diffScroll++
+		}
+	case panelLog:
+		if m.logCursor < len(m.logEntries)-1 {
+			m.logCursor++
+		}
+	case panelBranchList:
+		visible := filterBranches(m.branches, m.branchFilter)
+		if m.branchCursor < len(visible)-1 {
+			m.branchCursor++
+		}
+	case panelCommitDetail:
+		if m.commitDetailScroll < 200 {
+			m.commitDetailScroll++
+		}
+	case panelBlame:
+		if m.blameScroll < len(m.blameLines)-1 {
+			m.blameScroll++
+		}
+	case panelReflog:
+		if m.reflogCursor < len(m.reflogEntries)-1 {
+			m.reflogCursor++
+		}
+	case panelStashList:
+		if m.stashCursor < len(m.stashes)-1 {
+			m.stashCursor++
+		}
+	case panelGraph:
+		if m.graphScroll < len(m.graphLines)-1 {
+			m.graphScroll++
+		}
+	case panelMain:
+		if m.cursor < len(m.files)-1 {
+			m.cursor++
+		}
+	}
+	return m
 }
 
 func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -4541,6 +4805,37 @@ func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Regular scroll mode for non-PR diffs.
 	_ = maxScroll
+
+	// Search mode: intercept all keys when search input is active.
+	if m.diffSearching {
+		switch msg.String() {
+		case "enter":
+			q := strings.TrimSpace(m.diffSearchInput.Value())
+			m.diffSearching = false
+			m.diffSearchInput.Blur()
+			if q != "" {
+				m.diffSearch = q
+				m.diffSearchMatches = buildDiffSearchMatches(m.diffLines, q)
+				m.diffSearchCursor = 0
+				if len(m.diffSearchMatches) > 0 {
+					m.diffScroll = m.diffSearchMatches[0]
+				}
+			}
+		case "esc":
+			m.diffSearching = false
+			m.diffSearchInput.Blur()
+			m.diffSearch = ""
+			m.diffSearchMatches = nil
+		case "ctrl+c":
+			return m, tea.Quit
+		default:
+			var cmd tea.Cmd
+			m.diffSearchInput, cmd = m.diffSearchInput.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "up", "k":
 		if m.diffScroll > 0 {
@@ -4555,6 +4850,44 @@ func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.diffScroll = jumpHunk(m.diffLines, m.diffScroll, +1)
 	case "[":
 		m.diffScroll = jumpHunk(m.diffLines, m.diffScroll, -1)
+	case "/":
+		ti := textinput.New()
+		ti.Placeholder = "search diff..."
+		ti.Focus()
+		ti.CharLimit = 100
+		ti.Width = m.width - 6
+		m.diffSearchInput = ti
+		m.diffSearching = true
+	case "n":
+		if len(m.diffSearchMatches) > 0 {
+			m.diffSearchCursor = (m.diffSearchCursor + 1) % len(m.diffSearchMatches)
+			target := m.diffSearchMatches[m.diffSearchCursor]
+			_, ms := m.diffViewport()
+			if target > ms {
+				target = ms
+			}
+			m.diffScroll = target
+		}
+	case "N":
+		if len(m.diffSearchMatches) > 0 {
+			m.diffSearchCursor = (m.diffSearchCursor - 1 + len(m.diffSearchMatches)) % len(m.diffSearchMatches)
+			target := m.diffSearchMatches[m.diffSearchCursor]
+			_, ms := m.diffViewport()
+			if target > ms {
+				target = ms
+			}
+			m.diffScroll = target
+		}
+	case "+", "=":
+		if m.diffContext < 15 && m.diffOrigin == panelMain && m.diffFilePath != "" {
+			m.diffContext++
+			return m, m.doFetchDiff(m.diffFilePath, m.diffFileStaged)
+		}
+	case "-", "_":
+		if m.diffContext > 0 && m.diffOrigin == panelMain && m.diffFilePath != "" {
+			m.diffContext--
+			return m, m.doFetchDiff(m.diffFilePath, m.diffFileStaged)
+		}
 	case " ":
 		if m.diffOrigin == panelMain && m.diffFilePath != "" {
 			return m, m.doStageFromDiff(m.diffFilePath, !m.diffFileStaged)
@@ -4565,6 +4898,31 @@ func (m model) updateDiffPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.confirmCmd = m.doDiscardFromDiff(m.diffFilePath)
 			m.confirmOrigin = panelDiff
 			m.panel = panelConfirm
+		}
+	case "o":
+		// Open the current file at the visible line in the editor.
+		filePath := m.diffFilePath
+		if filePath == "" {
+			// Try to get file from diff positions
+			if m.diffScroll < len(m.diffPositions) {
+				filePath = m.diffPositions[m.diffScroll].file
+			}
+		}
+		if filePath == "" {
+			break
+		}
+		line := 0
+		if m.diffScroll < len(m.diffPositions) {
+			line = m.diffPositions[m.diffScroll].newLine
+		}
+		return m, m.doOpenEditorAtLine(filePath, line)
+	case "w":
+		if m.diffOrigin == panelMain && m.diffFilePath != "" {
+			m.diffWordDiff = !m.diffWordDiff
+			if m.diffWordDiff {
+				return m, m.doFetchWordDiff(m.diffFilePath, m.diffFileStaged)
+			}
+			return m, m.doFetchDiff(m.diffFilePath, m.diffFileStaged)
 		}
 	case "a":
 		if m.diffOrigin == panelStashList {
@@ -6508,8 +6866,8 @@ func (m model) mainView() string {
 	if hint := prHint(m); hint != "" {
 		b.WriteString("  " + styleStaged.Render(hint) + "\n")
 	}
-	if m.undoCmd != nil {
-		b.WriteString("  " + styleDim.Render("[U] undo: "+m.undoDesc) + "\n")
+	if len(m.undoStack) > 0 {
+		b.WriteString("  " + styleDim.Render("[U] undo: "+m.undoStack[len(m.undoStack)-1].desc) + "\n")
 	}
 	if detectFlow(m.cfg) == "gitflow" && m.status != nil {
 		if bType := gitflowBranchType(m.status.Branch, m.cfg); bType != "" {
@@ -6660,7 +7018,17 @@ func (m model) commitView() string {
 	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString("  " + styleSection.Render("Commit") + "\n\n")
-	b.WriteString("  " + m.commitMsg.View() + "\n\n")
+	subjectLabel := "  subject: "
+	if !m.commitBodyActive {
+		subjectLabel = "  " + styleSelected.Render("subject") + ": "
+	}
+	b.WriteString(subjectLabel + m.commitMsg.View() + "\n\n")
+	bodyLabel := "  body:    "
+	if m.commitBodyActive {
+		bodyLabel = "  " + styleSelected.Render("body") + ":    "
+	}
+	b.WriteString(bodyLabel + "\n")
+	b.WriteString(m.commitBodyTA.View() + "\n\n")
 	b.WriteString("  " + styleDim.Render("staged files that will be committed:") + "\n")
 	for _, f := range m.status.Staged {
 		b.WriteString("    " + styleStaged.Render(string(f.StagedCode())+"  "+f.Path) + "\n")
@@ -6672,7 +7040,13 @@ func (m model) commitView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [enter] commit  [esc] cancel") + "\n"
+	var hint string
+	if m.commitBodyActive {
+		hint = "  [ctrl+d] commit  [esc] back to subject"
+	} else {
+		hint = "  [enter] commit  [tab] add body  [esc] cancel"
+	}
+	return content + styleDim.Render(hint) + "\n"
 }
 
 func (m model) eduView() string {
@@ -6913,7 +7287,7 @@ func (m model) branchListView() string {
 				goneCount++
 			}
 		}
-		h := "  [enter] switch  [m] merge  [r] rebase  [d] delete  [n] rename  [D] delete remote  [/] search"
+		h := "  [enter] switch  [m] merge  [r] rebase  [d] delete  [n] rename  [D] delete remote  [v] compare diff  [/] search"
 		if goneCount > 0 {
 			h += fmt.Sprintf("  [X] sweep gone (%d)", goneCount)
 		}
@@ -7100,8 +7474,17 @@ func (m model) diffView() string {
 			end = len(m.diffLines)
 		}
 		for i, line := range m.diffLines[m.diffScroll:end] {
-			cursor := m.diffOrigin == panelPR && (m.diffScroll+i) == m.diffCursor
-			b.WriteString(renderDiffLine(line, cursor) + "\n")
+			lineIdx := m.diffScroll + i
+			cursor := m.diffOrigin == panelPR && lineIdx == m.diffCursor
+			rendered := renderDiffLine(line, cursor)
+			// Highlight the current search match line
+			if m.diffSearch != "" && len(m.diffSearchMatches) > 0 &&
+				lineIdx == m.diffSearchMatches[m.diffSearchCursor] {
+				rendered = styleSelected.Render("▶ ") + rendered
+			} else if m.diffSearch != "" {
+				rendered = "  " + rendered
+			}
+			b.WriteString(rendered + "\n")
 		}
 	}
 
@@ -7169,16 +7552,34 @@ func (m model) diffView() string {
 		if hasHunks {
 			parts = append(parts, "[[/]] hunk")
 		}
+		if m.diffSearch != "" {
+			parts = append(parts, fmt.Sprintf("[n/N] match %d/%d", m.diffSearchCursor+1, len(m.diffSearchMatches)))
+		}
 		if m.diffOrigin == panelMain && m.diffFilePath != "" {
 			if m.diffFileStaged {
 				parts = append(parts, "[space] unstage")
 			} else {
 				parts = append(parts, "[space] stage  [x] discard")
 			}
+			wordHint := "[w] word diff"
+			if m.diffWordDiff {
+				wordHint = "[w] line diff"
+			}
+			parts = append(parts, wordHint+"  [+/-] context")
 		}
-		parts = append(parts, "[e] blame  [esc] back")
+		parts = append(parts, "[/] search  [o] open  [e] blame  [esc] back")
 		hint = "  " + strings.Join(parts, "  ")
 	}
+
+	if m.diffSearching {
+		searchBar := "  " + m.diffSearchInput.View() + "\n"
+		lines := strings.Count(content, "\n")
+		if pad := m.height - lines - 2; pad > 0 {
+			content += strings.Repeat("\n", pad)
+		}
+		return content + searchBar + styleDim.Render("  [enter] confirm  [esc] cancel") + "\n"
+	}
+
 	return content + styleDim.Render(hint+pos) + "\n"
 }
 
@@ -7264,29 +7665,63 @@ var chromaTokenStyles = []struct {
 // parseDiffLinePositions returns a diffLinePos for each raw diff line, tracking
 // which file and 1-based diff position (from the first @@ of each file) it maps to.
 // Lines that cannot be commented on (headers, blank separators) have position=0.
+// newLine tracks the 1-based line number in the new file (+++ side).
 func parseDiffLinePositions(lines []string) []diffLinePos {
 	result := make([]diffLinePos, len(lines))
 	var currentFile string
 	var position int
+	var newLine int
+	hunkHeaderRe := regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)`)
 	for i, line := range lines {
 		switch {
 		case strings.HasPrefix(line, "diff --git "):
 			currentFile = ""
 			position = 0
+			newLine = 0
 		case strings.HasPrefix(line, "+++ b/"):
 			currentFile = strings.TrimPrefix(line, "+++ b/")
 			position = 0
+			newLine = 0
 		case strings.HasPrefix(line, "@@"):
 			position++
+			if m := hunkHeaderRe.FindStringSubmatch(line); m != nil {
+				n, _ := strconv.Atoi(m[1])
+				newLine = n
+			}
 			result[i] = diffLinePos{file: currentFile, position: position}
 		default:
 			if currentFile != "" && position > 0 {
 				position++
-				result[i] = diffLinePos{file: currentFile, position: position}
+				result[i] = diffLinePos{file: currentFile, position: position, newLine: newLine}
+				if !strings.HasPrefix(line, "-") {
+					newLine++ // context and added lines advance the new-file line counter
+				}
 			}
 		}
 	}
 	return result
+}
+
+// buildDiffSearchMatches returns the indices of diffLines that contain query (case-insensitive).
+func buildDiffSearchMatches(lines []string, query string) []int {
+	q := strings.ToLower(query)
+	var matches []int
+	for i, l := range lines {
+		plain := strings.ReplaceAll(l, intraLineDiffSentinel, "")
+		if strings.Contains(strings.ToLower(plain), q) {
+			matches = append(matches, i)
+		}
+	}
+	return matches
+}
+
+// appendUndo pushes e onto the stack, keeping at most 5 entries.
+func appendUndo(stack []undoEntry, e undoEntry) []undoEntry {
+	stack = append(stack, e)
+	if len(stack) > 5 {
+		stack = stack[len(stack)-5:]
+	}
+	return stack
 }
 
 // intraLineDiffSentinel is prepended to diff lines that have had intra-line
@@ -11202,8 +11637,9 @@ func Run(cfg *config.Config, mdb *metrics.DB, version string) error {
 		usagePath:         usagePath,
 		prProvider:        prov,
 		mdb:               mdb,
+		diffContext:       3,
 	}
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
 }

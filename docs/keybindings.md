@@ -61,7 +61,7 @@
 | `i` | Bisect panel |
 | `R` | Interactive rebase |
 | `A` | Amend HEAD |
-| `U` | Undo last commit / merge / rebase |
+| `U` | Undo last reversible action (up to 5 levels) |
 | `u` | Untrack selected staged file (`git rm --cached`) |
 | `W` | Worktree list |
 | `O` | Remote management |
@@ -152,7 +152,21 @@
 | `d` | Delete the selected branch (confirm required) |
 | `n` | Rename the selected branch |
 | `D` | Delete the remote tracking branch for the selected branch (confirm required) |
+| `v` | Compare — view diff between HEAD and the selected branch |
+| `X` | Sweep gone branches (delete all local branches whose remote is gone) |
+| `/` | Filter branch list by name |
 | `esc` | Back |
+
+## Commit panel
+
+| Key | Action |
+|-----|--------|
+| `enter` | Commit with subject only |
+| `tab` | Move focus to the body textarea (optional multi-line body) |
+| `ctrl+d` | Commit from the body textarea (subject + body) |
+| `esc` | Cancel (returns to main panel without committing) |
+
+> Body text is optional. When present it is appended after a blank line: `subject\n\nbody` — standard Git convention.
 
 ## Stash list panel
 
@@ -172,7 +186,16 @@ For regular file diffs:
 |-----|--------|
 | `↑` / `k` | Scroll up |
 | `↓` / `j` | Scroll down |
+| `[` | Jump to previous hunk |
+| `]` | Jump to next hunk |
+| `/` | Search within the diff (enter to confirm, `n`/`N` for next/prev match) |
+| `o` | Open the file in your editor at the current scroll line |
 | `e` | Blame for the file being diffed |
+| `w` | Toggle word diff mode (highlights changed words instead of lines) |
+| `+` / `=` | Increase context lines shown around each hunk |
+| `-` / `_` | Decrease context lines shown around each hunk |
+| `space` | Stage / unstage the file |
+| `x` | Discard all changes to the file (confirm required) |
 | `esc` | Back |
 
 For PR diffs (opened with `d` from the PR panel):
@@ -181,6 +204,8 @@ For PR diffs (opened with `d` from the PR panel):
 |-----|--------|
 | `↑` / `k` | Move cursor up |
 | `↓` / `j` | Move cursor down |
+| `[` | Jump to previous hunk |
+| `]` | Jump to next hunk |
 | `c` | Post an inline comment on the selected line |
 | `esc` | Back |
 

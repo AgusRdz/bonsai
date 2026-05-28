@@ -731,6 +731,25 @@ func (r *Runner) Diff(ctx context.Context, path string, staged bool, contextLine
 	return diffStr, nil
 }
 
+// DiffWordDiff returns a word-level diff for path using --word-diff=plain.
+// Changed words are wrapped in [-removed-] and {+added+} markers.
+func (r *Runner) DiffWordDiff(ctx context.Context, path string, staged bool, contextLines int) (string, error) {
+	args := []string{"diff", fmt.Sprintf("--unified=%d", contextLines), "--word-diff=plain"}
+	if staged {
+		args = append(args, "--cached")
+	}
+	args = append(args, "--", path)
+	out, err := r.run(ctx, args...)
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	if len(lines) > 5000 {
+		lines = append(lines[:5000], "... (truncated at 5000 lines)")
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
 // Rename renames the current branch.
 func (r *Runner) Rename(ctx context.Context, newName string) error {
 	_, err := r.run(ctx, "branch", "-m", newName)
