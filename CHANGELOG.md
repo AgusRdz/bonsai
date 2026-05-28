@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.87.0] - 2026-05-28
+
+### Features
+- Stale indicator in stash list — merge-base --is-ancestor check per entry
+([e397dc4](https://github.com/AgusRdz/bonsai/commit/e397dc48ab359e8df7ede12c3efcabd9a0eea995))
 ## [0.86.1] - 2026-05-28
 
 ### Bug Fixes
