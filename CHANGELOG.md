@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.87.1] - 2026-05-28
+
+### Bug Fixes
+- Stash diff footer — correct hunk hint from '[][]]' to '[[/]]'
+([9ab30f3](https://github.com/AgusRdz/bonsai/commit/9ab30f3a837fd3d90e1d2a3b9bf309a1f67205b1))
 ## [0.87.0] - 2026-05-28
 
 ### Features
