@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.86.0] - 2026-05-28
+
+### Features
+- Show stash age in stash list (timeAgo helper, git stash list --format)
+([ec36366](https://github.com/AgusRdz/bonsai/commit/ec36366e274e61e4ebab01a173e8ce7086957c2e))
 ## [0.85.2] - 2026-05-28
 
 ### Bug Fixes
