@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.84.0] - 2026-05-28
+
+### Features
+- Hunk navigation in diff — [ previous hunk, ] next hunk
+([fd76efd](https://github.com/AgusRdz/bonsai/commit/fd76efd3bde2e0caeb1fda4ddbc9d169f3c4a00c))
 ## [0.83.1] - 2026-05-28
 
 ### Bug Fixes
