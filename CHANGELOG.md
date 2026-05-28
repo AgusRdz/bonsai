@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.85.2] - 2026-05-28
+
+### Bug Fixes
+- Word diff — persist toggle, skip syntax highlighting; context lines in compare; help panel
+([9f3e695](https://github.com/AgusRdz/bonsai/commit/9f3e6954c081751dc521a72695da92b706033ed8))
 ## [0.85.1] - 2026-05-28
 
 ### Bug Fixes
