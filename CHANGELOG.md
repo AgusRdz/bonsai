@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.82.2] - 2026-05-28
+
+### Bug Fixes
+- Security and performance — shell-quote rebase editor path, config 0o600, ConflictLines path guard, cache graph colors, diff size limit 5k lines, graph limit 150
+([5e6886d](https://github.com/AgusRdz/bonsai/commit/5e6886df1ad414f4edc10322f389dbff7a6cc402))
 ## [0.82.1] - 2026-05-26
 
 ### Bug Fixes
