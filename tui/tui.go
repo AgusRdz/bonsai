@@ -2249,6 +2249,22 @@ func (m model) doRestoreFile(path, source string) tea.Cmd {
 	}
 }
 
+func (m model) doRestoreAndStage(path, source string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		if err := m.git.RestoreFile(ctx, path, source, false); err != nil {
+			return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+		}
+		err := m.git.Add(ctx, path)
+		var info string
+		if err == nil {
+			info = "restored " + path + " from " + source + " and staged"
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
+	}
+}
+
 func (m model) doCleanPreview() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -3993,10 +4009,22 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.doFetchReflog()
 
 	case "O":
+		if len(m.files) > 0 && m.files[m.cursor].category == catConflict {
+			path := m.files[m.cursor].entry.Path
+			m.actionErr = nil
+			return m, m.doAcceptOurs(path)
+		}
 		m.remotes = nil
 		m.remoteCursor = 0
 		m.actionErr = nil
 		return m, m.doFetchRemotes()
+
+	case "T":
+		if len(m.files) > 0 && m.files[m.cursor].category == catConflict {
+			path := m.files[m.cursor].entry.Path
+			m.actionErr = nil
+			return m, m.doAcceptTheirs(path)
+		}
 
 	case "M":
 		m.submodules = nil
@@ -5447,6 +5475,11 @@ func (m model) updateRestorePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		source := strings.TrimSpace(m.restoreInput.Value())
 		path := m.restoreFile
 		m.panel = panelMain
+		for _, f := range m.files {
+			if f.entry.Path == path && f.category == catConflict {
+				return m, m.doRestoreAndStage(path, source)
+			}
+		}
 		return m, m.doRestoreFile(path, source)
 	case "esc", "ctrl+c":
 		m.panel = panelMain
