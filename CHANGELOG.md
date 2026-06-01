@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.87.2] - 2026-06-01
+
+### Bug Fixes
+- Conflict resolution from main panel — O/T now take ours/theirs directly, restore also stages
+([b7dc6ff](https://github.com/AgusRdz/bonsai/commit/b7dc6ff03fb05f1d663e6f9d253b95cec3e2baba))
 ## [0.87.1] - 2026-05-28
 
 ### Bug Fixes
