@@ -8855,7 +8855,8 @@ func (m model) amendView() string {
 	b.WriteString("\n")
 
 	if m.amendField == 0 {
-		if m.amending {
+		// Show streaming log while running, or after failure if output was captured.
+		if m.amending || (m.actionErr != nil && len(m.amendLog) > 0) {
 			if len(m.amendLog) == 0 {
 				b.WriteString("  " + styleDim.Render("running pre-commit hooks...") + "\n")
 			} else {
@@ -8865,10 +8866,14 @@ func (m model) amendView() string {
 			}
 			content := b.String()
 			lines := strings.Count(content, "\n")
+			footer := ""
+			if !m.amending && m.actionErr != nil {
+				footer = styleChanged.Render("  hook failed — [n] retry  [esc] cancel") + "\n"
+			}
 			if pad := m.height - lines - 1; pad > 0 {
 				content += strings.Repeat("\n", pad)
 			}
-			return content + "\n"
+			return content + footer
 		}
 
 		b.WriteString("  " + styleCmd.Render("[m]") + "  " + styleDim.Render("edit message") + "\n")
