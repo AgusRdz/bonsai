@@ -366,6 +366,7 @@ type model struct {
 	pushing             bool
 	pulling             bool
 	committing          bool
+	amending            bool
 	blameLines          []git.BlameLine
 	blameScroll         int
 	blameTitle          string
@@ -2960,6 +2961,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pushing = false
 		m.pulling = false
 		m.committing = false
+		m.amending = false
 		m.lastCmd = msg.cmd
 		m.lastInfo = msg.info
 		// Enhance protected-branch push errors with an actionable message.
@@ -5221,6 +5223,7 @@ func (m model) updateAmendPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.amendField = 3
 		case "n":
 			m.actionErr = nil
+			m.amending = true
 			return m, m.doAmendNoEdit()
 		case "esc", kb.Quit:
 			m.panel = panelMain
@@ -8813,6 +8816,16 @@ func (m model) amendView() string {
 	b.WriteString("\n")
 
 	if m.amendField == 0 {
+		if m.amending {
+			b.WriteString("  " + styleDim.Render("amending...") + "\n\n")
+			content := b.String()
+			lines := strings.Count(content, "\n")
+			if pad := m.height - lines - 1; pad > 0 {
+				content += strings.Repeat("\n", pad)
+			}
+			return content + "\n"
+		}
+
 		b.WriteString("  " + styleCmd.Render("[m]") + "  " + styleDim.Render("edit message") + "\n")
 		b.WriteString("  " + styleCmd.Render("[a]") + "  " + styleDim.Render("edit author") + "\n")
 		b.WriteString("  " + styleCmd.Render("[d]") + "  " + styleDim.Render("edit date") + "\n")
