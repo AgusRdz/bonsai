@@ -287,19 +287,26 @@ func (r *Runner) RmCached(ctx context.Context, path string) error {
 }
 
 // Commit creates a commit with the given message.
-func (r *Runner) Commit(ctx context.Context, message string) error {
-	_, err := r.run(ctx, "commit", "-m", message)
+func (r *Runner) Commit(ctx context.Context, message string, noVerify bool) error {
+	args := []string{"commit", "-m", message}
+	if noVerify {
+		args = append(args, "--no-verify")
+	}
+	_, err := r.run(ctx, args...)
 	return err
 }
 
 // CommitSigned commits with GPG/SSH signing. key may be empty to use the git
 // default signing key (commit.gpgsign / user.signingkey).
-func (r *Runner) CommitSigned(ctx context.Context, message, key string) error {
+func (r *Runner) CommitSigned(ctx context.Context, message, key string, noVerify bool) error {
 	args := []string{"commit", "-m", message}
 	if key != "" {
 		args = append(args, "--gpg-sign="+key)
 	} else {
 		args = append(args, "-S")
+	}
+	if noVerify {
+		args = append(args, "--no-verify")
 	}
 	_, err := r.run(ctx, args...)
 	return err
@@ -1352,37 +1359,57 @@ func (r *Runner) RebaseInteractive(ctx context.Context, base string, todoLines [
 }
 
 // AmendMessage rewrites the last commit with a new message.
-func (r *Runner) AmendMessage(ctx context.Context, msg string) error {
-	_, err := r.run(ctx, "commit", "--amend", "-m", msg)
+func (r *Runner) AmendMessage(ctx context.Context, msg string, noVerify bool) error {
+	args := []string{"commit", "--amend", "-m", msg}
+	if noVerify {
+		args = append(args, "--no-verify")
+	}
+	_, err := r.run(ctx, args...)
 	return err
 }
 
 // AmendAuthor rewrites the last commit with a new author string.
 // author must be in "Name <email>" format.
-func (r *Runner) AmendAuthor(ctx context.Context, author string) error {
-	_, err := r.run(ctx, "commit", "--amend", "--author="+author, "--no-edit")
+func (r *Runner) AmendAuthor(ctx context.Context, author string, noVerify bool) error {
+	args := []string{"commit", "--amend", "--author=" + author, "--no-edit"}
+	if noVerify {
+		args = append(args, "--no-verify")
+	}
+	_, err := r.run(ctx, args...)
 	return err
 }
 
 // AmendDate rewrites the last commit with a new date.
 // date is passed directly to git (accepts ISO 8601 or "now").
-func (r *Runner) AmendDate(ctx context.Context, date string) error {
-	_, err := r.run(ctx, "commit", "--amend", "--date="+date, "--no-edit")
+func (r *Runner) AmendDate(ctx context.Context, date string, noVerify bool) error {
+	args := []string{"commit", "--amend", "--date=" + date, "--no-edit"}
+	if noVerify {
+		args = append(args, "--no-verify")
+	}
+	_, err := r.run(ctx, args...)
 	return err
 }
 
 // AmendNoEdit adds currently staged files to the last commit without
 // changing its message.
-func (r *Runner) AmendNoEdit(ctx context.Context) error {
-	_, err := r.run(ctx, "commit", "--amend", "--no-edit")
+func (r *Runner) AmendNoEdit(ctx context.Context, noVerify bool) error {
+	args := []string{"commit", "--amend", "--no-edit"}
+	if noVerify {
+		args = append(args, "--no-verify")
+	}
+	_, err := r.run(ctx, args...)
 	return err
 }
 
 // AmendNoEditStream runs git commit --amend --no-edit and streams combined
 // stdout/stderr line-by-line into progress. Closes progress when done.
-func (r *Runner) AmendNoEditStream(ctx context.Context, progress chan<- string) error {
-	r.lastCmd = "git commit --amend --no-edit"
-	cmd := exec.CommandContext(ctx, "git", "commit", "--amend", "--no-edit")
+func (r *Runner) AmendNoEditStream(ctx context.Context, progress chan<- string, noVerify bool) error {
+	args := []string{"commit", "--amend", "--no-edit"}
+	if noVerify {
+		args = append(args, "--no-verify")
+	}
+	r.lastCmd = "git " + strings.Join(args, " ")
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
 
 	pr, pw := io.Pipe()

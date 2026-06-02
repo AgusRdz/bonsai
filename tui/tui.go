@@ -369,6 +369,7 @@ type model struct {
 	amending            bool
 	amendProgressCh     <-chan string
 	amendLog            []string
+	noVerify            bool
 	blameLines          []git.BlameLine
 	blameScroll         int
 	blameTitle          string
@@ -794,14 +795,15 @@ func (m model) doCommit(msg string) tea.Cmd {
 	}
 	sign := m.cfg.Signing.Enabled
 	key := m.cfg.Signing.Key
+	noVerify := m.noVerify
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), commitTimeout)
 		defer cancel()
 		var err error
 		if sign {
-			err = m.git.CommitSigned(ctx, msg, key)
+			err = m.git.CommitSigned(ctx, msg, key, noVerify)
 		} else {
-			err = m.git.Commit(ctx, msg)
+			err = m.git.Commit(ctx, msg, noVerify)
 		}
 		var info string
 		if err == nil {
@@ -1862,10 +1864,11 @@ func (m model) doFetchAmendDetail() tea.Cmd {
 }
 
 func (m model) doAmendMessage(msg string) tea.Cmd {
+	noVerify := m.noVerify
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
-		err := m.git.AmendMessage(ctx, msg)
+		err := m.git.AmendMessage(ctx, msg, noVerify)
 		var info string
 		if err == nil {
 			info = "amended commit message"
@@ -1875,10 +1878,11 @@ func (m model) doAmendMessage(msg string) tea.Cmd {
 }
 
 func (m model) doAmendAuthor(author string) tea.Cmd {
+	noVerify := m.noVerify
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
-		err := m.git.AmendAuthor(ctx, author)
+		err := m.git.AmendAuthor(ctx, author, noVerify)
 		var info string
 		if err == nil {
 			info = "amended commit author to " + author
@@ -1888,10 +1892,11 @@ func (m model) doAmendAuthor(author string) tea.Cmd {
 }
 
 func (m model) doAmendDate(date string) tea.Cmd {
+	noVerify := m.noVerify
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
-		err := m.git.AmendDate(ctx, date)
+		err := m.git.AmendDate(ctx, date, noVerify)
 		var info string
 		if err == nil {
 			info = "amended commit date to " + date
@@ -1911,10 +1916,11 @@ func listenAmendProgress(ch <-chan string) tea.Cmd {
 }
 
 func (m model) doAmendNoEditStream(ch chan<- string) tea.Cmd {
+	noVerify := m.noVerify
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
-		err := m.git.AmendNoEditStream(ctx, ch)
+		err := m.git.AmendNoEditStream(ctx, ch, noVerify)
 		var info string
 		if err == nil {
 			info = "amended last commit (staged changes added)"
@@ -1924,10 +1930,11 @@ func (m model) doAmendNoEditStream(ch chan<- string) tea.Cmd {
 }
 
 func (m model) doAmendNoEdit() tea.Cmd {
+	noVerify := m.noVerify
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
-		err := m.git.AmendNoEdit(ctx)
+		err := m.git.AmendNoEdit(ctx, noVerify)
 		var info string
 		if err == nil {
 			info = "amended last commit (staged changes added)"
@@ -3036,8 +3043,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "commit":
 				plugins.Fire(plugins.Request{Event: plugins.EventCommitCreated, Branch: branch})
 				m.undoStack = appendUndo(m.undoStack, undoEntry{cmd: m.doReset("soft"), desc: "uncommit (soft reset)"})
+				m.noVerify = false
 			case "amend":
 				plugins.Fire(plugins.Request{Event: plugins.EventCommitCreated, Branch: branch})
+				m.noVerify = false
 				if m.panel == panelAmend {
 					m.panel = panelMain
 				}
@@ -4136,6 +4145,9 @@ func (m model) updateCommitPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.panel = panelMain
 			m.committing = true
 			return m, m.doCommit(message)
+		case "ctrl+n":
+			m.noVerify = !m.noVerify
+			return m, nil
 		case "esc":
 			m.commitBodyActive = false
 			m.commitBodyTA.Blur()
@@ -4167,6 +4179,9 @@ func (m model) updateCommitPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.panel = panelMain
 		m.committing = true
 		return m, m.doCommit(message)
+	case "ctrl+n":
+		m.noVerify = !m.noVerify
+		return m, nil
 	case "tab":
 		m.commitBodyActive = true
 		m.commitMsg.Blur()
@@ -4174,6 +4189,7 @@ func (m model) updateCommitPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "esc":
 		m.panel = panelMain
+		m.noVerify = false
 		return m, nil
 	}
 
@@ -5264,8 +5280,12 @@ func (m model) updateAmendPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			ch := make(chan string, 1000)
 			m.amendProgressCh = ch
 			return m, tea.Batch(m.doAmendNoEditStream(ch), listenAmendProgress(ch))
+		case "ctrl+n":
+			m.noVerify = !m.noVerify
+			return m, nil
 		case "esc", kb.Quit:
 			m.panel = panelMain
+			m.noVerify = false
 		case "ctrl+c":
 			return m, tea.Quit
 		}
@@ -7139,6 +7159,10 @@ func (m model) commitView() string {
 	}
 	b.WriteString("\n")
 
+	if m.noVerify {
+		b.WriteString("  " + styleChanged.Render("--no-verify  hooks will be skipped") + "\n")
+	}
+
 	content := b.String()
 	lines := strings.Count(content, "\n")
 	if pad := m.height - lines - 1; pad > 0 {
@@ -7146,9 +7170,9 @@ func (m model) commitView() string {
 	}
 	var hint string
 	if m.commitBodyActive {
-		hint = "  [ctrl+d] commit  [esc] back to subject"
+		hint = "  [ctrl+d] commit  [ctrl+n] toggle --no-verify  [esc] back to subject"
 	} else {
-		hint = "  [enter] commit  [tab] add body  [esc] cancel"
+		hint = "  [enter] commit  [tab] add body  [ctrl+n] toggle --no-verify  [esc] cancel"
 	}
 	return content + styleDim.Render(hint) + "\n"
 }
@@ -8891,6 +8915,11 @@ func (m model) amendView() string {
 		}
 		b.WriteString("\n")
 
+		if m.noVerify {
+			b.WriteString("  " + styleChanged.Render("--no-verify  hooks will be skipped") + "\n")
+		}
+		b.WriteString("\n")
+
 		if m.actionErr != nil {
 			b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n\n")
 		}
@@ -8900,7 +8929,7 @@ func (m model) amendView() string {
 		if pad := m.height - lines - 1; pad > 0 {
 			content += strings.Repeat("\n", pad)
 		}
-		return content + styleDim.Render("  [m] message  [a] author  [d] date  [n] add staged  [esc] cancel") + "\n"
+		return content + styleDim.Render("  [m] message  [a] author  [d] date  [n] add staged  [ctrl+n] --no-verify  [esc] cancel") + "\n"
 	}
 
 	// amendField > 0: input active
