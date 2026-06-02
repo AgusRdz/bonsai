@@ -1,18 +1,16 @@
 package git
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -1401,6 +1399,25 @@ func (r *Runner) AmendNoEdit(ctx context.Context, noVerify bool) error {
 	return err
 }
 
+// lineWriter is an io.Writer that splits on newlines and sends each line to ch.
+type lineWriter struct {
+	ch  chan<- string
+	buf []byte
+}
+
+func (w *lineWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	for {
+		idx := bytes.IndexByte(w.buf, '\n')
+		if idx < 0 {
+			break
+		}
+		w.ch <- string(w.buf[:idx])
+		w.buf = w.buf[idx+1:]
+	}
+	return len(p), nil
+}
+
 // AmendNoEditStream runs git commit --amend --no-edit and streams combined
 // stdout/stderr line-by-line into progress. Closes progress when done.
 func (r *Runner) AmendNoEditStream(ctx context.Context, progress chan<- string, noVerify bool) error {
@@ -1412,30 +1429,14 @@ func (r *Runner) AmendNoEditStream(ctx context.Context, progress chan<- string, 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
 
-	pr, pw := io.Pipe()
-	cmd.Stdout = pw
-	cmd.Stderr = pw
+	lw := &lineWriter{ch: progress}
+	cmd.Stdout = lw
+	cmd.Stderr = lw
 
-	if err := cmd.Start(); err != nil {
-		pw.Close()
-		pr.Close()
-		close(progress)
-		return err
+	err := cmd.Run()
+	if len(lw.buf) > 0 {
+		progress <- string(lw.buf)
 	}
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(pr)
-		for scanner.Scan() {
-			progress <- scanner.Text()
-		}
-	}()
-
-	err := cmd.Wait()
-	pw.Close()
-	wg.Wait()
 	close(progress)
 	return err
 }
