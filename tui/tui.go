@@ -2551,7 +2551,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if anchorPath != "" {
 			found := false
 			for i, f := range m.files {
-				if f.entry.Path == anchorPath {
+				if f.entry.Path == anchorPath && f.category == anchorCat {
 					m.cursor = i
 					found = true
 					break
@@ -3002,6 +3002,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.undoStack = appendUndo(m.undoStack, undoEntry{cmd: m.doReset("soft"), desc: "uncommit (soft reset)"})
 			case "amend":
 				plugins.Fire(plugins.Request{Event: plugins.EventCommitCreated, Branch: branch})
+				if m.panel == panelAmend {
+					m.panel = panelMain
+				}
 			case "push":
 				plugins.Fire(plugins.Request{Event: plugins.EventPushAfter, Branch: branch})
 			case "branch":
@@ -4107,7 +4110,6 @@ func (m model) updateCommitPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.commitBodyTA, cmd = m.commitBodyTA.Update(msg)
 			return m, cmd
 		}
-		return m, nil
 	}
 
 	// Subject line is focused.
@@ -5218,7 +5220,7 @@ func (m model) updateAmendPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.amendInput = ti
 			m.amendField = 3
 		case "n":
-			m.panel = panelMain
+			m.actionErr = nil
 			return m, m.doAmendNoEdit()
 		case "esc", kb.Quit:
 			m.panel = panelMain
