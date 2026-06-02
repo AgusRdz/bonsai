@@ -1,15 +1,18 @@
 package git
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -1372,6 +1375,41 @@ func (r *Runner) AmendDate(ctx context.Context, date string) error {
 // changing its message.
 func (r *Runner) AmendNoEdit(ctx context.Context) error {
 	_, err := r.run(ctx, "commit", "--amend", "--no-edit")
+	return err
+}
+
+// AmendNoEditStream runs git commit --amend --no-edit and streams combined
+// stdout/stderr line-by-line into progress. Closes progress when done.
+func (r *Runner) AmendNoEditStream(ctx context.Context, progress chan<- string) error {
+	r.lastCmd = "git commit --amend --no-edit"
+	cmd := exec.CommandContext(ctx, "git", "commit", "--amend", "--no-edit")
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
+
+	pr, pw := io.Pipe()
+	cmd.Stdout = pw
+	cmd.Stderr = pw
+
+	if err := cmd.Start(); err != nil {
+		pw.Close()
+		pr.Close()
+		close(progress)
+		return err
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(pr)
+		for scanner.Scan() {
+			progress <- scanner.Text()
+		}
+	}()
+
+	err := cmd.Wait()
+	pw.Close()
+	wg.Wait()
+	close(progress)
 	return err
 }
 

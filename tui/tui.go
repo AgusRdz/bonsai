@@ -367,6 +367,8 @@ type model struct {
 	pulling             bool
 	committing          bool
 	amending            bool
+	amendProgressCh     <-chan string
+	amendLog            []string
 	blameLines          []git.BlameLine
 	blameScroll         int
 	blameTitle          string
@@ -680,6 +682,8 @@ type rebaseTodosMsg struct {
 }
 
 type amendDetailMsg *git.CommitDetail
+type amendProgressMsg string
+type amendProgressDoneMsg struct{}
 
 type configFileMsg struct {
 	section configSection
@@ -1896,6 +1900,29 @@ func (m model) doAmendDate(date string) tea.Cmd {
 	}
 }
 
+func listenAmendProgress(ch <-chan string) tea.Cmd {
+	return func() tea.Msg {
+		line, ok := <-ch
+		if !ok {
+			return amendProgressDoneMsg{}
+		}
+		return amendProgressMsg(line)
+	}
+}
+
+func (m model) doAmendNoEditStream(ch chan<- string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.AmendNoEditStream(ctx, ch)
+		var info string
+		if err == nil {
+			info = "amended last commit (staged changes added)"
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
+	}
+}
+
 func (m model) doAmendNoEdit() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -2861,6 +2888,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case amendDetailMsg:
 		m.amendDetail = (*git.CommitDetail)(msg)
+
+	case amendProgressMsg:
+		m.amendLog = append(m.amendLog, string(msg))
+		return m, listenAmendProgress(m.amendProgressCh)
+
+	case amendProgressDoneMsg:
+		// channel closed; actionDoneMsg will arrive separately with the result
 
 	case configFileMsg:
 		m.configSection = msg.section
@@ -3970,6 +4004,8 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.amendDetail = nil
 		m.panel = panelAmend
 		m.actionErr = nil
+		m.amendLog = nil
+		m.amending = false
 		return m, m.doFetchAmendDetail()
 
 	case "C":
@@ -5224,7 +5260,10 @@ func (m model) updateAmendPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "n":
 			m.actionErr = nil
 			m.amending = true
-			return m, m.doAmendNoEdit()
+			m.amendLog = nil
+			ch := make(chan string, 1000)
+			m.amendProgressCh = ch
+			return m, tea.Batch(m.doAmendNoEditStream(ch), listenAmendProgress(ch))
 		case "esc", kb.Quit:
 			m.panel = panelMain
 		case "ctrl+c":
@@ -8817,7 +8856,13 @@ func (m model) amendView() string {
 
 	if m.amendField == 0 {
 		if m.amending {
-			b.WriteString("  " + styleDim.Render("amending...") + "\n\n")
+			if len(m.amendLog) == 0 {
+				b.WriteString("  " + styleDim.Render("running pre-commit hooks...") + "\n")
+			} else {
+				for _, line := range m.amendLog {
+					b.WriteString("  " + line + "\n")
+				}
+			}
 			content := b.String()
 			lines := strings.Count(content, "\n")
 			if pad := m.height - lines - 1; pad > 0 {
