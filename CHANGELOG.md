@@ -2,6 +2,41 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.87.9] - 2026-06-10
+
+### Bug Fixes
+- ParseStatus — unquote git C-style paths with non-ASCII filenames
+([854e470](https://github.com/AgusRdz/bonsai/commit/854e470c1eb50cd3764bb428610fd46384acd289))
+## [0.87.8] - 2026-06-02
+
+### Bug Fixes
+- AmendNoEditStream — replace io.Pipe with lineWriter to avoid cmd.Wait I/O error on success
+([b43ae8a](https://github.com/AgusRdz/bonsai/commit/b43ae8afaf45fb645ea7e56bca30887430e4ac27))
+## [0.87.7] - 2026-06-02
+
+### Features
+- --no-verify toggle (ctrl+n) in commit and amend panels
+([55ed58d](https://github.com/AgusRdz/bonsai/commit/55ed58dcead175df02f30720ef6cddfad4dd5d8d))
+## [0.87.6] - 2026-06-02
+
+### Bug Fixes
+- Amend panel n — keep hook log visible on failure, show retry footer
+([f653d69](https://github.com/AgusRdz/bonsai/commit/f653d69ef02a83cc256ffc146af6842c20357ede))
+## [0.87.5] - 2026-06-02
+
+### Features
+- Amend panel n — stream hook output line-by-line in real time
+([2fd8df0](https://github.com/AgusRdz/bonsai/commit/2fd8df0f851c306ef8c0babbe03009d268f46a58))
+## [0.87.4] - 2026-06-02
+
+### Bug Fixes
+- Amend panel — show amending... indicator while n runs pre-commit hooks
+([14da172](https://github.com/AgusRdz/bonsai/commit/14da1721086207c71990be4ff15986918cda5f49))
+## [0.87.3] - 2026-06-02
+
+### Bug Fixes
+- Stage-from-diff cursor advance, amend-n panel stays on hook error, vet dead code
+([23f1989](https://github.com/AgusRdz/bonsai/commit/23f1989c2d9fa87b47bb56d51d978308223f14bb))
 ## [0.87.2] - 2026-06-01
 
 ### Bug Fixes
