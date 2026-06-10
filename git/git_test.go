@@ -55,6 +55,46 @@ func TestParseStatus(t *testing.T) {
 	}
 }
 
+func TestParseStatusQuotedPath(t *testing.T) {
+	// git emits octal-escaped, double-quoted paths when core.quotePath=true
+	// and the filename contains non-ASCII bytes (e.g. U+F03A → UTF-8 EF 80 BA).
+	porcelain := "?? \"C\\357\\200\\272Tempe555da2_info.txt\"\n"
+	s := parseStatus("main", porcelain)
+	if len(s.Untracked) != 1 {
+		t.Fatalf("untracked count = %d, want 1", len(s.Untracked))
+	}
+	want := "C\xef\x80\xbaTempe555da2_info.txt"
+	if s.Untracked[0].Path != want {
+		t.Errorf("path = %q, want %q", s.Untracked[0].Path, want)
+	}
+}
+
+func TestGitUnquotePath(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		// Not quoted — pass through unchanged
+		{"file.go", "file.go"},
+		// Empty quotes
+		{`""`, ""},
+		// Plain ASCII inside quotes
+		{`"hello.go"`, "hello.go"},
+		// Octal sequences (UTF-8 bytes for U+F03A: EF 80 BA)
+		{`"C\357\200\272Tempe555da2_info.txt"`, "C\xef\x80\xbaTempe555da2_info.txt"},
+		// Standard escapes
+		{`"\t\n\r\\\""`, "\t\n\r\\\""},
+		// Mixed
+		{`"foo\357bar"`, "foo\xefbar"},
+	}
+	for _, c := range cases {
+		got := gitUnquotePath(c.in)
+		if got != c.want {
+			t.Errorf("gitUnquotePath(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestParseStatusEmpty(t *testing.T) {
 	s := parseStatus("main", "")
 	if len(s.Staged) != 0 || len(s.Changed) != 0 || len(s.Untracked) != 0 {

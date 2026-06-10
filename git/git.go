@@ -1585,6 +1585,72 @@ var conflictCodes = map[string]bool{
 	"DU": true, "UD": true,
 }
 
+// gitUnquotePath strips git's C-style quoting: if s is surrounded by double
+// quotes, it removes them and decodes \NNN octal and standard escape sequences
+// that git emits when core.quotePath is true (the default). Returns s unchanged
+// if it is not quoted.
+func gitUnquotePath(s string) string {
+	if len(s) < 2 || s[0] != '"' || s[len(s)-1] != '"' {
+		return s
+	}
+	inner := s[1 : len(s)-1]
+	var b strings.Builder
+	b.Grow(len(inner))
+	for i := 0; i < len(inner); {
+		c := inner[i]
+		if c != '\\' || i+1 >= len(inner) {
+			b.WriteByte(c)
+			i++
+			continue
+		}
+		switch inner[i+1] {
+		case '\\':
+			b.WriteByte('\\')
+			i += 2
+		case '"':
+			b.WriteByte('"')
+			i += 2
+		case 'a':
+			b.WriteByte(0x07)
+			i += 2
+		case 'b':
+			b.WriteByte(0x08)
+			i += 2
+		case 'f':
+			b.WriteByte(0x0C)
+			i += 2
+		case 'n':
+			b.WriteByte('\n')
+			i += 2
+		case 'r':
+			b.WriteByte('\r')
+			i += 2
+		case 't':
+			b.WriteByte('\t')
+			i += 2
+		case 'v':
+			b.WriteByte(0x0B)
+			i += 2
+		default:
+			// Octal escape: \NNN (up to 3 octal digits)
+			if inner[i+1] >= '0' && inner[i+1] <= '7' {
+				val := int(inner[i+1] - '0')
+				j := i + 2
+				for k := 0; k < 2 && j < len(inner) && inner[j] >= '0' && inner[j] <= '7'; k++ {
+					val = val*8 + int(inner[j]-'0')
+					j++
+				}
+				b.WriteByte(byte(val))
+				i = j
+			} else {
+				b.WriteByte(c)
+				i++
+			}
+		}
+	}
+	return b.String()
+}
+
 func parseStatus(branch, porcelain string) *Status {
 	s := &Status{Branch: branch}
 	for _, line := range strings.Split(porcelain, "\n") {
@@ -1592,7 +1658,7 @@ func parseStatus(branch, porcelain string) *Status {
 			continue
 		}
 		code := line[:2]
-		path := strings.TrimSpace(line[3:])
+		path := gitUnquotePath(strings.TrimSpace(line[3:]))
 		x, y := code[0], code[1]
 
 		if code == "??" {
