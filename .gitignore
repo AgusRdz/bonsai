@@ -4,3 +4,4 @@ private_key.pem
 .codeindex
 .mcp.json
 .cursor/mcp.json
+.claude/
