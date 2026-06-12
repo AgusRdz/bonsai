@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.88.1] - 2026-06-12
+
+### Features
+- Discard staged files with `x` — `git restore --staged --worktree` resets both index and working tree to HEAD
+
 ## [0.87.9] - 2026-06-10
 
 ### Bug Fixes

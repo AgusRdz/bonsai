@@ -279,6 +279,10 @@ func explain(cmd string, err error) string {
 	case strings.HasPrefix(cmd, "git add"):
 		return "The file moved to the staging area (index). It will be included in your next commit. " +
 			"Nothing has been saved permanently yet - that happens when you commit."
+	case strings.HasPrefix(cmd, "git restore --staged --worktree"):
+		return "The staged and working tree changes for that file were permanently discarded. " +
+			"Git cannot recover them - the file now matches the last commit. " +
+			"If you need the changes back, check your editor's local history or undo buffer."
 	case strings.HasPrefix(cmd, "git restore --staged"):
 		return "The file was removed from the staging area. Your changes are still in the working tree - " +
 			"they are not lost. Stage it again when you are ready to include it in a commit."

@@ -1294,6 +1294,15 @@ func (m model) doDiscard(path string) tea.Cmd {
 	}
 }
 
+func (m model) doDiscardAll(path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.DiscardAll(ctx, path)
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+	}
+}
+
 func (m model) doDeleteFromDisk(path string) tea.Cmd {
 	return func() tea.Msg {
 		err := os.RemoveAll(strings.TrimSuffix(path, "/"))
@@ -3813,24 +3822,27 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if len(xSelected) > 0 {
-			var toDiscard, toDelete []string
+			var toDiscard, toDiscardStaged, toDelete []string
 			for _, f := range xSelected {
 				switch f.category {
+				case catStaged:
+					toDiscardStaged = append(toDiscardStaged, f.entry.Path)
 				case catChanged:
 					toDiscard = append(toDiscard, f.entry.Path)
 				case catUntracked:
 					toDelete = append(toDelete, f.entry.Path)
 				}
 			}
-			if len(toDiscard)+len(toDelete) == 0 {
-				m.actionErr = fmt.Errorf("select changed or untracked files to discard/delete")
+			allDiscard := len(toDiscard) + len(toDiscardStaged)
+			if allDiscard+len(toDelete) == 0 {
+				m.actionErr = fmt.Errorf("select staged, changed, or untracked files to discard/delete")
 				break
 			}
 			desc := ""
-			if len(toDiscard) > 0 && len(toDelete) > 0 {
-				desc = fmt.Sprintf("discard %d changed and delete %d untracked files? this cannot be undone", len(toDiscard), len(toDelete))
-			} else if len(toDiscard) > 0 {
-				desc = fmt.Sprintf("discard changes to %d files? this cannot be undone", len(toDiscard))
+			if allDiscard > 0 && len(toDelete) > 0 {
+				desc = fmt.Sprintf("discard %d changed and delete %d untracked files? this cannot be undone", allDiscard, len(toDelete))
+			} else if allDiscard > 0 {
+				desc = fmt.Sprintf("discard changes to %d files? this cannot be undone", allDiscard)
 			} else {
 				desc = fmt.Sprintf("delete %d files from disk? this cannot be undone", len(toDelete))
 			}
@@ -3838,6 +3850,7 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.files[i].selected = false
 			}
 			toDiscardCopy := toDiscard
+			toDiscardStagedCopy := toDiscardStaged
 			toDeleteCopy := toDelete
 			m.confirmPrompt = desc
 			m.confirmCmd = func() tea.Msg {
@@ -3849,12 +3862,20 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
 					}
 				}
+				if len(toDiscardStagedCopy) > 0 {
+					ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+					err := m.git.DiscardAll(ctx, toDiscardStagedCopy...)
+					cancel()
+					if err != nil {
+						return actionDoneMsg{cmd: m.git.LastCmd(), err: err}
+					}
+				}
 				for _, p := range toDeleteCopy {
 					if err := os.RemoveAll(strings.TrimSuffix(p, "/")); err != nil {
 						return actionDoneMsg{cmd: "rm " + p, err: err}
 					}
 				}
-				n := len(toDiscardCopy) + len(toDeleteCopy)
+				n := len(toDiscardCopy) + len(toDiscardStagedCopy) + len(toDeleteCopy)
 				return actionDoneMsg{cmd: "discard/delete", info: fmt.Sprintf("discarded/deleted %d files", n)}
 			}
 			m.panel = panelConfirm
@@ -3863,6 +3884,11 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		f := m.files[m.cursor]
 		switch f.category {
+		case catStaged:
+			m.confirmPrompt = fmt.Sprintf("discard all changes to %s? this cannot be undone", f.entry.Path)
+			m.confirmCmd = m.doDiscardAll(f.entry.Path)
+			m.panel = panelConfirm
+			m.actionErr = nil
 		case catChanged:
 			m.confirmPrompt = fmt.Sprintf("discard all changes to %s? this cannot be undone", f.entry.Path)
 			m.confirmCmd = m.doDiscard(f.entry.Path)

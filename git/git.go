@@ -277,6 +277,14 @@ func (r *Runner) Discard(ctx context.Context, paths ...string) error {
 	return err
 }
 
+// DiscardAll removes both staged and working-tree changes for the given paths,
+// restoring them to HEAD. Use this for staged files.
+func (r *Runner) DiscardAll(ctx context.Context, paths ...string) error {
+	args := append([]string{"restore", "--staged", "--worktree", "--"}, paths...)
+	_, err := r.run(ctx, args...)
+	return err
+}
+
 // RmCached removes a path from the git index (stops tracking it) without
 // touching the file on disk. Equivalent to git rm --cached <path>.
 func (r *Runner) RmCached(ctx context.Context, path string) error {
