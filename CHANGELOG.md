@@ -7,6 +7,15 @@ All notable changes to bonsai are documented here.
 ### Features
 - Changelog pager — interactive scrollable viewer with arrow key navigation
 ([b95156d](https://github.com/AgusRdz/bonsai/commit/b95156d5f6c8763eed4e7e8aea0df6f2c7f61bb2))
+- Worktree list — hide [d] remove hint on main worktree, replace with "main is protected" note
+([b95156d](https://github.com/AgusRdz/bonsai/commit/b95156d5f6c8763eed4e7e8aea0df6f2c7f61bb2))
+
+## [0.88.2] - 2026-06-12
+
+### Miscellaneous
+- Update changelog for v0.88.0 and v0.88.1
+([3e36b5f](https://github.com/AgusRdz/bonsai/commit/3e36b5f9536ce34221855fcebd77bd5d29c29592))
+
 ## [0.88.1] - 2026-06-12
 
 ### Features
