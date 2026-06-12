@@ -354,6 +354,7 @@ type model struct {
 	tagMsgInput         textinput.Model
 	worktrees           []git.WorktreeEntry
 	worktreeCursor      int
+	repoRoot            string
 	edu                 *educationPanel
 	eduTimer            int
 	width               int
@@ -6644,7 +6645,7 @@ func (m model) updateWorktreeListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "n":
 		ti := textinput.New()
-		ti.Placeholder = "path/to/worktree  branch-name"
+		ti.Placeholder = "branch-name  (or: path/to/worktree branch-name)"
 		ti.Focus()
 		ti.CharLimit = 256
 		ti.Width = m.width - 6
@@ -6682,7 +6683,7 @@ func (m model) updateWorktreeAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		raw := strings.TrimSpace(m.branchInput.Value())
 		if raw == "" {
-			m.actionErr = fmt.Errorf("path cannot be empty")
+			m.actionErr = fmt.Errorf("branch name cannot be empty")
 			return m, nil
 		}
 		var path, branch string
@@ -6690,7 +6691,12 @@ func (m model) updateWorktreeAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			path = strings.TrimSpace(raw[:idx])
 			branch = strings.TrimSpace(raw[idx+1:])
 		} else {
-			path = raw
+			branch = raw
+			if m.repoRoot == "" {
+				m.actionErr = fmt.Errorf("cannot determine repo root for default path")
+				return m, nil
+			}
+			path = worktreeDefaultPath(m.repoRoot, branch)
 		}
 		m.panel = panelMain
 		m.actionErr = nil
@@ -8643,12 +8649,25 @@ func (m model) worktreeListView() string {
 	return content + styleDim.Render("  [n] add  [d] remove  [p] prune stale  [esc] back") + "\n"
 }
 
+// worktreeDefaultPath builds the auto-generated worktree path: <repo-parent>/<repo-name>-<sanitized-branch>.
+func worktreeDefaultPath(repoRoot, branch string) string {
+	sanitized := strings.ReplaceAll(branch, "/", "-")
+	return filepath.Join(filepath.Dir(repoRoot), filepath.Base(repoRoot)+"-"+sanitized)
+}
+
 func (m model) worktreeAddView() string {
 	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString("  " + styleSection.Render("Add Worktree") + "\n\n")
 	b.WriteString("  " + m.branchInput.View() + "\n\n")
-	b.WriteString("  " + styleDim.Render("enter path and branch name separated by a space (e.g. ../project-feature feat/my-feature)") + "\n\n")
+
+	raw := strings.TrimSpace(m.branchInput.Value())
+	if raw != "" && strings.Index(raw, " ") < 0 && m.repoRoot != "" {
+		hint := worktreeDefaultPath(m.repoRoot, raw)
+		b.WriteString("  " + styleDim.Render("path: "+hint) + "\n\n")
+	} else {
+		b.WriteString("  " + styleDim.Render("type a branch name, or path/to/worktree branch-name for a custom path") + "\n\n")
+	}
 
 	if m.actionErr != nil {
 		b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n\n")
@@ -11831,6 +11850,7 @@ func Run(cfg *config.Config, mdb *metrics.DB, version string) error {
 	// Detect PR provider from origin remote URL (best-effort; nil if not found).
 	ctx0, cancel0 := context.WithTimeout(context.Background(), gitTimeout)
 	remoteURL := g.OriginURL(ctx0)
+	repoRoot, _ := g.RepoRoot(ctx0)
 	cancel0()
 	prov := pr.Detect(remoteURL)
 
@@ -11838,6 +11858,7 @@ func Run(cfg *config.Config, mdb *metrics.DB, version string) error {
 		cfg:               cfg,
 		version:           version,
 		git:               g,
+		repoRoot:          repoRoot,
 		logFilterInput:    fi,
 		branchFilterInput: branchFI,
 		stashFilterInput:  stashFI,

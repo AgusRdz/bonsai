@@ -1054,9 +1054,23 @@ func parseWorktrees(output string) []WorktreeEntry {
 	return entries
 }
 
+// RepoRoot returns the absolute path of the repository root via git rev-parse --show-toplevel.
+func (r *Runner) RepoRoot(ctx context.Context) (string, error) {
+	out, err := r.run(ctx, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // AddWorktree creates a new worktree at path checked out to branch.
 // If branch is empty, creates a new branch named after the last path component.
+// Returns an error if the parent directory of path does not exist.
 func (r *Runner) AddWorktree(ctx context.Context, path, branch string) error {
+	parent := filepath.Dir(path)
+	if _, err := os.Stat(parent); err != nil {
+		return fmt.Errorf("directory %q does not exist", parent)
+	}
 	var err error
 	if branch == "" {
 		base := filepath.Base(path)
