@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/AgusRdz/bonsai/agent"
+	"github.com/AgusRdz/bonsai/changelog"
 	"github.com/AgusRdz/bonsai/config"
 	"github.com/AgusRdz/bonsai/doctor"
 	"github.com/AgusRdz/bonsai/git"
@@ -28,7 +29,7 @@ import (
 )
 
 //go:embed CHANGELOG.md
-var changelog string
+var changelogContent string
 
 // version is set at build time via -ldflags "-X main.version=..."
 var version = "dev"
@@ -57,7 +58,9 @@ func main() {
 	case "uninstall":
 		runUninstall()
 	case "changelog", "--changelog":
-		fmt.Print(changelog)
+		if err := changelog.Run(changelogContent); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		}
 	case "config":
 		runConfig(os.Args[2:])
 	case "doctor":

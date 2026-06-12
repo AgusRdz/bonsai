@@ -6684,7 +6684,7 @@ func (m model) updateWorktreeListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		wt := m.worktrees[m.worktreeCursor]
 		if wt.Current {
-			m.actionErr = fmt.Errorf("cannot remove the current (main) worktree")
+			m.actionErr = fmt.Errorf("main worktree is protected")
 			break
 		}
 		m.confirmPrompt = fmt.Sprintf("remove worktree at %s?", wt.Path)
@@ -8672,7 +8672,11 @@ func (m model) worktreeListView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [n] add  [d] remove  [p] prune stale  [esc] back") + "\n"
+	footer := "  [n] add  [d] remove  [p] prune stale  [esc] back"
+	if len(m.worktrees) > 0 && m.worktrees[m.worktreeCursor].Current {
+		footer = "  [n] add  [p] prune stale  [esc] back  ·  main is protected"
+	}
+	return content + styleDim.Render(footer) + "\n"
 }
 
 // worktreeDefaultPath builds the auto-generated worktree path: <repo-parent>/<repo-name>-<sanitized-branch>.
