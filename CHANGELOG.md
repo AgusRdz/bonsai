@@ -5,8 +5,19 @@ All notable changes to bonsai are documented here.
 ## [0.88.1] - 2026-06-12
 
 ### Features
-- Discard staged files with `x` — `git restore --staged --worktree` resets both index and working tree to HEAD
+- Discard staged files — x key restores --staged --worktree to HEAD
+([e228aff](https://github.com/AgusRdz/bonsai/commit/e228aff5375e039ce8ad820e5144b3955f41939b))
+## [0.88.0] - 2026-06-12
 
+### Features
+- Worktree add — default path from repo root, validate parent dir
+([4d9889a](https://github.com/AgusRdz/bonsai/commit/4d9889a8379837408f2743ccf294f71f18d86485))
+
+### Miscellaneous
+- Untrack .claude/ — add to .gitignore
+([567b3bb](https://github.com/AgusRdz/bonsai/commit/567b3bb80ffe4fcb92670c867f6abd0b049db6c3))
+- Add MIT LICENSE file
+([bbcfa70](https://github.com/AgusRdz/bonsai/commit/bbcfa70faeff527b829f41a87cb39f541340c1a3))
 ## [0.87.9] - 2026-06-10
 
 ### Bug Fixes
