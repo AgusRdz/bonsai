@@ -1072,27 +1072,41 @@ func (r *Runner) RepoRoot(ctx context.Context) (string, error) {
 }
 
 // AddWorktree creates a new worktree at path checked out to branch.
-// If branch is empty, creates a new branch named after the last path component.
-// If branch does not exist locally, it is created with -b.
+// If branch is empty, a new branch is created named after the last path component.
+// If base is non-empty, the new branch starts at that commit-ish (e.g. "origin/main").
+// If branch does not exist locally and base is empty, origin/<branch> is used if it exists.
 // Returns an error if the parent directory of path does not exist.
-func (r *Runner) AddWorktree(ctx context.Context, path, branch string) error {
+func (r *Runner) AddWorktree(ctx context.Context, path, branch, base string) error {
 	parent := filepath.Dir(path)
 	if _, err := os.Stat(parent); err != nil {
 		return fmt.Errorf("directory %q does not exist", parent)
 	}
 	if branch == "" {
-		base := filepath.Base(path)
-		_, err := r.run(ctx, "worktree", "add", "-b", base, path)
+		name := filepath.Base(path)
+		if base != "" {
+			_, err := r.run(ctx, "worktree", "add", "-b", name, path, base)
+			return err
+		}
+		_, err := r.run(ctx, "worktree", "add", "-b", name, path)
 		return err
 	}
 	// Check whether the branch already exists locally.
-	_, existsErr := r.run(ctx, "rev-parse", "--verify", "refs/heads/"+branch)
-	if existsErr == nil {
-		// Existing branch — check it out into the new worktree.
+	if _, err := r.run(ctx, "rev-parse", "--verify", "refs/heads/"+branch); err == nil {
 		_, err := r.run(ctx, "worktree", "add", path, branch)
 		return err
 	}
-	// New branch — create it from HEAD.
+	// If a base was explicitly provided, use it.
+	if base != "" {
+		_, err := r.run(ctx, "worktree", "add", "-b", branch, path, base)
+		return err
+	}
+	// Auto-detect: if branch exists on origin, track it.
+	remote := "origin/" + branch
+	if _, err := r.run(ctx, "rev-parse", "--verify", "refs/remotes/"+remote); err == nil {
+		_, err := r.run(ctx, "worktree", "add", "-b", branch, path, remote)
+		return err
+	}
+	// New branch from HEAD.
 	_, err := r.run(ctx, "worktree", "add", "-b", branch, path)
 	return err
 }

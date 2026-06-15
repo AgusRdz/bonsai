@@ -52,6 +52,7 @@ const (
 	panelResetPick
 	panelWorktreeList
 	panelWorktreeAdd
+	panelWorktreeBaseChoice
 	panelBlame
 	panelBisect
 	panelRebaseInteractive
@@ -350,9 +351,11 @@ type model struct {
 	tagAnnotated        bool           // true when creating an annotated tag
 	tagAnnotateStep     int            // 0=name, 1=message
 	tagMsgInput         textinput.Model
-	worktrees           []git.WorktreeEntry
-	worktreeCursor      int
-	repoRoot            string
+	worktrees            []git.WorktreeEntry
+	worktreeCursor       int
+	repoRoot             string
+	pendingWorktreePath  string
+	pendingWorktreeBranch string
 	edu                 *educationPanel
 	eduTimer            int
 	width               int
@@ -1548,10 +1551,10 @@ func (m model) doFetchWorktrees() tea.Cmd {
 	}
 }
 
-func (m model) doAddWorktree(path, branch string) tea.Cmd {
+func (m model) doAddWorktree(path, branch, base string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		err := m.git.AddWorktree(ctx, path, branch)
+		err := m.git.AddWorktree(ctx, path, branch, base)
 		var info string
 		if err == nil {
 			info = "created worktree " + branch + " at " + path
@@ -3254,6 +3257,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.panel == panelWorktreeAdd {
 			return m.updateWorktreeAddPanel(msg)
+		}
+		if m.panel == panelWorktreeBaseChoice {
+			return m.updateWorktreeBaseChoicePanel(msg)
 		}
 		if m.panel == panelBlame {
 			return m.updateBlamePanel(msg)
@@ -6712,9 +6718,17 @@ func (m model) updateWorktreeAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			path = worktreeDefaultPath(m.repoRoot, branch)
 		}
+		// If current branch is behind its remote, ask which base to use.
+		if m.status != nil && m.status.Behind > 0 && m.status.Upstream != "" {
+			m.pendingWorktreePath = path
+			m.pendingWorktreeBranch = branch
+			m.panel = panelWorktreeBaseChoice
+			m.actionErr = nil
+			return m, nil
+		}
 		m.panel = panelMain
 		m.actionErr = nil
-		return m, m.doAddWorktree(path, branch)
+		return m, m.doAddWorktree(path, branch, "")
 	case "esc":
 		m.panel = panelWorktreeList
 		m.actionErr = nil
@@ -6726,6 +6740,30 @@ func (m model) updateWorktreeAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.branchInput, cmd = m.branchInput.Update(msg)
 	return m, cmd
+}
+
+func (m model) updateWorktreeBaseChoicePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		path, branch, base := m.pendingWorktreePath, m.pendingWorktreeBranch, m.status.Upstream
+		m.pendingWorktreePath, m.pendingWorktreeBranch = "", ""
+		m.panel = panelMain
+		m.actionErr = nil
+		return m, m.doAddWorktree(path, branch, base)
+	case "m", "M":
+		path, branch := m.pendingWorktreePath, m.pendingWorktreeBranch
+		m.pendingWorktreePath, m.pendingWorktreeBranch = "", ""
+		m.panel = panelMain
+		m.actionErr = nil
+		return m, m.doAddWorktree(path, branch, "")
+	case "esc":
+		m.panel = panelWorktreeAdd
+		m.actionErr = nil
+		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
 }
 
 // --- view ---
@@ -6797,6 +6835,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelWorktreeAdd {
 		return m.worktreeAddView()
+	}
+	if m.panel == panelWorktreeBaseChoice {
+		return m.worktreeBaseChoiceView()
 	}
 	if m.panel == panelBlame {
 		return m.blameView()
@@ -8697,6 +8738,41 @@ func (m model) worktreeAddView() string {
 		content += strings.Repeat("\n", pad)
 	}
 	return content + styleDim.Render("  [enter] create  [esc] cancel") + "\n"
+}
+
+func (m model) worktreeBaseChoiceView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Divergence Warning") + "\n\n")
+	if m.status != nil {
+		b.WriteString(fmt.Sprintf("  %s is %s behind %s\n\n",
+			styleBranch.Render(m.status.Branch),
+			styleChanged.Render(fmt.Sprintf("%d commits", m.status.Behind)),
+			styleDim.Render(m.status.Upstream),
+		))
+	}
+	b.WriteString("  Base new branch on:\n\n")
+	upstream := ""
+	if m.status != nil {
+		upstream = m.status.Upstream
+	}
+	b.WriteString("  " + styleCmd.Render("[enter]") + "  " + styleStaged.Render(upstream) + "  " + styleDim.Render("(recommended — up to date)") + "\n")
+	localLabel := "local"
+	if m.status != nil {
+		localLabel = m.status.Branch
+	}
+	behind := 0
+	if m.status != nil {
+		behind = m.status.Behind
+	}
+	b.WriteString("  " + styleCmd.Render("[m]") + "      " + styleChanged.Render(localLabel) + "  " + styleDim.Render(fmt.Sprintf("(behind by %d)", behind)) + "\n")
+
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [esc] cancel") + "\n"
 }
 
 func (m model) blameView() string {
