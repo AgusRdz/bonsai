@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.88.6] - 2026-06-15
+
+### Bug Fixes
+- Remove arbitrary timeouts from commit, push, and worktree ops — use context.Background() for unbounded operations
+([7f05ca6](https://github.com/AgusRdz/bonsai/commit/7f05ca6ba9d3f0fb4bb1a51bcf735707bd52970b))
 ## [0.88.5] - 2026-06-15
 
 ### Bug Fixes
