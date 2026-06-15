@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.90.0] - 2026-06-15
+
+### Features
+- Worktree list — detect merged branches and bulk-remove with [D]
+([d30544b](https://github.com/AgusRdz/bonsai/commit/d30544b94f8b7be80ff4bc4e40884df7c6368ff4))
 ## [0.89.0] - 2026-06-15
 
 ### Features
