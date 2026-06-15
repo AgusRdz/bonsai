@@ -30,6 +30,7 @@ import (
 const gitTimeout = 5 * time.Second
 const commitTimeout = 30 * time.Second
 const pushTimeout = 60 * time.Second
+const worktreeTimeout = 120 * time.Second
 const autoRefreshInterval = 2 * time.Second
 
 type panel int
@@ -1558,7 +1559,7 @@ func (m model) doFetchWorktrees() tea.Cmd {
 
 func (m model) doAddWorktree(path, branch string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
 		defer cancel()
 		err := m.git.AddWorktree(ctx, path, branch)
 		var info string
