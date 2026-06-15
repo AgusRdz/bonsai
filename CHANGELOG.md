@@ -2,6 +2,15 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.89.0] - 2026-06-15
+
+### Features
+- Worktree add — remote branch tracking and divergence base choice
+([727ee7f](https://github.com/AgusRdz/bonsai/commit/727ee7fa668096eb5b3794cf28c600cf92162bc6))
+- Worktree add — two-step form decouples directory label from branch name
+([8e8154c](https://github.com/AgusRdz/bonsai/commit/8e8154c9534f66ca26fa8ae3b530d74a2f1f9d5d))
+- Worktree add — empty branch creates detached HEAD instead of erroring
+([d30cf58](https://github.com/AgusRdz/bonsai/commit/d30cf587c9c43fbe8450a6b131070dc28dc35bc9))
 ## [0.88.6] - 2026-06-15
 
 ### Bug Fixes
