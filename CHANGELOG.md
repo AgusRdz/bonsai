@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.88.5] - 2026-06-15
+
+### Bug Fixes
+- Worktree add timeout — use 120s instead of 5s for large repo checkout
+([db4c32e](https://github.com/AgusRdz/bonsai/commit/db4c32e25b5f95f792b392b7f34f3409693677aa))
 ## [0.88.4] - 2026-06-15
 
 ### Bug Fixes
