@@ -1578,6 +1578,26 @@ func (m model) doRemoveWorktree(path string) tea.Cmd {
 	}
 }
 
+func (m model) doRemoveMergedWorktrees(entries []git.WorktreeEntry) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		removed := 0
+		var lastErr error
+		for _, wt := range entries {
+			if err := m.git.RemoveWorktree(ctx, wt.Path); err != nil {
+				lastErr = err
+			} else {
+				removed++
+			}
+		}
+		info := ""
+		if lastErr == nil {
+			info = fmt.Sprintf("removed %d merged worktree(s)", removed)
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: lastErr, info: info}
+	}
+}
+
 func (m model) doPruneWorktrees() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -6692,6 +6712,21 @@ func (m model) updateWorktreeListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirmCmd = m.doRemoveWorktree(wt.Path)
 		m.panel = panelConfirm
 		m.actionErr = nil
+	case "D":
+		var merged []git.WorktreeEntry
+		for _, wt := range m.worktrees {
+			if wt.Merged {
+				merged = append(merged, wt)
+			}
+		}
+		if len(merged) == 0 {
+			m.actionErr = fmt.Errorf("no merged worktrees to remove")
+			break
+		}
+		m.confirmPrompt = fmt.Sprintf("remove %d merged worktree(s)?", len(merged))
+		m.confirmCmd = m.doRemoveMergedWorktrees(merged)
+		m.panel = panelConfirm
+		m.actionErr = nil
 	case "p":
 		m.confirmPrompt = "prune stale worktree refs? (removes admin files for gone worktrees)"
 		m.confirmCmd = m.doPruneWorktrees()
@@ -8717,7 +8752,11 @@ func (m model) worktreeListView() string {
 			}
 			path := styleCmd.Render(wt.Path)
 			branch := styleDim.Render(wt.Branch)
-			b.WriteString(cursor + mark + path + "  " + branch + "\n")
+			mergedTag := ""
+			if wt.Merged {
+				mergedTag = "  " + styleMerged.Render("[merged]")
+			}
+			b.WriteString(cursor + mark + path + "  " + branch + mergedTag + "\n")
 		}
 	}
 	b.WriteString("\n")
@@ -8731,9 +8770,22 @@ func (m model) worktreeListView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
+	hasMerged := false
+	for _, wt := range m.worktrees {
+		if wt.Merged {
+			hasMerged = true
+			break
+		}
+	}
 	footer := "  [n] add  [d] remove  [p] prune stale  [esc] back"
+	if hasMerged {
+		footer = "  [n] add  [d] remove  [D] remove merged  [p] prune stale  [esc] back"
+	}
 	if len(m.worktrees) > 0 && m.worktrees[m.worktreeCursor].Current {
 		footer = "  [n] add  [p] prune stale  [esc] back  ·  main is protected"
+		if hasMerged {
+			footer = "  [n] add  [D] remove merged  [p] prune stale  [esc] back"
+		}
 	}
 	return content + styleDim.Render(footer) + "\n"
 }

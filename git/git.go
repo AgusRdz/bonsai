@@ -1022,15 +1022,28 @@ type WorktreeEntry struct {
 	Path    string // absolute path to the worktree
 	Branch  string // checked-out branch name, or "(detached)" for detached HEAD
 	Current bool   // true if this is the main worktree (the one we're in)
+	Merged  bool   // true if branch is fully merged into HEAD
 }
 
 // Worktrees returns all worktrees including the main one.
+// Non-current entries whose branch is fully merged into HEAD are marked Merged.
 func (r *Runner) Worktrees(ctx context.Context) ([]WorktreeEntry, error) {
 	out, err := r.run(ctx, "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, err
 	}
-	return parseWorktrees(string(out)), nil
+	entries := parseWorktrees(string(out))
+	merged, _ := r.MergedBranches(ctx, "HEAD")
+	mergedSet := make(map[string]bool, len(merged))
+	for _, b := range merged {
+		mergedSet[b] = true
+	}
+	for i := range entries {
+		if !entries[i].Current && mergedSet[entries[i].Branch] {
+			entries[i].Merged = true
+		}
+	}
+	return entries, nil
 }
 
 // parseWorktrees parses the porcelain output of `git worktree list --porcelain`.
