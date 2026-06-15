@@ -351,10 +351,12 @@ type model struct {
 	tagAnnotated        bool           // true when creating an annotated tag
 	tagAnnotateStep     int            // 0=name, 1=message
 	tagMsgInput         textinput.Model
-	worktrees            []git.WorktreeEntry
-	worktreeCursor       int
-	repoRoot             string
-	pendingWorktreePath  string
+	worktrees             []git.WorktreeEntry
+	worktreeCursor        int
+	repoRoot              string
+	worktreeAddStep       int             // 0=label, 1=branch name
+	worktreeBranchInput   textinput.Model // step-1 branch name input
+	pendingWorktreePath   string
 	pendingWorktreeBranch string
 	edu                 *educationPanel
 	eduTimer            int
@@ -3459,7 +3461,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if m.panel == panelWorktreeAdd {
 		var cmd tea.Cmd
-		m.branchInput, cmd = m.branchInput.Update(msg)
+		if m.worktreeAddStep == 1 {
+			m.worktreeBranchInput, cmd = m.worktreeBranchInput.Update(msg)
+		} else {
+			m.branchInput, cmd = m.branchInput.Update(msg)
+		}
 		return m, cmd
 	}
 	if m.panel == panelBisect && m.bisectInputActive {
@@ -6665,11 +6671,12 @@ func (m model) updateWorktreeListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "n":
 		ti := textinput.New()
-		ti.Placeholder = "branch-name  (or: path/to/worktree branch-name)"
+		ti.Placeholder = "worktree label  (e.g. res-123)"
 		ti.Focus()
 		ti.CharLimit = 256
 		ti.Width = m.width - 6
 		m.branchInput = ti
+		m.worktreeAddStep = 0
 		m.panel = panelWorktreeAdd
 		m.actionErr = nil
 	case "d":
@@ -6701,24 +6708,39 @@ func (m model) updateWorktreeListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) updateWorktreeAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "enter":
-		raw := strings.TrimSpace(m.branchInput.Value())
-		if raw == "" {
+		if m.worktreeAddStep == 0 {
+			label := strings.TrimSpace(m.branchInput.Value())
+			if label == "" {
+				m.actionErr = fmt.Errorf("label cannot be empty")
+				return m, nil
+			}
+			ti := textinput.New()
+			ti.Placeholder = "feat/" + label + "  or  fix/" + label
+			ti.Focus()
+			ti.CharLimit = 256
+			ti.Width = m.branchInput.Width
+			m.worktreeBranchInput = ti
+			m.worktreeAddStep = 1
+			m.actionErr = nil
+			return m, nil
+		}
+		// Step 1: collect branch name, validate, then create.
+		label := strings.TrimSpace(m.branchInput.Value())
+		branch := strings.TrimSpace(m.worktreeBranchInput.Value())
+		if branch == "" {
 			m.actionErr = fmt.Errorf("branch name cannot be empty")
 			return m, nil
 		}
-		var path, branch string
-		if idx := strings.Index(raw, " "); idx >= 0 {
-			path = strings.TrimSpace(raw[:idx])
-			branch = strings.TrimSpace(raw[idx+1:])
-		} else {
-			branch = raw
-			if m.repoRoot == "" {
-				m.actionErr = fmt.Errorf("cannot determine repo root for default path")
-				return m, nil
-			}
-			path = worktreeDefaultPath(m.repoRoot, branch)
+		if m.repoRoot == "" {
+			m.actionErr = fmt.Errorf("cannot determine repo root for default path")
+			return m, nil
 		}
-		// If current branch is behind its remote, ask which base to use.
+		path := worktreeDefaultPath(m.repoRoot, label)
+		result := conventions.Validate(branch, m.cfg.Conventions)
+		if !result.Valid && m.cfg.Conventions.Validation.Mode == "strict" {
+			m.actionErr = fmt.Errorf("branch name does not follow conventions (strict mode)")
+			return m, nil
+		}
 		if m.status != nil && m.status.Behind > 0 && m.status.Upstream != "" {
 			m.pendingWorktreePath = path
 			m.pendingWorktreeBranch = branch
@@ -6726,10 +6748,16 @@ func (m model) updateWorktreeAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.actionErr = nil
 			return m, nil
 		}
+		m.worktreeAddStep = 0
 		m.panel = panelMain
 		m.actionErr = nil
 		return m, m.doAddWorktree(path, branch, "")
 	case "esc":
+		if m.worktreeAddStep == 1 {
+			m.worktreeAddStep = 0
+			m.actionErr = nil
+			return m, nil
+		}
 		m.panel = panelWorktreeList
 		m.actionErr = nil
 		return m, nil
@@ -6738,7 +6766,11 @@ func (m model) updateWorktreeAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
-	m.branchInput, cmd = m.branchInput.Update(msg)
+	if m.worktreeAddStep == 1 {
+		m.worktreeBranchInput, cmd = m.worktreeBranchInput.Update(msg)
+	} else {
+		m.branchInput, cmd = m.branchInput.Update(msg)
+	}
 	return m, cmd
 }
 
@@ -6747,12 +6779,14 @@ func (m model) updateWorktreeBaseChoicePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd
 	case "enter":
 		path, branch, base := m.pendingWorktreePath, m.pendingWorktreeBranch, m.status.Upstream
 		m.pendingWorktreePath, m.pendingWorktreeBranch = "", ""
+		m.worktreeAddStep = 0
 		m.panel = panelMain
 		m.actionErr = nil
 		return m, m.doAddWorktree(path, branch, base)
 	case "m", "M":
 		path, branch := m.pendingWorktreePath, m.pendingWorktreeBranch
 		m.pendingWorktreePath, m.pendingWorktreeBranch = "", ""
+		m.worktreeAddStep = 0
 		m.panel = panelMain
 		m.actionErr = nil
 		return m, m.doAddWorktree(path, branch, "")
@@ -8718,14 +8752,44 @@ func (m model) worktreeAddView() string {
 	var b strings.Builder
 	b.WriteString("\n")
 	b.WriteString("  " + styleSection.Render("Add Worktree") + "\n\n")
-	b.WriteString("  " + m.branchInput.View() + "\n\n")
 
-	raw := strings.TrimSpace(m.branchInput.Value())
-	if raw != "" && strings.Index(raw, " ") < 0 && m.repoRoot != "" {
-		hint := worktreeDefaultPath(m.repoRoot, raw)
-		b.WriteString("  " + styleDim.Render("path: "+hint) + "\n\n")
+	if m.worktreeAddStep == 0 {
+		b.WriteString("  " + m.branchInput.View() + "\n\n")
+		label := strings.TrimSpace(m.branchInput.Value())
+		if label != "" && m.repoRoot != "" {
+			b.WriteString("  " + styleDim.Render("path: "+worktreeDefaultPath(m.repoRoot, label)) + "\n\n")
+		} else {
+			b.WriteString("  " + styleDim.Render("worktree label — sets the directory name (e.g. res-123)") + "\n\n")
+		}
 	} else {
-		b.WriteString("  " + styleDim.Render("type a branch name, or path/to/worktree branch-name for a custom path") + "\n\n")
+		label := strings.TrimSpace(m.branchInput.Value())
+		if m.repoRoot != "" {
+			b.WriteString("  " + styleDim.Render("path: "+worktreeDefaultPath(m.repoRoot, label)) + "\n\n")
+		}
+		b.WriteString("  " + m.worktreeBranchInput.View() + "\n\n")
+		branch := strings.TrimSpace(m.worktreeBranchInput.Value())
+		if branch != "" && m.cfg.Conventions.Validation.Mode != "off" && len(m.cfg.Conventions.Branches) > 0 {
+			result := conventions.Validate(branch, m.cfg.Conventions)
+			if result.Valid {
+				b.WriteString("  " + styleStaged.Render("✓ valid") + "\n\n")
+			} else if m.cfg.Conventions.Validation.Mode == "strict" {
+				b.WriteString("  " + styleChanged.Render("✗ does not follow conventions (strict mode)") + "\n\n")
+			} else {
+				b.WriteString("  " + styleChanged.Render("! does not follow conventions") + "\n\n")
+			}
+		}
+		rules := conventions.Rules(m.cfg.Conventions)
+		if len(rules) > 0 {
+			b.WriteString("  " + styleDim.Render("configured patterns:") + "\n")
+			for _, r := range rules {
+				hint := r.Rule.Prefix
+				if r.Rule.Example != "" {
+					hint += "  (e.g. " + r.Rule.Example + ")"
+				}
+				b.WriteString("  " + styleDim.Render("  "+r.Name+": "+hint) + "\n")
+			}
+			b.WriteString("\n")
+		}
 	}
 
 	if m.actionErr != nil {
@@ -8737,7 +8801,11 @@ func (m model) worktreeAddView() string {
 	if pad := m.height - lines - 1; pad > 0 {
 		content += strings.Repeat("\n", pad)
 	}
-	return content + styleDim.Render("  [enter] create  [esc] cancel") + "\n"
+	footer := "  [enter] next  [esc] cancel"
+	if m.worktreeAddStep == 1 {
+		footer = "  [enter] create  [esc] back"
+	}
+	return content + styleDim.Render(footer) + "\n"
 }
 
 func (m model) worktreeBaseChoiceView() string {
