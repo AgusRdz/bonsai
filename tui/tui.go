@@ -28,9 +28,6 @@ import (
 )
 
 const gitTimeout = 5 * time.Second
-const commitTimeout = 30 * time.Second
-const pushTimeout = 60 * time.Second
-const worktreeTimeout = 120 * time.Second
 const autoRefreshInterval = 2 * time.Second
 
 type panel int
@@ -799,8 +796,7 @@ func (m model) doCommit(msg string) tea.Cmd {
 	key := m.cfg.Signing.Key
 	noVerify := m.noVerify
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), commitTimeout)
-		defer cancel()
+		ctx := context.Background()
 		var err error
 		if sign {
 			err = m.git.CommitSigned(ctx, msg, key, noVerify)
@@ -840,8 +836,7 @@ func (m model) doPushWithOpts() tea.Cmd {
 		ahead = m.status.Ahead
 	}
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-		defer cancel()
+		ctx := context.Background()
 		err := m.git.PushWithOptions(ctx, opt.force, opt.setUpstream, remote, branch)
 		var info string
 		if err == nil {
@@ -997,8 +992,7 @@ func (m model) doRenameBranch(oldName, newName string) tea.Cmd {
 
 func (m model) doPushTag(remote, tag string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-		defer cancel()
+		ctx := context.Background()
 		err := m.git.PushTag(ctx, remote, tag)
 		var info string
 		if err == nil {
@@ -1097,8 +1091,7 @@ func (m model) doPull() tea.Cmd {
 		behind = m.status.Behind
 	}
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-		defer cancel()
+		ctx := context.Background()
 		err := m.git.Pull(ctx)
 		var info string
 		if err == nil {
@@ -1119,8 +1112,7 @@ func (m model) doPullRebase() tea.Cmd {
 		behind = m.status.Behind
 	}
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-		defer cancel()
+		ctx := context.Background()
 		err := m.git.PullRebase(ctx)
 		var info string
 		if err == nil {
@@ -1137,8 +1129,7 @@ func (m model) doPullMerge() tea.Cmd {
 		behind = m.status.Behind
 	}
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-		defer cancel()
+		ctx := context.Background()
 		err := m.git.PullMerge(ctx)
 		var info string
 		if err == nil {
@@ -1559,8 +1550,7 @@ func (m model) doFetchWorktrees() tea.Cmd {
 
 func (m model) doAddWorktree(path, branch string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
-		defer cancel()
+		ctx := context.Background()
 		err := m.git.AddWorktree(ctx, path, branch)
 		var info string
 		if err == nil {
@@ -2255,8 +2245,7 @@ func (m model) doAddProfile(gitdir, includePath string) tea.Cmd {
 
 func (m model) doFetch(all, prune bool) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-		defer cancel()
+		ctx := context.Background()
 		err := m.git.Fetch(ctx, all, prune)
 		cmd := "git fetch"
 		if all {
@@ -2441,8 +2430,7 @@ func (m model) doFetchSubmodules() tea.Cmd {
 
 func (m model) doSubmoduleAdd(url, path string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-		defer cancel()
+		ctx := context.Background()
 		err := m.git.SubmoduleAdd(ctx, url, path)
 		var info string
 		if err == nil {
@@ -2454,8 +2442,7 @@ func (m model) doSubmoduleAdd(url, path string) tea.Cmd {
 
 func (m model) doSubmoduleUpdate(init bool) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-		defer cancel()
+		ctx := context.Background()
 		err := m.git.SubmoduleUpdate(ctx, init)
 		cmd := "git submodule update"
 		if init {
