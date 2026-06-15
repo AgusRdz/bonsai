@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.91.0] - 2026-06-15
+
+### Features
+- Post-create commands for worktrees
+([da5f958](https://github.com/AgusRdz/bonsai/commit/da5f9585dcc926c6dd03bd6a750a79059281d193))
 ## [0.90.0] - 2026-06-15
 
 ### Features
