@@ -31,6 +31,36 @@ type Config struct {
 	Agent       AgentConfig       `toml:"agent"`
 	Overview    OverviewConfig    `toml:"overview"`
 	PR          PRConfig          `toml:"pr"`
+	Worktree    WorktreeConfig    `toml:"worktree"`
+}
+
+// WorktreeConfig controls post-create behaviour for git worktrees.
+type WorktreeConfig struct {
+	// PostCreate lists shell commands run after every worktree is created.
+	// nil = not yet configured (bonsai will prompt on first use).
+	// empty slice = explicitly disabled.
+	// $BONSAI_MAIN_WORKTREE is replaced with the main worktree path at runtime.
+	PostCreate *[]string `toml:"post_create"`
+}
+
+// projectWorktreeConfig is a minimal struct used when writing the per-project
+// .bonsai.toml so we don't clobber unrelated config sections.
+type projectWorktreeConfig struct {
+	Worktree WorktreeConfig `toml:"worktree"`
+}
+
+// SaveProjectWorktree writes the post_create command list to .bonsai.toml in
+// dir, preserving any existing [worktree] settings.
+func SaveProjectWorktree(dir string, cmds []string) error {
+	path := filepath.Join(dir, ".bonsai.toml")
+	var existing projectWorktreeConfig
+	_, _ = toml.DecodeFile(path, &existing)
+	existing.Worktree.PostCreate = &cmds
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(existing); err != nil {
+		return err
+	}
+	return os.WriteFile(path, buf.Bytes(), 0o644)
 }
 
 // OverviewConfig controls the clean-tree overview panel.

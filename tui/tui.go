@@ -53,6 +53,7 @@ const (
 	panelWorktreeList
 	panelWorktreeAdd
 	panelWorktreeBaseChoice
+	panelWorktreePostCreate
 	panelBlame
 	panelBisect
 	panelRebaseInteractive
@@ -351,13 +352,16 @@ type model struct {
 	tagAnnotated        bool           // true when creating an annotated tag
 	tagAnnotateStep     int            // 0=name, 1=message
 	tagMsgInput         textinput.Model
-	worktrees             []git.WorktreeEntry
-	worktreeCursor        int
-	repoRoot              string
-	worktreeAddStep       int             // 0=label, 1=branch name
-	worktreeBranchInput   textinput.Model // step-1 branch name input
-	pendingWorktreePath   string
-	pendingWorktreeBranch string
+	worktrees              []git.WorktreeEntry
+	worktreeCursor         int
+	repoRoot               string
+	worktreeAddStep        int             // 0=label, 1=branch name
+	worktreeBranchInput    textinput.Model // step-1 branch name input
+	pendingWorktreePath    string
+	pendingWorktreeBranch  string
+	postCreatePath         string
+	postCreateSetup        bool            // true=first-time textarea, false=confirm existing
+	postCreateTA           textarea.Model
 	edu                 *educationPanel
 	eduTimer            int
 	width               int
@@ -667,6 +671,13 @@ type conflictVersionsMsg struct {
 type tagListMsg []git.TagEntry
 
 type worktreeListMsg []git.WorktreeEntry
+
+type worktreeCreatedMsg struct {
+	path   string
+	branch string
+	err    error
+	cmd    string
+}
 
 type blameMsg struct {
 	title string
@@ -1557,11 +1568,7 @@ func (m model) doAddWorktree(path, branch, base string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		err := m.git.AddWorktree(ctx, path, branch, base)
-		var info string
-		if err == nil {
-			info = "created worktree " + branch + " at " + path
-		}
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
+		return worktreeCreatedMsg{path: path, branch: branch, err: err, cmd: m.git.LastCmd()}
 	}
 }
 
@@ -1595,6 +1602,35 @@ func (m model) doRemoveMergedWorktrees(entries []git.WorktreeEntry) tea.Cmd {
 			info = fmt.Sprintf("removed %d merged worktree(s)", removed)
 		}
 		return actionDoneMsg{cmd: m.git.LastCmd(), err: lastErr, info: info}
+	}
+}
+
+func (m model) doRunPostCreate(worktreePath string, cmds []string) tea.Cmd {
+	// Resolve $BONSAI_MAIN_WORKTREE before handing off to goroutine.
+	mainPath := ""
+	for _, wt := range m.worktrees {
+		if wt.Current {
+			mainPath = wt.Path
+			break
+		}
+	}
+	return func() tea.Msg {
+		for _, raw := range cmds {
+			expanded := strings.ReplaceAll(raw, "$BONSAI_MAIN_WORKTREE", mainPath)
+			c := exec.Command("sh", "-c", expanded)
+			c.Dir = worktreePath
+			c.Env = os.Environ()
+			if out, err := c.CombinedOutput(); err != nil {
+				return actionDoneMsg{
+					cmd: expanded,
+					err: fmt.Errorf("%s\n%s", err.Error(), strings.TrimSpace(string(out))),
+				}
+			}
+		}
+		return actionDoneMsg{
+			cmd:  strings.Join(cmds, " && "),
+			info: fmt.Sprintf("post-create: %d command(s) completed", len(cmds)),
+		}
 	}
 }
 
@@ -2873,10 +2909,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tagCursor = 0
 		m.panel = panelTagList
 
+	case worktreeCreatedMsg:
+		m.lastCmd = msg.cmd
+		if msg.err != nil {
+			m.actionErr = msg.err
+			return m, m.doFetchWorktrees()
+		}
+		m.lastInfo = "created worktree " + msg.branch + " at " + msg.path
+		m.actionErr = nil
+		switch {
+		case m.cfg.Worktree.PostCreate == nil:
+			// First time — detect and show setup panel.
+			suggested := detectPostCreateCmds(msg.path)
+			m.postCreatePath = msg.path
+			m.postCreateSetup = true
+			ta := textarea.New()
+			ta.Placeholder = "one command per line..."
+			ta.SetWidth(m.width - 6)
+			ta.SetHeight(8)
+			ta.ShowLineNumbers = false
+			ta.Focus()
+			if len(suggested) > 0 {
+				ta.SetValue(strings.Join(suggested, "\n"))
+			}
+			m.postCreateTA = ta
+			m.panel = panelWorktreePostCreate
+		case len(*m.cfg.Worktree.PostCreate) == 0:
+			// Explicitly disabled — skip.
+			m.panel = panelMain
+		default:
+			// Already configured — show confirm.
+			m.postCreatePath = msg.path
+			m.postCreateSetup = false
+			m.panel = panelWorktreePostCreate
+		}
+		return m, m.doFetchWorktrees()
+
 	case worktreeListMsg:
 		m.worktrees = []git.WorktreeEntry(msg)
 		m.worktreeCursor = 0
-		m.panel = panelWorktreeList
+		if m.panel != panelWorktreePostCreate {
+			m.panel = panelWorktreeList
+		}
 
 	case blameMsg:
 		m.blameLines = msg.lines
@@ -3283,6 +3357,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel == panelWorktreeBaseChoice {
 			return m.updateWorktreeBaseChoicePanel(msg)
 		}
+		if m.panel == panelWorktreePostCreate {
+			return m.updateWorktreePostCreatePanel(msg)
+		}
 		if m.panel == panelBlame {
 			return m.updateBlamePanel(msg)
 		}
@@ -3486,6 +3563,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.branchInput, cmd = m.branchInput.Update(msg)
 		}
+		return m, cmd
+	}
+	if m.panel == panelWorktreePostCreate && m.postCreateSetup {
+		var cmd tea.Cmd
+		m.postCreateTA, cmd = m.postCreateTA.Update(msg)
 		return m, cmd
 	}
 	if m.panel == panelBisect && m.bisectInputActive {
@@ -6831,6 +6913,56 @@ func (m model) updateWorktreeBaseChoicePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd
 	return m, nil
 }
 
+func (m model) updateWorktreePostCreatePanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.postCreateSetup {
+		switch msg.String() {
+		case "ctrl+d", "ctrl+s":
+			raw := strings.TrimSpace(m.postCreateTA.Value())
+			var cmds []string
+			for _, line := range strings.Split(raw, "\n") {
+				if s := strings.TrimSpace(line); s != "" {
+					cmds = append(cmds, s)
+				}
+			}
+			if err := config.SaveProjectWorktree(m.repoRoot, cmds); err != nil {
+				m.actionErr = err
+				return m, nil
+			}
+			m.cfg.Worktree.PostCreate = &cmds
+			m.panel = panelMain
+			m.actionErr = nil
+			if len(cmds) == 0 {
+				return m, nil
+			}
+			return m, m.doRunPostCreate(m.postCreatePath, cmds)
+		case "esc":
+			m.panel = panelMain
+			m.actionErr = nil
+			return m, nil
+		case "ctrl+c":
+			return m, tea.Quit
+		}
+		var cmd tea.Cmd
+		m.postCreateTA, cmd = m.postCreateTA.Update(msg)
+		return m, cmd
+	}
+	// Confirm mode — already configured.
+	switch msg.String() {
+	case "enter", "y", "Y":
+		cmds := *m.cfg.Worktree.PostCreate
+		m.panel = panelMain
+		m.actionErr = nil
+		return m, m.doRunPostCreate(m.postCreatePath, cmds)
+	case "s", "S", "n", "N", "esc":
+		m.panel = panelMain
+		m.actionErr = nil
+		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 // --- view ---
 
 func (m model) View() string {
@@ -6903,6 +7035,9 @@ func (m model) View() string {
 	}
 	if m.panel == panelWorktreeBaseChoice {
 		return m.worktreeBaseChoiceView()
+	}
+	if m.panel == panelWorktreePostCreate {
+		return m.worktreePostCreateView()
 	}
 	if m.panel == panelBlame {
 		return m.blameView()
@@ -8890,6 +9025,43 @@ func (m model) worktreeBaseChoiceView() string {
 		content += strings.Repeat("\n", pad)
 	}
 	return content + styleDim.Render("  [esc] cancel") + "\n"
+}
+
+func (m model) worktreePostCreateView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString("  " + styleSection.Render("Post-create Setup") + "\n\n")
+
+	if m.postCreateSetup {
+		b.WriteString("  " + styleDim.Render("Commands to run after creating a worktree (one per line).") + "\n")
+		b.WriteString("  " + styleDim.Render("$BONSAI_MAIN_WORKTREE = path to the main worktree.") + "\n\n")
+		b.WriteString("  " + m.postCreateTA.View() + "\n\n")
+		if m.actionErr != nil {
+			b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n\n")
+		}
+		content := b.String()
+		lines := strings.Count(content, "\n")
+		if pad := m.height - lines - 1; pad > 0 {
+			content += strings.Repeat("\n", pad)
+		}
+		return content + styleDim.Render("  [ctrl+d] save & run  [esc] skip once") + "\n"
+	}
+
+	cmds := *m.cfg.Worktree.PostCreate
+	b.WriteString("  " + styleDim.Render("Run post-create commands?") + "\n\n")
+	for _, cmd := range cmds {
+		b.WriteString("  " + styleCmd.Render(cmd) + "\n")
+	}
+	b.WriteString("\n")
+	if m.actionErr != nil {
+		b.WriteString("  " + styleChanged.Render("error: "+m.actionErr.Error()) + "\n\n")
+	}
+	content := b.String()
+	lines := strings.Count(content, "\n")
+	if pad := m.height - lines - 1; pad > 0 {
+		content += strings.Repeat("\n", pad)
+	}
+	return content + styleDim.Render("  [enter] run  [s] skip") + "\n"
 }
 
 func (m model) blameView() string {
