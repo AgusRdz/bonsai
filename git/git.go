@@ -1082,12 +1082,12 @@ func (r *Runner) AddWorktree(ctx context.Context, path, branch, base string) err
 		return fmt.Errorf("directory %q does not exist", parent)
 	}
 	if branch == "" {
-		name := filepath.Base(path)
+		// No branch requested — create a detached HEAD worktree at base (or HEAD).
 		if base != "" {
-			_, err := r.run(ctx, "worktree", "add", "-b", name, path, base)
+			_, err := r.run(ctx, "worktree", "add", "--detach", path, base)
 			return err
 		}
-		_, err := r.run(ctx, "worktree", "add", "-b", name, path)
+		_, err := r.run(ctx, "worktree", "add", "--detach", path)
 		return err
 	}
 	// Check whether the branch already exists locally.

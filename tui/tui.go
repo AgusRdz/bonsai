@@ -6724,13 +6724,9 @@ func (m model) updateWorktreeAddPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.actionErr = nil
 			return m, nil
 		}
-		// Step 1: collect branch name, validate, then create.
+		// Step 1: collect branch name (empty = detached HEAD), validate, then create.
 		label := strings.TrimSpace(m.branchInput.Value())
 		branch := strings.TrimSpace(m.worktreeBranchInput.Value())
-		if branch == "" {
-			m.actionErr = fmt.Errorf("branch name cannot be empty")
-			return m, nil
-		}
 		if m.repoRoot == "" {
 			m.actionErr = fmt.Errorf("cannot determine repo root for default path")
 			return m, nil
@@ -8767,6 +8763,7 @@ func (m model) worktreeAddView() string {
 			b.WriteString("  " + styleDim.Render("path: "+worktreeDefaultPath(m.repoRoot, label)) + "\n\n")
 		}
 		b.WriteString("  " + m.worktreeBranchInput.View() + "\n\n")
+		b.WriteString("  " + styleDim.Render("leave empty to start detached from HEAD (create branch later)") + "\n\n")
 		branch := strings.TrimSpace(m.worktreeBranchInput.Value())
 		if branch != "" && m.cfg.Conventions.Validation.Mode != "off" && len(m.cfg.Conventions.Branches) > 0 {
 			result := conventions.Validate(branch, m.cfg.Conventions)
