@@ -1073,19 +1073,27 @@ func (r *Runner) RepoRoot(ctx context.Context) (string, error) {
 
 // AddWorktree creates a new worktree at path checked out to branch.
 // If branch is empty, creates a new branch named after the last path component.
+// If branch does not exist locally, it is created with -b.
 // Returns an error if the parent directory of path does not exist.
 func (r *Runner) AddWorktree(ctx context.Context, path, branch string) error {
 	parent := filepath.Dir(path)
 	if _, err := os.Stat(parent); err != nil {
 		return fmt.Errorf("directory %q does not exist", parent)
 	}
-	var err error
 	if branch == "" {
 		base := filepath.Base(path)
-		_, err = r.run(ctx, "worktree", "add", "-b", base, path)
-	} else {
-		_, err = r.run(ctx, "worktree", "add", path, branch)
+		_, err := r.run(ctx, "worktree", "add", "-b", base, path)
+		return err
 	}
+	// Check whether the branch already exists locally.
+	_, existsErr := r.run(ctx, "rev-parse", "--verify", "refs/heads/"+branch)
+	if existsErr == nil {
+		// Existing branch — check it out into the new worktree.
+		_, err := r.run(ctx, "worktree", "add", path, branch)
+		return err
+	}
+	// New branch — create it from HEAD.
+	_, err := r.run(ctx, "worktree", "add", "-b", branch, path)
 	return err
 }
 
