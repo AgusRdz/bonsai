@@ -6797,15 +6797,15 @@ func (m model) updateWorktreeListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "D":
 		var merged []git.WorktreeEntry
 		for _, wt := range m.worktrees {
-			if wt.Merged {
+			if wt.Merged || wt.Gone {
 				merged = append(merged, wt)
 			}
 		}
 		if len(merged) == 0 {
-			m.actionErr = fmt.Errorf("no merged worktrees to remove")
+			m.actionErr = fmt.Errorf("no merged or gone worktrees to remove")
 			break
 		}
-		m.confirmPrompt = fmt.Sprintf("remove %d merged worktree(s)?", len(merged))
+		m.confirmPrompt = fmt.Sprintf("remove %d merged/gone worktree(s)?", len(merged))
 		m.confirmCmd = m.doRemoveMergedWorktrees(merged)
 		m.panel = panelConfirm
 		m.actionErr = nil
@@ -8887,11 +8887,13 @@ func (m model) worktreeListView() string {
 			}
 			path := styleCmd.Render(wt.Path)
 			branch := styleDim.Render(wt.Branch)
-			mergedTag := ""
+			tag := ""
 			if wt.Merged {
-				mergedTag = "  " + styleMerged.Render("[merged]")
+				tag = "  " + styleMerged.Render("[merged]")
+			} else if wt.Gone {
+				tag = "  " + styleMerged.Render("[gone]")
 			}
-			b.WriteString(cursor + mark + path + "  " + branch + mergedTag + "\n")
+			b.WriteString(cursor + mark + path + "  " + branch + tag + "\n")
 		}
 	}
 	b.WriteString("\n")
@@ -8907,7 +8909,7 @@ func (m model) worktreeListView() string {
 	}
 	hasMerged := false
 	for _, wt := range m.worktrees {
-		if wt.Merged {
+		if wt.Merged || wt.Gone {
 			hasMerged = true
 			break
 		}

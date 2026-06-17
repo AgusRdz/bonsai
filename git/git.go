@@ -1022,7 +1022,8 @@ type WorktreeEntry struct {
 	Path    string // absolute path to the worktree
 	Branch  string // checked-out branch name, or "(detached)" for detached HEAD
 	Current bool   // true if this is the main worktree (the one we're in)
-	Merged  bool   // true if branch is fully merged into HEAD
+	Merged  bool   // true if branch is fully merged into the default branch
+	Gone    bool   // true if the branch's upstream tracking ref no longer exists on the remote
 }
 
 // Worktrees returns all worktrees including the main one.
@@ -1048,11 +1049,27 @@ func (r *Runner) Worktrees(ctx context.Context) ([]WorktreeEntry, error) {
 		mergedSet[b] = true
 	}
 	for i := range entries {
-		if !entries[i].Current && mergedSet[entries[i].Branch] {
+		if entries[i].Current {
+			continue
+		}
+		if mergedSet[entries[i].Branch] {
 			entries[i].Merged = true
+		} else if r.isUpstreamGone(ctx, entries[i].Branch) {
+			entries[i].Gone = true
 		}
 	}
 	return entries, nil
+}
+
+// isUpstreamGone reports whether the branch's upstream tracking ref has been
+// deleted on the remote. git for-each-ref emits "[gone]" in %(upstream:track)
+// when the remote ref no longer exists after a fetch.
+func (r *Runner) isUpstreamGone(ctx context.Context, branch string) bool {
+	out, err := r.run(ctx, "for-each-ref", "--format=%(upstream:track)", "refs/heads/"+branch)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "[gone]"
 }
 
 // parseWorktrees parses the porcelain output of `git worktree list --porcelain`.
