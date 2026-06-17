@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.91.1] - 2026-06-17
+
+### Bug Fixes
+- Worktree merged detection — check against main/master, not HEAD
+([746a2c9](https://github.com/AgusRdz/bonsai/commit/746a2c9a09e1d884cbd60321f1f6159297307d80))
 ## [0.91.0] - 2026-06-15
 
 ### Features
