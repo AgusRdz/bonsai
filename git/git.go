@@ -1033,11 +1033,10 @@ func (r *Runner) Worktrees(ctx context.Context) ([]WorktreeEntry, error) {
 		return nil, err
 	}
 	entries := parseWorktrees(string(out))
-	// Prefer the default branch over HEAD so that worktrees whose branches were
-	// merged into main/master are detected even when the main worktree itself is
-	// on a feature branch.
+	// Prefer origin/main (or origin/master) so merged detection works without a
+	// local pull, and also when the main worktree is itself on a feature branch.
 	mergeTarget := "HEAD"
-	for _, candidate := range []string{"main", "master"} {
+	for _, candidate := range []string{"origin/main", "origin/master", "main", "master"} {
 		if _, err2 := r.run(ctx, "rev-parse", "--verify", candidate); err2 == nil {
 			mergeTarget = candidate
 			break
