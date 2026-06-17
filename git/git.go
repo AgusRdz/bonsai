@@ -1033,7 +1033,17 @@ func (r *Runner) Worktrees(ctx context.Context) ([]WorktreeEntry, error) {
 		return nil, err
 	}
 	entries := parseWorktrees(string(out))
-	merged, _ := r.MergedBranches(ctx, "HEAD")
+	// Prefer the default branch over HEAD so that worktrees whose branches were
+	// merged into main/master are detected even when the main worktree itself is
+	// on a feature branch.
+	mergeTarget := "HEAD"
+	for _, candidate := range []string{"main", "master"} {
+		if _, err2 := r.run(ctx, "rev-parse", "--verify", candidate); err2 == nil {
+			mergeTarget = candidate
+			break
+		}
+	}
+	merged, _ := r.MergedBranches(ctx, mergeTarget)
 	mergedSet := make(map[string]bool, len(merged))
 	for _, b := range merged {
 		mergedSet[b] = true
