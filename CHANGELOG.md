@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.91.3] - 2026-06-17
+
+### Features
+- Worktree list — show [gone] tag for upstream-deleted branches
+([0d10f94](https://github.com/AgusRdz/bonsai/commit/0d10f946e44ad2542c3bc06c660f5645c4dba938))
 ## [0.91.2] - 2026-06-17
 
 ### Bug Fixes
