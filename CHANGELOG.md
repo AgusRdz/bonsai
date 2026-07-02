@@ -2,6 +2,25 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.92.1] - 2026-07-02
+
+### Bug Fixes
+- Preserve unrelated sections when saving [worktree] to .bonsai.toml
+([ff3587a](https://github.com/AgusRdz/bonsai/commit/ff3587a7459b58dc254536b87c342a3c492e7159))
+- Stash list stays open after dropping; surface swallowed config-bar write error
+([57667ae](https://github.com/AgusRdz/bonsai/commit/57667ae228da27a8ce29b5d8d8f63e97c6e8311c))
+
+### CI/CD
+- Enforce go vet + golangci-lint; fix pre-existing violations
+([75496c5](https://github.com/AgusRdz/bonsai/commit/75496c5eff41a70196138ae98c43fba834198f86))
+
+### Miscellaneous
+- Normalize line endings to LF via .gitattributes
+([6f52292](https://github.com/AgusRdz/bonsai/commit/6f5229276b64c77aee8f1a84b544a5092b6cd39e))
+
+### Other
+- Apply gofmt to doctor.go and tui.go
+([67c5697](https://github.com/AgusRdz/bonsai/commit/67c56978a31718d242d7e49d63146e5a8ea2fdd9))
 ## [0.92.0] - 2026-07-02
 
 ### Features
