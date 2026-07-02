@@ -344,3 +344,55 @@ func TestMigrateRoamingNoOpWhenLocalExists(t *testing.T) {
 		t.Errorf("local config was overwritten: got %q, want %q", got, localConfig)
 	}
 }
+
+// TestSaveProjectWorktreePreservesOtherSections guards against the regression
+// where writing [worktree] to .bonsai.toml wiped out every other section.
+func TestSaveProjectWorktreePreservesOtherSections(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".bonsai.toml")
+
+	// Seed a project config that already carries non-worktree sections with
+	// non-default values, so a dropped section is detectable after the save.
+	seed := "[flow]\ntype = \"gitflow\"\n\n[conventions.branches.feature]\nprefix = \"feature/\"\n"
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SaveProjectWorktree(dir, []string{"npm install"}); err != nil {
+		t.Fatalf("SaveProjectWorktree: %v", err)
+	}
+
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("LoadFile returned nil")
+	}
+
+	// The section we wrote.
+	if cfg.Worktree.PostCreate == nil || len(*cfg.Worktree.PostCreate) != 1 ||
+		(*cfg.Worktree.PostCreate)[0] != "npm install" {
+		t.Errorf("worktree.post_create not saved: %#v", cfg.Worktree.PostCreate)
+	}
+	// The sections that must survive the round-trip.
+	if cfg.Flow.Type != "gitflow" {
+		t.Errorf("flow.type = %q, want gitflow — section was clobbered", cfg.Flow.Type)
+	}
+	if got := cfg.Conventions.Branches["feature"].Prefix; got != "feature/" {
+		t.Errorf("conventions.branches.feature.prefix = %q, want feature/ — section was clobbered", got)
+	}
+}
+
+// TestSaveProjectWorktreeRejectsCorruptFile verifies a broken .bonsai.toml is
+// surfaced as an error rather than silently overwritten.
+func TestSaveProjectWorktreeRejectsCorruptFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".bonsai.toml")
+	if err := os.WriteFile(path, []byte("this = = not valid toml"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProjectWorktree(dir, []string{"echo hi"}); err == nil {
+		t.Error("expected error on corrupt .bonsai.toml, got nil (file would be clobbered)")
+	}
+}

@@ -43,19 +43,20 @@ type WorktreeConfig struct {
 	PostCreate *[]string `toml:"post_create"`
 }
 
-// projectWorktreeConfig is a minimal struct used when writing the per-project
-// .bonsai.toml so we don't clobber unrelated config sections.
-type projectWorktreeConfig struct {
-	Worktree WorktreeConfig `toml:"worktree"`
-}
-
-// SaveProjectWorktree writes the post_create command list to .bonsai.toml in
-// dir, preserving any existing [worktree] settings.
+// SaveProjectWorktree writes the post_create command list to the [worktree]
+// section of .bonsai.toml in dir, preserving every OTHER section already in the
+// file. It decodes into a generic map rather than a worktree-only struct on
+// purpose: a struct decode would silently drop unrelated sections like [flow]
+// or [conventions] on re-encode.
 func SaveProjectWorktree(dir string, cmds []string) error {
 	path := filepath.Join(dir, ".bonsai.toml")
-	var existing projectWorktreeConfig
-	_, _ = toml.DecodeFile(path, &existing)
-	existing.Worktree.PostCreate = &cmds
+	existing := map[string]any{}
+	// Don't clobber a file we can't read: a corrupt or hand-broken .bonsai.toml
+	// should surface an error, not be silently overwritten.
+	if _, err := toml.DecodeFile(path, &existing); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read existing %s: %w", path, err)
+	}
+	existing["worktree"] = WorktreeConfig{PostCreate: &cmds}
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(existing); err != nil {
 		return err
