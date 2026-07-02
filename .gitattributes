@@ -1,0 +1,9 @@
+# Force LF line endings in the working tree on every platform so gofmt and
+# `make lint` (run in the Linux dev container) agree with the committed blobs.
+# Without this, autocrlf=true on Windows gives the working tree CRLF, which
+# gofmt flags on every .go file — masking real lint issues.
+* text=auto eol=lf
+
+# Binary assets must never be line-ending munged.
+*.png binary
+*.ico binary
