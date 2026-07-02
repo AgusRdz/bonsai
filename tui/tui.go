@@ -875,6 +875,9 @@ func (m model) doSaveUsage() tea.Cmd {
 	data := m.usage
 	path := m.usagePath
 	return func() tea.Msg {
+		// Best-effort by design: usage.json is command-frequency telemetry that
+		// drives the education/mastery prompts. A failed write must never nag or
+		// interrupt the user, so the error is intentionally dropped.
 		_ = data.Save(path)
 		return nil
 	}
@@ -1357,30 +1360,6 @@ func (m model) doRestoreMany(paths []string) tea.Cmd {
 			info = fmt.Sprintf("unstaged %d files", len(paths))
 		}
 		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
-	}
-}
-
-func (m model) doDiscardMany(paths []string) tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-		defer cancel()
-		err := m.git.Discard(ctx, paths...)
-		info := ""
-		if err == nil {
-			info = fmt.Sprintf("discarded %d files", len(paths))
-		}
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
-	}
-}
-
-func (m model) doDeleteFromDiskMany(paths []string) tea.Cmd {
-	return func() tea.Msg {
-		for _, p := range paths {
-			if err := os.RemoveAll(strings.TrimSuffix(p, "/")); err != nil {
-				return actionDoneMsg{cmd: "rm " + p, err: err}
-			}
-		}
-		return actionDoneMsg{cmd: "rm", info: fmt.Sprintf("deleted %d files from disk", len(paths))}
 	}
 }
 
@@ -1983,20 +1962,6 @@ func (m model) doAmendNoEditStream(ch chan<- string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.AmendNoEditStream(ctx, ch, noVerify)
-		var info string
-		if err == nil {
-			info = "amended last commit (staged changes added)"
-		}
-		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
-	}
-}
-
-func (m model) doAmendNoEdit() tea.Cmd {
-	noVerify := m.noVerify
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-		defer cancel()
-		err := m.git.AmendNoEdit(ctx, noVerify)
 		var info string
 		if err == nil {
 			info = "amended last commit (staged changes added)"
@@ -3112,6 +3077,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.actionErr = msg.err
+
+		// A stash drop should return to the (refreshed) stash list rather than
+		// bounce out to the main panel via the education screen — so several
+		// stashes can be triaged in a row. On success only; errors fall through
+		// so they're displayed. stashListMsg resets the panel and cursor.
+		if msg.err == nil && strings.Contains(msg.cmd, "stash drop") {
+			return m, tea.Batch(m.fetchStatus(), m.doFetchStashList())
+		}
 
 		// Metrics tracking (best-effort, never block the TUI).
 		if m.mdb != nil {
@@ -10266,9 +10239,11 @@ func (m model) doSaveCommandBar() tea.Cmd {
 	return func() tea.Msg {
 		p, err := config.GlobalConfigPath()
 		if err != nil {
-			return nil
+			return errMsg{fmt.Errorf("save command bar: %w", err)}
 		}
-		_ = config.Write(p, cfg)
+		if err := config.Write(p, cfg); err != nil {
+			return errMsg{fmt.Errorf("save command bar: %w", err)}
+		}
 		return nil
 	}
 }
