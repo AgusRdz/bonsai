@@ -283,116 +283,116 @@ const (
 )
 
 type model struct {
-	cfg                 *config.Config
-	version             string
-	git                 *git.Runner
-	status              *git.Status
-	files               []fileItem // flat list of all selectable files
-	cursor              int
-	panel               panel
-	commitMsg           textinput.Model
-	branchInput         textinput.Model
-	branchMode          branchMode
-	convViolation       *conventions.Result
-	convPanelShown      bool // panel already shown for current branch violation
-	logEntries          []git.LogEntry
-	logCursor           int
-	logOffset           int             // pagination: how many commits already loaded
-	logHasMore          bool            // more commits available to load
-	logFilter           string          // active filter query; empty = no filter
-	logFilterInput      textinput.Model // search input field
-	logFiltering        bool            // search input is focused
-	branches            []git.Branch
-	branchCursor        int
-	branchFilter        string
-	branchFilterInput   textinput.Model
-	branchFiltering     bool
-	diffLines           []string
-	diffPositions       []diffLinePos
-	diffCursor          int
-	diffScroll          int
-	diffTitle           string
-	prDiffNumber        int
-	prLineCommentActive bool
-	prLineCommentInput  textinput.Model
-	stashes             []git.StashEntry
-	stashCursor         int
-	stashFilter         string
-	stashFilterInput    textinput.Model
-	stashFiltering      bool
-	stashFilesRef       string
-	stashFilesList      []string
-	stashFilesSel       []bool
-	stashFilesCursor    int
-	stashPendingAction  string // "apply" or "pop" — set when previewing stash diff before confirming
-	confirmPrompt       string
-	confirmCmd          tea.Cmd
-	confirmOrigin       panel // panel to return to on cancel; zero = panelMain
-	flowOptions         []flowOption
-	flowPickCursor      int
-	commitDetail        *git.CommitDetail
-	commitDetailScroll  int
-	cpRangeTarget       string         // "to" hash for range cherry-pick
-	cpRangeInput        textinput.Model
-	cpRangeInputActive  bool
-	conflictPath        string
-	conflictLines       []string
-	conflictScroll      int
-	conflictParts       []conflictPart
-	conflictHunkCursor  int
-	conflictHunkRes     []int    // parallel to conflict-only parts; hunkUnresolved/Ours/Theirs/Both
-	conflictCustom      []string // per-hunk custom content when edited manually (nil = not edited)
-	conflictEditMode    bool
-	conflictEditInput   textinput.Model
-	tags                []git.TagEntry
-	tagCursor           int
-	tagFilter           string
-	tagFilterInput      textinput.Model
-	tagFiltering        bool
-	tagAnnotated        bool           // true when creating an annotated tag
-	tagAnnotateStep     int            // 0=name, 1=message
-	tagMsgInput         textinput.Model
-	worktrees              []git.WorktreeEntry
-	worktreeCursor         int
-	repoRoot               string
-	worktreeAddStep        int             // 0=label, 1=branch name
-	worktreeBranchInput    textinput.Model // step-1 branch name input
-	pendingWorktreePath    string
-	pendingWorktreeBranch  string
-	postCreatePath         string
-	postCreateSetup        bool            // true=first-time textarea, false=confirm existing
-	postCreateTA           textarea.Model
-	edu                 *educationPanel
-	eduTimer            int
-	width               int
-	height              int
-	ready               bool
-	err                 error  // startup/refresh error
-	actionErr           error  // error from last action
-	lastCmd             string // last git command run
-	lastInfo            string // human-readable result of last action
-	pushing             bool
-	pulling             bool
-	committing          bool
-	amending            bool
-	amendProgressCh     <-chan string
-	amendLog            []string
-	noVerify            bool
-	blameLines          []git.BlameLine
-	blameScroll         int
-	blameTitle          string
-	bisectState         *git.BisectState
-	bisectLog           string
-	bisectInput         textinput.Model
-	bisectInputActive   bool
-	rebaseTodos         []rebaseTodo
-	rebaseCursor        int
-	rebaseBase          string          // e.g. "HEAD~3"
-	rebaseBaseInput     textinput.Model // input for entering the base ref
-	rebaseStep          int             // 0 = enter base ref, 1 = edit todo list
-	amendInput          textinput.Model
-	amendField          int               // 0=menu, 1=message, 2=author, 3=date
-	amendDetail         *git.CommitDetail // HEAD commit shown in the panel
+	cfg                   *config.Config
+	version               string
+	git                   *git.Runner
+	status                *git.Status
+	files                 []fileItem // flat list of all selectable files
+	cursor                int
+	panel                 panel
+	commitMsg             textinput.Model
+	branchInput           textinput.Model
+	branchMode            branchMode
+	convViolation         *conventions.Result
+	convPanelShown        bool // panel already shown for current branch violation
+	logEntries            []git.LogEntry
+	logCursor             int
+	logOffset             int             // pagination: how many commits already loaded
+	logHasMore            bool            // more commits available to load
+	logFilter             string          // active filter query; empty = no filter
+	logFilterInput        textinput.Model // search input field
+	logFiltering          bool            // search input is focused
+	branches              []git.Branch
+	branchCursor          int
+	branchFilter          string
+	branchFilterInput     textinput.Model
+	branchFiltering       bool
+	diffLines             []string
+	diffPositions         []diffLinePos
+	diffCursor            int
+	diffScroll            int
+	diffTitle             string
+	prDiffNumber          int
+	prLineCommentActive   bool
+	prLineCommentInput    textinput.Model
+	stashes               []git.StashEntry
+	stashCursor           int
+	stashFilter           string
+	stashFilterInput      textinput.Model
+	stashFiltering        bool
+	stashFilesRef         string
+	stashFilesList        []string
+	stashFilesSel         []bool
+	stashFilesCursor      int
+	stashPendingAction    string // "apply" or "pop" — set when previewing stash diff before confirming
+	confirmPrompt         string
+	confirmCmd            tea.Cmd
+	confirmOrigin         panel // panel to return to on cancel; zero = panelMain
+	flowOptions           []flowOption
+	flowPickCursor        int
+	commitDetail          *git.CommitDetail
+	commitDetailScroll    int
+	cpRangeTarget         string // "to" hash for range cherry-pick
+	cpRangeInput          textinput.Model
+	cpRangeInputActive    bool
+	conflictPath          string
+	conflictLines         []string
+	conflictScroll        int
+	conflictParts         []conflictPart
+	conflictHunkCursor    int
+	conflictHunkRes       []int    // parallel to conflict-only parts; hunkUnresolved/Ours/Theirs/Both
+	conflictCustom        []string // per-hunk custom content when edited manually (nil = not edited)
+	conflictEditMode      bool
+	conflictEditInput     textinput.Model
+	tags                  []git.TagEntry
+	tagCursor             int
+	tagFilter             string
+	tagFilterInput        textinput.Model
+	tagFiltering          bool
+	tagAnnotated          bool // true when creating an annotated tag
+	tagAnnotateStep       int  // 0=name, 1=message
+	tagMsgInput           textinput.Model
+	worktrees             []git.WorktreeEntry
+	worktreeCursor        int
+	repoRoot              string
+	worktreeAddStep       int             // 0=label, 1=branch name
+	worktreeBranchInput   textinput.Model // step-1 branch name input
+	pendingWorktreePath   string
+	pendingWorktreeBranch string
+	postCreatePath        string
+	postCreateSetup       bool // true=first-time textarea, false=confirm existing
+	postCreateTA          textarea.Model
+	edu                   *educationPanel
+	eduTimer              int
+	width                 int
+	height                int
+	ready                 bool
+	err                   error  // startup/refresh error
+	actionErr             error  // error from last action
+	lastCmd               string // last git command run
+	lastInfo              string // human-readable result of last action
+	pushing               bool
+	pulling               bool
+	committing            bool
+	amending              bool
+	amendProgressCh       <-chan string
+	amendLog              []string
+	noVerify              bool
+	blameLines            []git.BlameLine
+	blameScroll           int
+	blameTitle            string
+	bisectState           *git.BisectState
+	bisectLog             string
+	bisectInput           textinput.Model
+	bisectInputActive     bool
+	rebaseTodos           []rebaseTodo
+	rebaseCursor          int
+	rebaseBase            string          // e.g. "HEAD~3"
+	rebaseBaseInput       textinput.Model // input for entering the base ref
+	rebaseStep            int             // 0 = enter base ref, 1 = edit todo list
+	amendInput            textinput.Model
+	amendField            int               // 0=menu, 1=message, 2=author, 3=date
+	amendDetail           *git.CommitDetail // HEAD commit shown in the panel
 
 	configMenuCursor      int
 	configSection         configSection

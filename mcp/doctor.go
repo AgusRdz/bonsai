@@ -31,10 +31,30 @@ func Doctor(scan, test bool) {
 	stat, err := os.Stdout.Stat()
 	tty := err == nil && (stat.Mode()&os.ModeCharDevice) != 0
 
-	green  := func(s string) string { if tty { return "\033[32m" + s + "\033[0m" }; return s }
-	yellow := func(s string) string { if tty { return "\033[33m" + s + "\033[0m" }; return s }
-	dim    := func(s string) string { if tty { return "\033[2m"  + s + "\033[0m" }; return s }
-	bold   := func(s string) string { if tty { return "\033[1m"  + s + "\033[0m" }; return s }
+	green := func(s string) string {
+		if tty {
+			return "\033[32m" + s + "\033[0m"
+		}
+		return s
+	}
+	yellow := func(s string) string {
+		if tty {
+			return "\033[33m" + s + "\033[0m"
+		}
+		return s
+	}
+	dim := func(s string) string {
+		if tty {
+			return "\033[2m" + s + "\033[0m"
+		}
+		return s
+	}
+	bold := func(s string) string {
+		if tty {
+			return "\033[1m" + s + "\033[0m"
+		}
+		return s
+	}
 
 	pad := func(s string, n int) string {
 		r := []rune(s)
