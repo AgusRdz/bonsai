@@ -17,6 +17,11 @@ var (
 	styleChanged = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Dark: "9", Light: "1"})
 
+	// styleWarn is amber — a lesser warning than styleChanged's red.
+	// Used for the "⚠ old" stash tag (age-based, not staleness).
+	styleWarn = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Dark: "11", Light: "3"})
+
 	styleUntracked = lipgloss.NewStyle().
 			Foreground(lipgloss.AdaptiveColor{Dark: "11", Light: "3"})
 

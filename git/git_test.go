@@ -282,9 +282,13 @@ func TestParseStashListNulFormat(t *testing.T) {
 	if entries[1].Ref != "stash@{1}" {
 		t.Errorf("entries[1].Ref = %q, want stash@{1}", entries[1].Ref)
 	}
-	// Stale is set by StashList() via merge-base; parseStashList itself never sets it.
+	// Stale and Behind are set by StashList() via merge-base/rev-list;
+	// parseStashList itself never sets them.
 	if entries[0].Stale || entries[1].Stale {
 		t.Error("parseStashList should not set Stale — that is StashList()'s responsibility")
+	}
+	if entries[0].Behind != 0 || entries[1].Behind != 0 {
+		t.Error("parseStashList should not set Behind — that is StashList()'s responsibility")
 	}
 }
 

@@ -7841,8 +7841,16 @@ func (m model) stashListView() string {
 			if st.Stale {
 				stale = styleChanged.Render("⚠ stale") + "  "
 			}
+			old := ""
+			if isOldStash(st.Date) {
+				old = styleWarn.Render("⚠ old") + "  "
+			}
+			behind := ""
+			if st.Behind > 0 {
+				behind = styleDim.Render(fmt.Sprintf("↓%d behind", st.Behind)) + "  "
+			}
 			desc := st.Description
-			b.WriteString(cursor + "  " + ref + "  " + age + stale + desc + "\n")
+			b.WriteString(cursor + "  " + ref + "  " + age + stale + old + behind + desc + "\n")
 		}
 	}
 	b.WriteString("\n")
@@ -10695,6 +10703,19 @@ func min(a, b int) int {
 
 // timeAgo returns a human-readable relative time string ("2 hours ago", "3 days ago", etc.).
 // Returns an empty string when t is the zero value.
+// stashOldThreshold is how long a stash can sit before the stash list flags it
+// "⚠ old". This is a pure age check, independent of the stale (base-branch-moved)
+// check — a stash can be old, stale, both, or neither.
+const stashOldThreshold = 7 * 24 * time.Hour
+
+// isOldStash reports whether a stash created at t has aged past stashOldThreshold.
+func isOldStash(t time.Time) bool {
+	if t.IsZero() {
+		return false
+	}
+	return time.Since(t) >= stashOldThreshold
+}
+
 func timeAgo(t time.Time) string {
 	if t.IsZero() {
 		return ""

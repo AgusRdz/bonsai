@@ -104,6 +104,7 @@ type StashEntry struct {
 	Description string    // e.g. "On main: WIP on login flow"
 	Date        time.Time // when the stash was created
 	Stale       bool      // true when the stash base commit is no longer an ancestor of HEAD
+	Behind      int       // commits landed on HEAD since the stash's base (linear drift)
 }
 
 // Runner wraps the git binary. All commands run in the current working directory.
@@ -910,13 +911,22 @@ func (r *Runner) StashList(ctx context.Context) ([]StashEntry, error) {
 	// is no longer an ancestor of HEAD — e.g. after a rebase or force-push.
 	// exit 0 = is ancestor (not stale), exit 1 = not ancestor (stale).
 	for i, e := range entries {
-		_, mergeErr := r.run(ctx, "merge-base", "--is-ancestor", e.Ref+"^", "HEAD")
+		base := e.Ref + "^"
+		_, mergeErr := r.run(ctx, "merge-base", "--is-ancestor", base, "HEAD")
 		if mergeErr != nil {
 			var exitErr *exec.ExitError
 			if errors.As(mergeErr, &exitErr) && exitErr.ExitCode() == 1 {
 				entries[i].Stale = true
 			}
 			// any other error (invalid ref, etc.) → leave Stale=false
+		}
+		// Behind counts commits landed on HEAD since the stash's base — the
+		// linear-drift signal Stale misses (base still an ancestor of HEAD,
+		// but HEAD has moved on). Best-effort: leave 0 on any error.
+		if out, cntErr := r.run(ctx, "rev-list", "--count", base+"..HEAD"); cntErr == nil {
+			if n, convErr := strconv.Atoi(strings.TrimSpace(string(out))); convErr == nil {
+				entries[i].Behind = n
+			}
 		}
 	}
 	return entries, nil
