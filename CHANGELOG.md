@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.92.0] - 2026-07-02
+
+### Features
+- Stash list — add age-based '⚠ old' and drift-based '↓N behind' status tags
+([784bd4d](https://github.com/AgusRdz/bonsai/commit/784bd4d948a1733c665147c86ad8a859a4fd3a72))
 ## [0.91.3] - 2026-06-17
 
 ### Features
