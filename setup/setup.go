@@ -191,7 +191,7 @@ func wizard(local bool, existing *config.Config) (*config.Config, error) {
 			fmt.Printf("  %-10s → e.g. %s\n", t.name, buildExampleWithTicket(defaultPrefix, ticketKey, t.example))
 			answer := ask(sc, fmt.Sprintf("  enable %-10s [y/n]", t.name), defaultAnswer)
 			if answer == "y" || answer == "yes" {
-				prefix := ask(sc, fmt.Sprintf("    prefix"), defaultPrefix)
+				prefix := ask(sc, "    prefix", defaultPrefix)
 				if prefix != "" {
 					cfg.Conventions.Branches[t.name] = config.BranchRule{
 						Prefix:  prefix,

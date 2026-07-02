@@ -340,7 +340,7 @@ func replaceBinary(destPath, srcPath string) error {
 				return nil
 			}
 		}
-		os.Rename(oldPath, destPath) // best-effort rollback
+		_ = os.Rename(oldPath, destPath) // best-effort rollback
 		return fmt.Errorf("could not replace binary: %w", lastErr)
 	}
 	// Linux/macOS: os.Rename atomically replaces the path entry.
