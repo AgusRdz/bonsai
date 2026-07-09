@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.93.0] - 2026-07-09
+
+### Features
+- Detect squash-merged branches and fold them into the sweep
+([bf25c8f](https://github.com/AgusRdz/bonsai/commit/bf25c8fb9dceb72c81d4e0b66417b9c4915498a8))
 ## [0.92.4] - 2026-07-09
 
 ### Bug Fixes
