@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.92.2] - 2026-07-09
+
+### Bug Fixes
+- Stash list hangs on 'loading...' after dropping the last stash
+([d546741](https://github.com/AgusRdz/bonsai/commit/d546741595f3afdb06b0067eeef7c5ab83081ecf))
 ## [0.92.1] - 2026-07-02
 
 ### Bug Fixes
