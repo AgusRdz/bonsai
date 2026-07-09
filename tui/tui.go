@@ -1558,6 +1558,25 @@ func (m model) doAddWorktree(path, branch, base string) tea.Cmd {
 	}
 }
 
+// lockPIDRe extracts the owning process id from a worktree lock reason such as
+// "claude agent agent-a65aadfc4b09df79a (pid 9500)".
+var lockPIDRe = regexp.MustCompile(`(?i)pid[:= ]*(\d+)`)
+
+// lockOwnerAlive reports whether a locked worktree's owning process is still
+// running. The bool is false when the reason carries no parseable pid — the
+// caller must then decide how to treat an unverifiable lock.
+func lockOwnerAlive(reason string) (alive bool, pidKnown bool) {
+	m := lockPIDRe.FindStringSubmatch(reason)
+	if m == nil {
+		return false, false
+	}
+	pid, err := strconv.Atoi(m[1])
+	if err != nil {
+		return false, false
+	}
+	return processAlive(pid), true
+}
+
 func (m model) doRemoveWorktree(path string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
@@ -1571,13 +1590,42 @@ func (m model) doRemoveWorktree(path string) tea.Cmd {
 	}
 }
 
+// doForceRemoveWorktree removes a locked worktree with a double --force. Only
+// reached after the panel has confirmed the lock is stale (owner dead) or
+// unverifiable and the user has explicitly accepted the override.
+func (m model) doForceRemoveWorktree(path string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		err := m.git.RemoveWorktreeLocked(ctx, path)
+		var info string
+		if err == nil {
+			info = "force-removed locked worktree at " + path
+		}
+		return actionDoneMsg{cmd: m.git.LastCmd(), err: err, info: info}
+	}
+}
+
 func (m model) doRemoveMergedWorktrees(entries []git.WorktreeEntry) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		removed := 0
+		removed, skipped := 0, 0
 		var lastErr error
 		for _, wt := range entries {
-			if err := m.git.RemoveWorktree(ctx, wt.Path); err != nil {
+			var err error
+			if wt.Locked {
+				// Never force-remove a worktree whose owning process is still
+				// alive — an agent may be working in it. Skip it and let the
+				// user handle it deliberately from the single-remove path.
+				if alive, known := lockOwnerAlive(wt.LockReason); known && alive {
+					skipped++
+					continue
+				}
+				err = m.git.RemoveWorktreeLocked(ctx, wt.Path)
+			} else {
+				err = m.git.RemoveWorktree(ctx, wt.Path)
+			}
+			if err != nil {
 				lastErr = err
 			} else {
 				removed++
@@ -1586,6 +1634,9 @@ func (m model) doRemoveMergedWorktrees(entries []git.WorktreeEntry) tea.Cmd {
 		info := ""
 		if lastErr == nil {
 			info = fmt.Sprintf("removed %d merged worktree(s)", removed)
+			if skipped > 0 {
+				info += fmt.Sprintf(" (%d skipped — locked by a live process)", skipped)
+			}
 		}
 		return actionDoneMsg{cmd: m.git.LastCmd(), err: lastErr, info: info}
 	}
@@ -6770,6 +6821,30 @@ func (m model) updateWorktreeListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.actionErr = fmt.Errorf("main worktree is protected")
 			break
 		}
+		if wt.Locked {
+			alive, known := lockOwnerAlive(wt.LockReason)
+			if known && alive {
+				// A live process holds the lock — refuse. Forcing here could
+				// yank the tree out from under a running agent.
+				m.actionErr = fmt.Errorf("worktree is locked by a live process (%s) — stop it or 'git worktree unlock' first", wt.LockReason)
+				break
+			}
+			reason := wt.LockReason
+			if reason == "" {
+				reason = "no reason given"
+			}
+			var detail string
+			if known {
+				detail = "the locking process is not running"
+			} else {
+				detail = "could not verify the lock owner"
+			}
+			m.confirmPrompt = fmt.Sprintf("worktree at %s is LOCKED (%s)\n%s — force-remove it?", wt.Path, reason, detail)
+			m.confirmCmd = m.doForceRemoveWorktree(wt.Path)
+			m.panel = panelConfirm
+			m.actionErr = nil
+			break
+		}
 		m.confirmPrompt = fmt.Sprintf("remove worktree at %s?", wt.Path)
 		m.confirmCmd = m.doRemoveWorktree(wt.Path)
 		m.panel = panelConfirm
@@ -8880,6 +8955,9 @@ func (m model) worktreeListView() string {
 				tag = "  " + styleMerged.Render("[merged]")
 			} else if wt.Gone {
 				tag = "  " + styleMerged.Render("[gone]")
+			}
+			if wt.Locked {
+				tag += "  " + styleChanged.Render("🔒 locked")
 			}
 			b.WriteString(cursor + mark + path + "  " + branch + tag + "\n")
 		}

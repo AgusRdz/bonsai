@@ -1029,11 +1029,13 @@ func (r *Runner) ConflictVersions(ctx context.Context, path string) (base, ours,
 
 // WorktreeEntry is one entry from `git worktree list`.
 type WorktreeEntry struct {
-	Path    string // absolute path to the worktree
-	Branch  string // checked-out branch name, or "(detached)" for detached HEAD
-	Current bool   // true if this is the main worktree (the one we're in)
-	Merged  bool   // true if branch is fully merged into the default branch
-	Gone    bool   // true if the branch's upstream tracking ref no longer exists on the remote
+	Path       string // absolute path to the worktree
+	Branch     string // checked-out branch name, or "(detached)" for detached HEAD
+	Current    bool   // true if this is the main worktree (the one we're in)
+	Merged     bool   // true if branch is fully merged into the default branch
+	Gone       bool   // true if the branch's upstream tracking ref no longer exists on the remote
+	Locked     bool   // true if the worktree is locked (git worktree lock)
+	LockReason string // the lock reason, if any (e.g. "claude agent ... (pid 9500)")
 }
 
 // Worktrees returns all worktrees including the main one.
@@ -1102,6 +1104,11 @@ func parseWorktrees(output string) []WorktreeEntry {
 				entry.Branch = strings.TrimPrefix(strings.TrimPrefix(line, "branch "), "refs/heads/")
 			case line == "detached":
 				entry.Branch = "(detached)"
+			case line == "locked":
+				entry.Locked = true
+			case strings.HasPrefix(line, "locked "):
+				entry.Locked = true
+				entry.LockReason = strings.TrimSpace(strings.TrimPrefix(line, "locked "))
 			}
 		}
 		if entry.Path != "" {
@@ -1161,8 +1168,17 @@ func (r *Runner) AddWorktree(ctx context.Context, path, branch, base string) err
 }
 
 // RemoveWorktree removes a worktree by path. Uses --force to handle unclean state.
+// A single --force does NOT override a lock — use RemoveWorktreeLocked for that.
 func (r *Runner) RemoveWorktree(ctx context.Context, path string) error {
 	_, err := r.run(ctx, "worktree", "remove", "--force", path)
+	return err
+}
+
+// RemoveWorktreeLocked force-removes a locked worktree. git requires a second
+// --force to override a lock ("remove -f -f"). Callers must confirm the lock is
+// stale (owning process dead) before invoking this — see the worktree panel.
+func (r *Runner) RemoveWorktreeLocked(ctx context.Context, path string) error {
+	_, err := r.run(ctx, "worktree", "remove", "--force", "--force", path)
 	return err
 }
 

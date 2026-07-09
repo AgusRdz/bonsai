@@ -237,6 +237,31 @@ func TestParseWorktreesEmpty(t *testing.T) {
 	}
 }
 
+func TestParseWorktreesLocked(t *testing.T) {
+	output := "worktree /home/user/project\nHEAD abc123\nbranch refs/heads/main\n\n" +
+		"worktree /home/user/project-agent\nHEAD def456\nbranch refs/heads/agent-x\nlocked claude agent agent-x (pid 9500)\n\n" +
+		"worktree /home/user/project-plain\nHEAD ghi789\nbranch refs/heads/plain\nlocked\n"
+	entries := parseWorktrees(output)
+	if len(entries) != 3 {
+		t.Fatalf("entry count = %d, want 3", len(entries))
+	}
+	if entries[0].Locked {
+		t.Errorf("main worktree should not be locked")
+	}
+	if !entries[1].Locked {
+		t.Errorf("agent worktree should be locked")
+	}
+	if want := "claude agent agent-x (pid 9500)"; entries[1].LockReason != want {
+		t.Errorf("LockReason = %q, want %q", entries[1].LockReason, want)
+	}
+	if !entries[2].Locked {
+		t.Errorf("plain worktree should be locked")
+	}
+	if entries[2].LockReason != "" {
+		t.Errorf("LockReason = %q, want empty for reasonless lock", entries[2].LockReason)
+	}
+}
+
 func TestParseStashList(t *testing.T) {
 	// legacy plain format (fallback)
 	output := "stash@{0}: On main: WIP on login flow\nstash@{1}: On feat/x: half-done refactor\n"
