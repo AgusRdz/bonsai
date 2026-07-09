@@ -1958,6 +1958,66 @@ func (r *Runner) MergedBranches(ctx context.Context, target string) ([]string, e
 	return names, nil
 }
 
+// SquashMergedBranches returns names of local branches whose entire net change
+// is already present in target as an equivalent patch — the signature of a
+// squash-merge. `git branch --merged` and merge-base --is-ancestor cannot see
+// these because the squash commit has no ancestry link back to the branch.
+//
+// For each branch it reconstructs the branch's cumulative diff as a single
+// commit atop the merge-base, then asks `git cherry` whether that patch already
+// exists in target (patch-id equivalence). No output line starting with "+"
+// means the whole branch is already contained in target. Branches with no
+// unique commits (nothing to merge) are treated as contained.
+//
+// commit-tree writes a dangling commit object per branch; these are unreferenced
+// and reclaimed by routine `git gc`, so the check is effectively read-only.
+func (r *Runner) SquashMergedBranches(ctx context.Context, target string) ([]string, error) {
+	out, err := r.run(ctx, "for-each-ref", "--format=%(refname:short)", "refs/heads/")
+	if err != nil {
+		return nil, err
+	}
+	var squashed []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		name := strings.TrimSpace(line)
+		if name == "" || name == target {
+			continue
+		}
+		mb, err := r.run(ctx, "merge-base", target, name)
+		if err != nil {
+			continue
+		}
+		tree, err := r.run(ctx, "rev-parse", name+"^{tree}")
+		if err != nil {
+			continue
+		}
+		tmp, err := r.run(ctx, "commit-tree", strings.TrimSpace(string(tree)),
+			"-p", strings.TrimSpace(string(mb)), "-m", "squash-check")
+		if err != nil {
+			continue
+		}
+		cherry, err := r.run(ctx, "cherry", target, strings.TrimSpace(string(tmp)))
+		if err != nil {
+			continue
+		}
+		if !cherryHasUnmerged(string(cherry)) {
+			squashed = append(squashed, name)
+		}
+	}
+	return squashed, nil
+}
+
+// cherryHasUnmerged reports whether any `git cherry` line marks a commit as not
+// yet in the upstream ("+ <sha>"). "- <sha>" lines are patch-equivalent commits
+// already present upstream.
+func cherryHasUnmerged(out string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "+") {
+			return true
+		}
+	}
+	return false
+}
+
 // ---------------------------------------------------------------------------
 // Fetch
 // ---------------------------------------------------------------------------

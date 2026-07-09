@@ -1,8 +1,12 @@
 package git
 
 import (
+	"context"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseStatus(t *testing.T) {
@@ -259,6 +263,107 @@ func TestParseWorktreesLocked(t *testing.T) {
 	}
 	if entries[2].LockReason != "" {
 		t.Errorf("LockReason = %q, want empty for reasonless lock", entries[2].LockReason)
+	}
+}
+
+func TestCherryHasUnmerged(t *testing.T) {
+	cases := []struct {
+		name string
+		out  string
+		want bool
+	}{
+		{"all merged", "- abc123\n- def456\n", false},
+		{"one unmerged", "- abc123\n+ def456\n", true},
+		{"empty (nothing to merge)", "", false},
+		{"leading blank lines", "\n\n- abc\n", false},
+	}
+	for _, c := range cases {
+		if got := cherryHasUnmerged(c.out); got != c.want {
+			t.Errorf("%s: cherryHasUnmerged = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestSquashMergedBranches(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
+			"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(dir+"/"+name, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	run("init", "-b", "main")
+	// Configure identity in the repo-local config so commit-tree (invoked by
+	// SquashMergedBranches, which runs git with the ambient environment) has a
+	// committer even when no global git identity is set.
+	run("config", "user.email", "t@t")
+	run("config", "user.name", "t")
+	write("f", "base\n")
+	run("add", "f")
+	run("commit", "-m", "base")
+
+	// feature branch with two commits changing f
+	run("checkout", "-b", "feat")
+	write("f", "base\nfeat-1\n")
+	run("commit", "-am", "c1")
+	write("f", "base\nfeat-1\nfeat-2\n")
+	run("commit", "-am", "c2")
+
+	// abandoned branch with unmerged work in its own file
+	run("checkout", "-b", "abandoned", "main")
+	write("g", "orphan\n")
+	run("add", "g")
+	run("commit", "-m", "orphan")
+
+	// main advances, then squash-merges feat as a single equivalent commit
+	run("checkout", "main")
+	write("h", "unrelated\n")
+	run("add", "h")
+	run("commit", "-m", "main-work")
+	run("checkout", "feat", "--", "f") // stage feat's net change onto main
+	run("commit", "-m", "squash: feat")
+
+	// classic (fast-forward-style) merged branch
+	run("checkout", "-b", "classic", "main")
+	run("checkout", "main")
+
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	names, err := New().SquashMergedBranches(ctx, "main")
+	if err != nil {
+		t.Fatalf("SquashMergedBranches: %v", err)
+	}
+	got := map[string]bool{}
+	for _, n := range names {
+		got[n] = true
+	}
+	if !got["feat"] {
+		t.Errorf("feat should be detected as squash-merged; got %v", names)
+	}
+	if got["abandoned"] {
+		t.Errorf("abandoned has unmerged work and must not be flagged; got %v", names)
 	}
 }
 

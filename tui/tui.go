@@ -514,6 +514,7 @@ type model struct {
 	prListCursor      int
 	protectedBranches map[string]bool // branch names known to be protected on remote
 	mergedBranches    map[string]bool // branch names merged into the default branch
+	squashedBranches  map[string]bool // branch names whose net diff is already in the default branch (squash-merged)
 	prReviewInput     textinput.Model
 	prReviewMode      string // "approve" | "changes" | "comment"
 	prReviewNumber    int
@@ -606,6 +607,7 @@ type diffActionDoneMsg struct {
 type branchListMsg []git.Branch
 type protectedBranchesMsg map[string]bool
 type mergedBranchesMsg map[string]bool
+type squashedBranchesMsg map[string]bool
 type issueListMsg struct {
 	items []pr.Issue
 	err   error
@@ -2825,13 +2827,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.panel = panelBranchList
-		return m, tea.Batch(m.doLoadProtectedBranches(), m.doLoadMergedBranches())
+		return m, tea.Batch(m.doLoadProtectedBranches(), m.doLoadMergedBranches(), m.doLoadSquashedBranches())
 
 	case protectedBranchesMsg:
 		m.protectedBranches = map[string]bool(msg)
 
 	case mergedBranchesMsg:
 		m.mergedBranches = map[string]bool(msg)
+
+	case squashedBranchesMsg:
+		m.squashedBranches = map[string]bool(msg)
 
 	case issueListMsg:
 		if msg.err != nil {
@@ -4845,22 +4850,31 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.panel = panelDiff
 		return m, m.doCompareDiff(b.Name)
 	case "X":
-		var gone []git.Branch
+		var sweep []git.Branch
 		for _, b := range m.branches {
-			if b.Gone && !b.Current {
-				gone = append(gone, b)
+			if b.Current || m.protectedBranches[b.Name] {
+				continue
+			}
+			// gone = remote tracking ref deleted; squashed = net diff already in
+			// the default branch. Both mean the local branch is safe to remove.
+			if b.Gone || m.squashedBranches[b.Name] {
+				sweep = append(sweep, b)
 			}
 		}
-		if len(gone) == 0 {
-			m.actionErr = fmt.Errorf("no gone branches to clean up")
+		if len(sweep) == 0 {
+			m.actionErr = fmt.Errorf("no gone or squashed branches to clean up")
 			break
 		}
-		names := make([]string, len(gone))
-		for i, b := range gone {
-			names[i] = "  · " + b.Name
+		names := make([]string, len(sweep))
+		for i, b := range sweep {
+			tag := "gone"
+			if !b.Gone {
+				tag = "squashed"
+			}
+			names[i] = fmt.Sprintf("  · %s  (%s)", b.Name, tag)
 		}
-		m.confirmPrompt = fmt.Sprintf("delete %d gone branch(es)?\n\n%s", len(gone), strings.Join(names, "\n"))
-		m.confirmCmd = m.doDeleteGoneBranches(gone)
+		m.confirmPrompt = fmt.Sprintf("delete %d gone/squashed branch(es)?\n\n%s", len(sweep), strings.Join(names, "\n"))
+		m.confirmCmd = m.doDeleteGoneBranches(sweep)
 		m.panel = panelConfirm
 		m.actionErr = nil
 	case "/":
@@ -7709,6 +7723,8 @@ func (m model) branchListView() string {
 			}
 			if m.mergedBranches[br.Name] && !br.Current {
 				name += "  " + styleMerged.Render("merged")
+			} else if m.squashedBranches[br.Name] && !br.Current {
+				name += "  " + styleMerged.Render("squashed")
 			}
 			if m.protectedBranches[br.Name] {
 				name += "  " + styleChanged.Render("(protected)")
@@ -7726,18 +7742,28 @@ func (m model) branchListView() string {
 
 	// Context-sensitive hint line.
 	var hint string
-	if len(visible) > 0 && m.branchCursor < len(visible) && visible[m.branchCursor].Gone {
-		hint = styleDim.Render("  gone — remote tracking ref deleted, safe to remove  [d] delete  [X] sweep all gone  [esc] back")
-	} else {
-		goneCount := 0
+	curBranch := ""
+	if len(visible) > 0 && m.branchCursor < len(visible) {
+		curBranch = visible[m.branchCursor].Name
+	}
+	switch {
+	case len(visible) > 0 && m.branchCursor < len(visible) && visible[m.branchCursor].Gone:
+		hint = styleDim.Render("  gone - remote tracking ref deleted, safe to remove  [d] delete  [X] sweep gone/squashed  [esc] back")
+	case curBranch != "" && m.squashedBranches[curBranch] && !m.protectedBranches[curBranch]:
+		hint = styleDim.Render("  squashed - net diff already in the default branch, safe to remove  [d] delete  [X] sweep gone/squashed  [esc] back")
+	default:
+		sweepCount := 0
 		for _, br := range m.branches {
-			if br.Gone {
-				goneCount++
+			if br.Current || m.protectedBranches[br.Name] {
+				continue
+			}
+			if br.Gone || m.squashedBranches[br.Name] {
+				sweepCount++
 			}
 		}
 		h := "  [enter] switch  [m] merge  [r] rebase  [d] delete  [n] rename  [D] delete remote  [v] compare diff  [/] search"
-		if goneCount > 0 {
-			h += fmt.Sprintf("  [X] sweep gone (%d)", goneCount)
+		if sweepCount > 0 {
+			h += fmt.Sprintf("  [X] sweep gone/squashed (%d)", sweepCount)
 		}
 		h += "  [esc] back"
 		hint = styleDim.Render(h)
@@ -12084,6 +12110,35 @@ func (m model) doLoadMergedBranches() tea.Cmd {
 			result[n] = true
 		}
 		return mergedBranchesMsg(result)
+	}
+}
+
+func (m model) doLoadSquashedBranches() tea.Cmd {
+	g := m.git
+	return func() tea.Msg {
+		// commit-tree + cherry per branch is heavier than --merged, so allow
+		// more headroom than the default gitTimeout.
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		target := "main"
+		branches, err := g.Branches(ctx)
+		if err == nil {
+			for _, b := range branches {
+				if b.Name == "main" || b.Name == "master" {
+					target = b.Name
+					break
+				}
+			}
+		}
+		names, err := g.SquashMergedBranches(ctx, target)
+		if err != nil {
+			return nil
+		}
+		result := make(map[string]bool, len(names))
+		for _, n := range names {
+			result[n] = true
+		}
+		return squashedBranchesMsg(result)
 	}
 }
 
