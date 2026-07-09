@@ -1384,6 +1384,13 @@ func (m model) doFetchStashList() tea.Cmd {
 		if err != nil {
 			return stashListMsg([]git.StashEntry{})
 		}
+		// StashList returns a nil slice when no stashes remain (e.g. after
+		// dropping the last one). The panel treats a nil m.stashes as the
+		// "loading..." sentinel, so normalize to a non-nil empty slice —
+		// otherwise the list hangs on "loading..." instead of "no stashes".
+		if entries == nil {
+			entries = []git.StashEntry{}
+		}
 		return stashListMsg(entries)
 	}
 }
