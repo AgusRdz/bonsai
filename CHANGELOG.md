@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.92.4] - 2026-07-09
+
+### Bug Fixes
+- Sweep gone branches drops the tail on large batches
+([5a9cc5d](https://github.com/AgusRdz/bonsai/commit/5a9cc5d44da6b394b692ae188a244e33fe2a54c1))
 ## [0.92.3] - 2026-07-09
 
 ### Bug Fixes
