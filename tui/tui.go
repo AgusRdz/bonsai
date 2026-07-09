@@ -977,12 +977,16 @@ func (m model) doDeleteRemoteBranch(remote, branch string) tea.Cmd {
 
 func (m model) doDeleteGoneBranches(branches []git.Branch) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-		defer cancel()
 		deleted := 0
 		var lastErr error
 		for _, b := range branches {
-			if err := m.git.DeleteBranch(ctx, b.Name, true); err != nil {
+			// Each deletion gets its own timeout — a single shared context
+			// sized to gitTimeout would expire partway through a large sweep
+			// and silently drop the remaining branches.
+			ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+			err := m.git.DeleteBranch(ctx, b.Name, true)
+			cancel()
+			if err != nil {
 				lastErr = err
 			} else {
 				deleted++
