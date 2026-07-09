@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.92.3] - 2026-07-09
+
+### Bug Fixes
+- Safely remove locked worktrees with a liveness-gated force override
+([5a3c15b](https://github.com/AgusRdz/bonsai/commit/5a3c15b4320ec8a22e56ae51e930db9e9a1a6c40))
 ## [0.92.2] - 2026-07-09
 
 ### Bug Fixes
