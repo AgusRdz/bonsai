@@ -307,8 +307,9 @@ type model struct {
 	branchFilter          string
 	branchFilterInput     textinput.Model
 	branchFiltering       bool
-	branchSelected        map[string]bool // multi-select set for batch delete, keyed by branch name
-	branchDeleting        bool            // a branch delete/sweep is running; shows an in-progress hint
+	branchSelected        map[string]bool   // multi-select set for batch delete, keyed by branch name
+	branchDeleting        bool              // a branch delete/sweep is running; shows an in-progress hint
+	branchWorktrees       map[string]string // branch name -> worktree path for branches checked out elsewhere
 	diffLines             []string
 	diffPositions         []diffLinePos
 	diffCursor            int
@@ -676,6 +677,10 @@ type tagListMsg []git.TagEntry
 
 type worktreeListMsg []git.WorktreeEntry
 
+// branchWorktreesMsg carries a branch-name -> worktree-path map for the
+// branches panel; unlike worktreeListMsg it never switches panels.
+type branchWorktreesMsg map[string]string
+
 type worktreeCreatedMsg struct {
 	path   string
 	branch string
@@ -979,7 +984,7 @@ func (m model) doDeleteRemoteBranch(remote, branch string) tea.Cmd {
 	}
 }
 
-func (m model) doDeleteBranchesMany(branches []git.Branch) tea.Cmd {
+func (m model) doDeleteBranchesMany(branches []git.Branch, worktrees map[string]string) tea.Cmd {
 	return func() tea.Msg {
 		deleted := 0
 		var lastErr error
@@ -987,6 +992,14 @@ func (m model) doDeleteBranchesMany(branches []git.Branch) tea.Cmd {
 			// Per-deletion timeout so a large batch can't expire a shared
 			// context partway through and silently drop the tail.
 			ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+			// If the branch is checked out in a worktree, remove that worktree
+			// first (pruning a stale ref if the dir is gone) — git won't delete
+			// a branch still used by a worktree.
+			if path, ok := worktrees[b.Name]; ok {
+				if err := m.git.RemoveWorktree(ctx, path); err != nil && isStaleWorktreeErr(err) {
+					_ = m.git.PruneWorktrees(ctx)
+				}
+			}
 			// Safe delete first; fall back to force for unmerged work.
 			err := m.git.DeleteBranch(ctx, b.Name, false)
 			if err != nil {
@@ -1586,6 +1599,67 @@ func (m model) doFetchWorktrees() tea.Cmd {
 	}
 }
 
+// doLoadBranchWorktrees builds a branch-name -> worktree-path map so the
+// branches panel can flag branches checked out in another worktree and offer to
+// remove that worktree before deleting. Best-effort and panel-neutral: a failure
+// yields an empty map, which simply disables the enhancement.
+func (m model) doLoadBranchWorktrees() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		entries, err := m.git.Worktrees(ctx)
+		if err != nil {
+			return branchWorktreesMsg(map[string]string{})
+		}
+		out := make(map[string]string)
+		for _, wt := range entries {
+			// The main worktree's branch is the current one (undeletable), and
+			// detached HEADs have no branch to map.
+			if wt.Current || wt.Branch == "" || wt.Branch == "(detached)" {
+				continue
+			}
+			out[wt.Branch] = wt.Path
+		}
+		return branchWorktreesMsg(out)
+	}
+}
+
+// isStaleWorktreeErr reports whether a `git worktree remove` failure is caused
+// by the working directory already being gone (a stale admin ref), which
+// `git worktree prune` can clean up. LC_ALL=C makes these messages deterministic.
+func isStaleWorktreeErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "is not a working tree") ||
+		strings.Contains(s, "not a working tree") ||
+		strings.Contains(s, "no such file or directory")
+}
+
+// doRemoveWorktreeThenDeleteBranch removes the worktree holding a branch (pruning
+// a stale admin ref if the directory is already gone) and then deletes the
+// branch. git refuses `branch -d/-D` while the branch is used by a worktree, so
+// the two steps must happen together.
+func (m model) doRemoveWorktreeThenDeleteBranch(path, name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+		defer cancel()
+		if err := m.git.RemoveWorktree(ctx, path); err != nil && isStaleWorktreeErr(err) {
+			_ = m.git.PruneWorktrees(ctx)
+		}
+		err := m.git.DeleteBranch(ctx, name, false)
+		if err != nil {
+			err = m.git.DeleteBranch(ctx, name, true)
+		}
+		info := ""
+		if err == nil {
+			info = "removed worktree and deleted branch " + name
+		}
+		return actionDoneMsg{cmd: "git branch -D " + name, err: err, info: info}
+	}
+}
+
 func (m model) doAddWorktree(path, branch, base string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
@@ -1618,6 +1692,14 @@ func (m model) doRemoveWorktree(path string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 		defer cancel()
 		err := m.git.RemoveWorktree(ctx, path)
+		// The working dir was already gone (deleted or moved outside bonsai):
+		// `remove` refuses, but `prune` clears the stale admin ref. Fall back so
+		// the user doesn't have to know the difference between the two.
+		if err != nil && isStaleWorktreeErr(err) {
+			if perr := m.git.PruneWorktrees(ctx); perr == nil {
+				return actionDoneMsg{cmd: "git worktree prune", err: nil, info: "pruned stale worktree ref (" + path + ")"}
+			}
+		}
 		var info string
 		if err == nil {
 			info = "removed worktree at " + path
@@ -2857,7 +2939,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.panel = panelBranchList
-		return m, tea.Batch(m.doLoadProtectedBranches(), m.doLoadMergedBranches(), m.doLoadSquashedBranches())
+		return m, tea.Batch(m.doLoadProtectedBranches(), m.doLoadMergedBranches(), m.doLoadSquashedBranches(), m.doLoadBranchWorktrees())
 
 	case protectedBranchesMsg:
 		m.protectedBranches = map[string]bool(msg)
@@ -3013,6 +3095,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panel != panelWorktreePostCreate {
 			m.panel = panelWorktreeList
 		}
+
+	case branchWorktreesMsg:
+		m.branchWorktrees = map[string]string(msg)
 
 	case blameMsg:
 		m.blameLines = msg.lines
@@ -3172,6 +3257,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				strings.Contains(errLower, "denied") && strings.Contains(errLower, "push") {
 				msg.err = fmt.Errorf("push rejected: branch is protected - open a PR instead ([K] to open PR panel)")
 			}
+		}
+		// Enhance the "branch used by a worktree" delete error. This is the
+		// fallback path (e.g. the worktree map wasn't loaded yet); the [d]
+		// handler normally offers to remove the worktree up front.
+		if msg.err != nil && strings.Contains(msg.cmd, "git branch -D") &&
+			strings.Contains(msg.err.Error(), "used by worktree") {
+			msg.err = fmt.Errorf("branch is checked out in a worktree - remove it first ([W] worktrees), or press [d] on the branch to remove both")
 		}
 		m.actionErr = msg.err
 
@@ -3930,6 +4022,8 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "B":
 		m.branches = nil
 		m.branchCursor = 0
+		m.branchSelected = nil
+		m.actionErr = nil
 		m.panel = panelBranchList
 		return m, m.doFetchBranches()
 
@@ -4871,8 +4965,15 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			for i, br := range sel {
 				names[i] = "  · " + br.Name
 			}
-			m.confirmPrompt = fmt.Sprintf("delete %d selected branch(es)? (unmerged work will be lost)\n\n%s", len(sel), strings.Join(names, "\n"))
-			m.confirmCmd = m.doDeleteBranchesMany(sel)
+			wtNote := ""
+			for _, br := range sel {
+				if _, ok := m.branchWorktrees[br.Name]; ok {
+					wtNote = "\n\nbranches in a worktree will have that worktree removed first."
+					break
+				}
+			}
+			m.confirmPrompt = fmt.Sprintf("delete %d selected branch(es)? (unmerged work will be lost)\n\n%s%s", len(sel), strings.Join(names, "\n"), wtNote)
+			m.confirmCmd = m.doDeleteBranchesMany(sel, m.branchWorktrees)
 			m.confirmOrigin = panelBranchList
 			m.panel = panelConfirm
 			m.actionErr = nil
@@ -4884,6 +4985,16 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b := visible[m.branchCursor]
 		if b.Current {
 			m.actionErr = fmt.Errorf("cannot delete the current branch - switch to another branch first")
+			break
+		}
+		// A branch checked out in a worktree can't be deleted until that
+		// worktree is gone — offer to do both in one step.
+		if path, ok := m.branchWorktrees[b.Name]; ok {
+			m.confirmPrompt = fmt.Sprintf("branch %s is checked out in a worktree at:\n  %s\n\nremove that worktree AND delete the branch? (unmerged work will be lost)", b.Name, path)
+			m.confirmCmd = m.doRemoveWorktreeThenDeleteBranch(path, b.Name)
+			m.confirmOrigin = panelBranchList
+			m.panel = panelConfirm
+			m.actionErr = nil
 			break
 		}
 		m.confirmPrompt = fmt.Sprintf("delete branch %s? (unmerged work will be lost)", b.Name)
@@ -7832,6 +7943,9 @@ func (m model) branchListView() string {
 			if m.protectedBranches[br.Name] {
 				name += "  " + styleChanged.Render("(protected)")
 			}
+			if _, ok := m.branchWorktrees[br.Name]; ok {
+				name += "  " + styleDim.Render("[worktree]")
+			}
 			mark := "  "
 			if m.branchSelected[br.Name] {
 				mark = styleAdded.Render("✓ ")
@@ -7851,6 +7965,9 @@ func (m model) branchListView() string {
 	var hint string
 	if m.branchDeleting {
 		return content + styleDim.Render("  deleting branch(es)...") + "\n"
+	}
+	if m.actionErr != nil {
+		return content + styleChanged.Render("  error: "+m.actionErr.Error()) + "\n"
 	}
 	curBranch := ""
 	if len(visible) > 0 && m.branchCursor < len(visible) {
@@ -7934,7 +8051,7 @@ func (m model) helpView() string {
 
 	section("Branches & history")
 	row("b", "create new branch (flow picker in gitflow mode)")
-	row("B", "branch list - switch, merge, rebase, delete, rename, delete remote, [v] compare diff vs HEAD; [space] multi-select then [d] to batch-delete, [X] sweep gone/squashed")
+	row("B", "branch list - switch, merge, rebase, delete, rename, delete remote, [v] compare diff vs HEAD; [space] multi-select then [d] to batch-delete, [X] sweep gone/squashed; deleting a [worktree] branch offers to remove its worktree too")
 	row("l", "commit log (search with ctrl+/ or ctrl+r); [p] cherry-pick, [R] range cherry-pick, [r] revert")
 	row("L", "reflog - full HEAD history with reset-to")
 	row(kb.Graph+" / g", "branch graph (git log --graph --all)")
