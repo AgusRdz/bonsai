@@ -307,6 +307,8 @@ type model struct {
 	branchFilter          string
 	branchFilterInput     textinput.Model
 	branchFiltering       bool
+	branchSelected        map[string]bool // multi-select set for batch delete, keyed by branch name
+	branchDeleting        bool            // a branch delete/sweep is running; shows an in-progress hint
 	diffLines             []string
 	diffPositions         []diffLinePos
 	diffCursor            int
@@ -974,6 +976,34 @@ func (m model) doDeleteRemoteBranch(remote, branch string) tea.Cmd {
 			info = "deleted " + remote + "/" + branch
 		}
 		return actionDoneMsg{cmd: "git push " + remote + " --delete " + branch, err: err, info: info}
+	}
+}
+
+func (m model) doDeleteBranchesMany(branches []git.Branch) tea.Cmd {
+	return func() tea.Msg {
+		deleted := 0
+		var lastErr error
+		for _, b := range branches {
+			// Per-deletion timeout so a large batch can't expire a shared
+			// context partway through and silently drop the tail.
+			ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+			// Safe delete first; fall back to force for unmerged work.
+			err := m.git.DeleteBranch(ctx, b.Name, false)
+			if err != nil {
+				err = m.git.DeleteBranch(ctx, b.Name, true)
+			}
+			cancel()
+			if err != nil {
+				lastErr = err
+			} else {
+				deleted++
+			}
+		}
+		info := ""
+		if deleted > 0 {
+			info = fmt.Sprintf("deleted %d branch(es)", deleted)
+		}
+		return actionDoneMsg{cmd: "git branch -D (batch)", err: lastErr, info: info}
 	}
 }
 
@@ -3153,6 +3183,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.fetchStatus(), m.doFetchStashList())
 		}
 
+		// Branch deletes (single, multi-select batch, or sweep) refresh the
+		// branch list in place instead of bouncing to the main/education
+		// panel — so the user keeps their spot and can triage several in a
+		// row. branchListMsg re-selects panelBranchList. Errors fall through
+		// here too so they're shown on the refreshed list.
+		if strings.Contains(msg.cmd, "git branch -D") {
+			m.branchDeleting = false
+			if msg.err == nil {
+				m.branchSelected = nil
+			}
+			return m, tea.Batch(m.fetchStatus(), m.doFetchBranches())
+		}
+
 		// Metrics tracking (best-effort, never block the TUI).
 		if m.mdb != nil {
 			repo, _ := os.Getwd()
@@ -4744,6 +4787,31 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.branchCursor < len(visible)-1 {
 			m.branchCursor++
 		}
+	case " ":
+		if len(visible) == 0 {
+			break
+		}
+		b := visible[m.branchCursor]
+		if b.Current {
+			m.actionErr = fmt.Errorf("cannot select the current branch for deletion")
+			break
+		}
+		if m.protectedBranches[b.Name] {
+			m.actionErr = fmt.Errorf("branch %s is protected", b.Name)
+			break
+		}
+		if m.branchSelected == nil {
+			m.branchSelected = make(map[string]bool)
+		}
+		if m.branchSelected[b.Name] {
+			delete(m.branchSelected, b.Name)
+		} else {
+			m.branchSelected[b.Name] = true
+		}
+		if m.branchCursor < len(visible)-1 {
+			m.branchCursor++
+		}
+		m.actionErr = nil
 	case "enter":
 		if len(visible) == 0 {
 			break
@@ -4787,6 +4855,29 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.panel = panelConfirm
 		m.actionErr = nil
 	case "d":
+		// Batch delete when there is an active multi-selection.
+		if len(m.branchSelected) > 0 {
+			var sel []git.Branch
+			for _, br := range m.branches {
+				if m.branchSelected[br.Name] && !br.Current {
+					sel = append(sel, br)
+				}
+			}
+			if len(sel) == 0 {
+				m.branchSelected = nil
+				break
+			}
+			names := make([]string, len(sel))
+			for i, br := range sel {
+				names[i] = "  · " + br.Name
+			}
+			m.confirmPrompt = fmt.Sprintf("delete %d selected branch(es)? (unmerged work will be lost)\n\n%s", len(sel), strings.Join(names, "\n"))
+			m.confirmCmd = m.doDeleteBranchesMany(sel)
+			m.confirmOrigin = panelBranchList
+			m.panel = panelConfirm
+			m.actionErr = nil
+			break
+		}
 		if len(visible) == 0 {
 			break
 		}
@@ -4797,6 +4888,7 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.confirmPrompt = fmt.Sprintf("delete branch %s? (unmerged work will be lost)", b.Name)
 		m.confirmCmd = m.doDeleteBranch(b.Name)
+		m.confirmOrigin = panelBranchList
 		m.panel = panelConfirm
 	case "n":
 		if len(visible) == 0 {
@@ -4875,6 +4967,7 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.confirmPrompt = fmt.Sprintf("delete %d gone/squashed branch(es)?\n\n%s", len(sweep), strings.Join(names, "\n"))
 		m.confirmCmd = m.doDeleteGoneBranches(sweep)
+		m.confirmOrigin = panelBranchList
 		m.panel = panelConfirm
 		m.actionErr = nil
 	case "/":
@@ -4885,6 +4978,10 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.branchFilter = ""
 			m.branchFilterInput.SetValue("")
 			m.branchCursor = 0
+			return m, nil
+		}
+		if len(m.branchSelected) > 0 {
+			m.branchSelected = nil
 			return m, nil
 		}
 		m.panel = panelMain
@@ -6403,8 +6500,14 @@ func (m model) updateConfirmPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "y", "Y":
 		cmd := m.confirmCmd
 		m.confirmCmd = nil
+		// Return to the panel the confirm was opened from (panelMain by
+		// default). Branch delete/sweep set confirmOrigin = panelBranchList so
+		// they stay on the list and can show the in-progress hint.
+		m.panel = m.confirmOrigin
+		if m.confirmOrigin == panelBranchList {
+			m.branchDeleting = true
+		}
 		m.confirmOrigin = panelMain
-		m.panel = panelMain
 		return m, cmd
 	case "n", "N", "esc", m.cfg.Keybindings.Quit:
 		m.confirmCmd = nil
@@ -7729,7 +7832,11 @@ func (m model) branchListView() string {
 			if m.protectedBranches[br.Name] {
 				name += "  " + styleChanged.Render("(protected)")
 			}
-			b.WriteString(cursor + "  " + name + "\n")
+			mark := "  "
+			if m.branchSelected[br.Name] {
+				mark = styleAdded.Render("✓ ")
+			}
+			b.WriteString(cursor + mark + name + "\n")
 		}
 	}
 	b.WriteString("\n")
@@ -7742,11 +7849,16 @@ func (m model) branchListView() string {
 
 	// Context-sensitive hint line.
 	var hint string
+	if m.branchDeleting {
+		return content + styleDim.Render("  deleting branch(es)...") + "\n"
+	}
 	curBranch := ""
 	if len(visible) > 0 && m.branchCursor < len(visible) {
 		curBranch = visible[m.branchCursor].Name
 	}
 	switch {
+	case len(m.branchSelected) > 0:
+		hint = styleDim.Render(fmt.Sprintf("  %d selected  [space] toggle  [d] delete selected  [esc] clear", len(m.branchSelected)))
 	case len(visible) > 0 && m.branchCursor < len(visible) && visible[m.branchCursor].Gone:
 		hint = styleDim.Render("  gone - remote tracking ref deleted, safe to remove  [d] delete  [X] sweep gone/squashed  [esc] back")
 	case curBranch != "" && m.squashedBranches[curBranch] && !m.protectedBranches[curBranch]:
@@ -7761,7 +7873,7 @@ func (m model) branchListView() string {
 				sweepCount++
 			}
 		}
-		h := "  [enter] switch  [m] merge  [r] rebase  [d] delete  [n] rename  [D] delete remote  [v] compare diff  [/] search"
+		h := "  [enter] switch  [space] select  [m] merge  [r] rebase  [d] delete  [n] rename  [D] delete remote  [v] compare diff  [/] search"
 		if sweepCount > 0 {
 			h += fmt.Sprintf("  [X] sweep gone/squashed (%d)", sweepCount)
 		}
@@ -7822,7 +7934,7 @@ func (m model) helpView() string {
 
 	section("Branches & history")
 	row("b", "create new branch (flow picker in gitflow mode)")
-	row("B", "branch list - switch, merge, rebase, delete, rename, delete remote, [v] compare diff vs HEAD")
+	row("B", "branch list - switch, merge, rebase, delete, rename, delete remote, [v] compare diff vs HEAD; [space] multi-select then [d] to batch-delete, [X] sweep gone/squashed")
 	row("l", "commit log (search with ctrl+/ or ctrl+r); [p] cherry-pick, [R] range cherry-pick, [r] revert")
 	row("L", "reflog - full HEAD history with reset-to")
 	row(kb.Graph+" / g", "branch graph (git log --graph --all)")
