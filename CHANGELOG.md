@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.94.0] - 2026-07-13
+
+### Features
+- Multi-select branch delete and stay on branch list after delete/sweep
+([ad9ad65](https://github.com/AgusRdz/bonsai/commit/ad9ad65a446d64a0c4cf668671077f4d8093de01))
 ## [0.93.0] - 2026-07-09
 
 ### Features
