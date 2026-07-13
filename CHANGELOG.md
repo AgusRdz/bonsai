@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.95.0] - 2026-07-13
+
+### Features
+- Surface branch-delete errors and handle worktree-checked-out branches
+([d5ba93a](https://github.com/AgusRdz/bonsai/commit/d5ba93a13eb37857d6645d85eb71bad643092288))
 ## [0.94.0] - 2026-07-13
 
 ### Features
