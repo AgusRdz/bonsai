@@ -367,6 +367,79 @@ func TestSquashMergedBranches(t *testing.T) {
 	}
 }
 
+func TestLogOptsRev(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
+			"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(dir+"/"+name, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	run("init", "-b", "main")
+	write("f", "base\n")
+	run("add", "f")
+	run("commit", "-m", "base commit")
+
+	run("checkout", "-b", "feat")
+	write("f", "base\nfeat\n")
+	run("commit", "-am", "feat-only commit")
+
+	// Sit on main so the Rev must be what steers the log, not the checkout.
+	run("checkout", "main")
+
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	contains := func(entries []LogEntry, sub string) bool {
+		for _, e := range entries {
+			if strings.Contains(e.Line, sub) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Rev targets the branch even though HEAD is main.
+	feat, err := New().LogOpts(ctx, LogOptions{Rev: "feat"})
+	if err != nil {
+		t.Fatalf("LogOpts Rev=feat: %v", err)
+	}
+	if !contains(feat, "feat-only commit") {
+		t.Errorf("Rev=feat should include the feature commit; got %v", feat)
+	}
+
+	// Default (HEAD=main) must not see the branch-only commit.
+	head, err := New().LogOpts(ctx, LogOptions{})
+	if err != nil {
+		t.Fatalf("LogOpts HEAD: %v", err)
+	}
+	if contains(head, "feat-only commit") {
+		t.Errorf("HEAD log must not include the feature-only commit; got %v", head)
+	}
+}
+
 func TestParseStashList(t *testing.T) {
 	// legacy plain format (fallback)
 	output := "stash@{0}: On main: WIP on login flow\nstash@{1}: On feat/x: half-done refactor\n"

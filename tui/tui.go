@@ -302,6 +302,7 @@ type model struct {
 	logFilter             string          // active filter query; empty = no filter
 	logFilterInput        textinput.Model // search input field
 	logFiltering          bool            // search input is focused
+	logRef                string          // branch previewed in the log panel; empty = HEAD/recent commits
 	branches              []git.Branch
 	branchCursor          int
 	branchFilter          string
@@ -1223,6 +1224,7 @@ func (m model) doFetchLogPage(skip int, appendResults bool) tea.Cmd {
 		opts := parseLogFilter(filter)
 		opts.MaxCount = logPageSize + 1 // fetch one extra to detect hasMore
 		opts.Skip = skip
+		opts.Rev = m.logRef
 		entries, err := m.git.LogOpts(ctx, opts)
 		if err != nil || entries == nil {
 			return logPageMsg{entries: []git.LogEntry{}, hasMore: false, append: appendResults}
@@ -4014,6 +4016,7 @@ func (m model) updateMainPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.actionErr = nil
 
 	case "l":
+		m.logRef = ""
 		m.logEntries = nil
 		m.logCursor = 0
 		m.panel = panelLog
@@ -4639,6 +4642,14 @@ func (m model) updateLogPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.logFilterInput.SetValue("")
 		m.logEntries = nil
 		return m, m.doFetchLogPage(0, false)
+	case "s":
+		// Switch to the branch currently being previewed.
+		if m.logRef != "" {
+			ref := m.logRef
+			m.logRef = ""
+			m.panel = panelMain
+			return m, m.doSwitch(ref)
+		}
 	case "esc":
 		if m.logFilter != "" {
 			// First esc clears the filter.
@@ -4647,8 +4658,19 @@ func (m model) updateLogPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.logEntries = nil
 			return m, m.doFetchLogPage(0, false)
 		}
+		if m.logRef != "" {
+			// A branch preview returns to the branch list, not the main panel.
+			m.logRef = ""
+			m.panel = panelBranchList
+			return m, nil
+		}
 		m.panel = panelMain
 	case m.cfg.Keybindings.Quit:
+		if m.logRef != "" {
+			m.logRef = ""
+			m.panel = panelBranchList
+			return m, nil
+		}
 		m.panel = panelMain
 	case "ctrl+c":
 		return m, tea.Quit
@@ -5052,6 +5074,21 @@ func (m model) updateBranchListPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.diffScroll = 0
 		m.panel = panelDiff
 		return m, m.doCompareDiff(b.Name)
+	case "l":
+		// Preview a branch's commits without switching to it.
+		if len(visible) == 0 {
+			break
+		}
+		b := visible[m.branchCursor]
+		m.logRef = b.Name
+		m.logEntries = nil
+		m.logCursor = 0
+		m.logFilter = ""
+		m.logFilterInput.SetValue("")
+		m.logFiltering = false
+		m.actionErr = nil
+		m.panel = panelLog
+		return m, m.doFetchLog()
 	case "X":
 		var sweep []git.Branch
 		for _, b := range m.branches {
@@ -7990,7 +8027,7 @@ func (m model) branchListView() string {
 				sweepCount++
 			}
 		}
-		h := "  [enter] switch  [space] select  [m] merge  [r] rebase  [d] delete  [n] rename  [D] delete remote  [v] compare diff  [/] search"
+		h := "  [enter] switch  [space] select  [l] log  [m] merge  [r] rebase  [d] delete  [n] rename  [D] delete remote  [v] compare diff  [/] search"
 		if sweepCount > 0 {
 			h += fmt.Sprintf("  [X] sweep gone/squashed (%d)", sweepCount)
 		}
@@ -8051,7 +8088,7 @@ func (m model) helpView() string {
 
 	section("Branches & history")
 	row("b", "create new branch (flow picker in gitflow mode)")
-	row("B", "branch list - switch, merge, rebase, delete, rename, delete remote, [v] compare diff vs HEAD; [space] multi-select then [d] to batch-delete, [X] sweep gone/squashed; deleting a [worktree] branch offers to remove its worktree too")
+	row("B", "branch list - switch, merge, rebase, delete, rename, delete remote, [l] preview commits without switching, [v] compare diff vs HEAD; [space] multi-select then [d] to batch-delete, [X] sweep gone/squashed; deleting a [worktree] branch offers to remove its worktree too")
 	row("l", "commit log (search with ctrl+/ or ctrl+r); [p] cherry-pick, [R] range cherry-pick, [r] revert")
 	row("L", "reflog - full HEAD history with reset-to")
 	row(kb.Graph+" / g", "branch graph (git log --graph --all)")
@@ -8780,6 +8817,9 @@ func (m model) logView() string {
 
 	// Header with active filter badge.
 	title := "Recent Commits"
+	if m.logRef != "" {
+		title = "Commits on " + m.logRef
+	}
 	if m.logFilter != "" {
 		title += "  " + styleCmd.Render("["+m.logFilter+"]")
 	}
@@ -8846,7 +8886,11 @@ func (m model) logView() string {
 		}
 		pos += ")"
 	}
-	hint := "  [↑↓] scroll  [/] search  [enter] detail  [esc] back" + pos
+	hint := "  [↑↓] scroll  [/] search  [enter] detail  [esc] back"
+	if m.logRef != "" {
+		hint = "  [↑↓] scroll  [/] search  [enter] detail  [s] switch to branch  [esc] back"
+	}
+	hint += pos
 	return content + styleDim.Render(hint) + "\n"
 }
 

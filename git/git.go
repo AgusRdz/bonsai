@@ -327,6 +327,7 @@ type LogOptions struct {
 	Author   string // filter by author name/email
 	Since    string // show commits more recent than this date
 	Until    string // show commits older than this date
+	Rev      string // limit to this revision/branch instead of HEAD; empty → HEAD
 }
 
 // Log returns the n most recent commits as graph/oneline entries.
@@ -365,6 +366,12 @@ func (r *Runner) LogOpts(ctx context.Context, opts LogOptions) ([]LogEntry, erro
 	// %G?%x1f prefixes each commit line with the signature status and a unit
 	// separator so we can strip it without affecting graph connector lines.
 	args = append(args, "--format=%G?%x1f%h%d %s")
+
+	// A revision, when given, is a positional arg after all flags. Guard it with
+	// -- so a branch named like a flag can't be misparsed as one.
+	if opts.Rev != "" {
+		args = append(args, opts.Rev, "--")
+	}
 
 	out, err := r.run(ctx, args...)
 	if err != nil {
