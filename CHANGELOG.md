@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.96.0] - 2026-09-23
+
+### Features
+- Preview a branch's commits from the branch list without switching
+([13e0291](https://github.com/AgusRdz/bonsai/commit/13e0291c01ec7d6a21f3a915f57d67a7bf59f115))
 ## [0.95.0] - 2026-07-13
 
 ### Features
