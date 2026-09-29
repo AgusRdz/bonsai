@@ -12,6 +12,11 @@ import (
 const (
 	dispatcherDir = ".git/bonsai-hooks"
 	sharedDir     = ".githooks"
+
+	// disabledSuffix marks a disabled hook. Git only runs hooks whose file name
+	// matches exactly, so renaming works on every OS — unlike clearing the
+	// executable bit, which Windows and Git Bash ignore.
+	disabledSuffix = ".disabled"
 )
 
 // Scope identifies which hooks directory an operation targets.
@@ -28,7 +33,7 @@ type HookEntry struct {
 	Name   string
 	Scope  Scope
 	Path   string
-	Active bool // executable bit is set (always true on Windows)
+	Active bool // not renamed to <name>.disabled and executable bit is set (always true on Windows)
 }
 
 // AllHookNames is the standard set of git hook names.
@@ -185,11 +190,12 @@ func scanDir(dir string, scope Scope) []HookEntry {
 		if err != nil {
 			continue
 		}
+		hookName, disabled := strings.CutSuffix(name, disabledSuffix)
 		result = append(result, HookEntry{
-			Name:   name,
+			Name:   hookName,
 			Scope:  scope,
 			Path:   filepath.Join(dir, name),
-			Active: isExecutable(info),
+			Active: !disabled && isExecutable(info),
 		})
 	}
 	return result
@@ -212,13 +218,16 @@ func Add(scope Scope, name, content string, overwrite bool) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)
 	}
-	path := filepath.Join(dir, name)
 	if !overwrite {
-		if _, err := os.Stat(path); err == nil {
-			return fmt.Errorf("%s already exists (use --force to overwrite)", path)
+		if existing, err := resolve(dir, name); err == nil {
+			return fmt.Errorf("%s already exists (use --force to overwrite)", existing)
 		}
 	}
-	return os.WriteFile(path, []byte(content), 0755)
+	// Drop any disabled copy so the overwrite doesn't leave two versions behind.
+	if err := os.Remove(filepath.Join(dir, name+disabledSuffix)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, name), []byte(content), 0755)
 }
 
 // Remove deletes a hook for the given scope.
@@ -227,29 +236,80 @@ func Remove(scope Scope, name string) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, name)
+	path, err := resolve(dir, name)
+	if err != nil {
+		return err
+	}
 	if err := os.Remove(path); err != nil {
 		return fmt.Errorf("remove %s: %w", path, err)
 	}
 	return nil
 }
 
-// Enable makes a hook executable.
+// Enable restores a disabled hook and makes it executable. The chmod also
+// re-enables hooks disabled by older bonsai versions, which cleared the
+// executable bit instead of renaming.
 func Enable(scope Scope, name string) error {
 	dir, err := Dir(scope)
 	if err != nil {
 		return err
 	}
-	return os.Chmod(filepath.Join(dir, name), 0755)
+	path, err := resolve(dir, name)
+	if err != nil {
+		return err
+	}
+	active := filepath.Join(dir, name)
+	if path != active {
+		if err := os.Rename(path, active); err != nil {
+			return fmt.Errorf("enable %s: %w", name, err)
+		}
+	}
+	return os.Chmod(active, 0755)
 }
 
-// Disable removes the executable bit from a hook without deleting it.
+// Disable renames a hook to <name>.disabled so git skips it without deleting it.
 func Disable(scope Scope, name string) error {
 	dir, err := Dir(scope)
 	if err != nil {
 		return err
 	}
-	return os.Chmod(filepath.Join(dir, name), 0644)
+	path, err := resolve(dir, name)
+	if err != nil {
+		return err
+	}
+	disabled := filepath.Join(dir, name+disabledSuffix)
+	if path == disabled {
+		return nil
+	}
+	if err := os.Rename(path, disabled); err != nil {
+		return fmt.Errorf("disable %s: %w", name, err)
+	}
+	return nil
+}
+
+// Path returns the file backing a hook, enabled or disabled. When the hook
+// doesn't exist it returns the path a new hook would be created at.
+func Path(scope Scope, name string) (string, error) {
+	dir, err := Dir(scope)
+	if err != nil {
+		return "", err
+	}
+	if path, err := resolve(dir, name); err == nil {
+		return path, nil
+	}
+	return filepath.Join(dir, name), nil
+}
+
+// resolve finds the file for a hook, preferring the enabled name over the
+// disabled one.
+func resolve(dir, name string) (string, error) {
+	for _, candidate := range []string{name, name + disabledSuffix} {
+		path := filepath.Join(dir, candidate)
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("hook %s not found in %s", name, dir)
 }
 
 // Show returns the content of a hook.
@@ -258,7 +318,11 @@ func Show(scope Scope, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(filepath.Join(dir, name))
+	path, err := resolve(dir, name)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}

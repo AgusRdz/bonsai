@@ -237,8 +237,8 @@ Commands:
                       --template=<name>  use a built-in template
                       --force            overwrite if it already exists
   hooks --remove <name>   remove a hook (--global|--shared|--local)
-  hooks --enable <name>   make a hook executable (--global|--shared|--local)
-  hooks --disable <name>  remove executable bit, keep the file (--global|--shared|--local)
+  hooks --enable <name>   re-enable a disabled hook (--global|--shared|--local)
+  hooks --disable <name>  rename to <name>.disabled so git skips it (--global|--shared|--local)
   hooks --show <name>     print hook content (--global|--shared|--local)
   hooks --edit <name>     open hook in editor (--global|--shared|--local)
   hooks --templates       list built-in hook templates
@@ -1817,13 +1817,13 @@ func runHooks(args []string) {
 			fmt.Fprintln(os.Stderr, "usage: bonsai hooks --edit <hook-name> --global|--shared|--local")
 			os.Exit(1)
 		}
-		dir, err := hooks.Dir(scope)
+		path, err := hooks.Path(scope, name)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "bonsai hooks --edit:", err)
 			os.Exit(1)
 		}
 		cfg, _ := config.Load()
-		openInEditor(config.ResolveEditor(cfg), filepath.Join(dir, name))
+		openInEditor(config.ResolveEditor(cfg), path)
 
 	default:
 		fmt.Fprintf(os.Stderr, "bonsai hooks: unknown subcommand %q\n", sub)
@@ -1874,7 +1874,7 @@ func runHooksList() {
 				if e.Active {
 					fmt.Printf("    %s  %s\n", green("✓"), e.Name)
 				} else {
-					fmt.Printf("    %s  %s\n", yellow("✗"), e.Name+dim(" (not executable)"))
+					fmt.Printf("    %s  %s\n", yellow("✗"), e.Name+dim(" (disabled)"))
 				}
 			}
 		}
