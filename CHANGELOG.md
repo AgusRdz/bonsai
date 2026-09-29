@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.96.1] - 2026-09-29
+
+### Bug Fixes
+- Disable hooks by renaming so it works on Windows
+([cd3423e](https://github.com/AgusRdz/bonsai/commit/cd3423e5fb136abd05b05c2819af5ed2773b7963))
 ## [0.96.0] - 2026-09-23
 
 ### Features
