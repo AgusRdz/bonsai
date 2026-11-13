@@ -2,6 +2,11 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.97.1] - 2026-11-13
+
+### Other
+- Sort errlog import in main.go
+([94524b2](https://github.com/AgusRdz/bonsai/commit/94524b2dcc9f65e522f262fdf343849508f934dc))
 ## [0.97.0] - 2026-11-13
 
 ### Documentation
