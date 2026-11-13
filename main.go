@@ -20,6 +20,7 @@ import (
 	"github.com/AgusRdz/bonsai/hooks"
 	"github.com/AgusRdz/bonsai/ignore"
 	"github.com/AgusRdz/bonsai/mcp"
+	"github.com/AgusRdz/bonsai/errlog"
 	"github.com/AgusRdz/bonsai/metrics"
 	"github.com/AgusRdz/bonsai/plugins"
 	"github.com/AgusRdz/bonsai/pr"
@@ -83,6 +84,8 @@ func main() {
 		runSSH(os.Args[2:])
 	case "metrics":
 		runMetrics()
+	case "errors":
+		runErrors(os.Args[2:])
 	case "lfs":
 		runLFS(os.Args[2:])
 	case "standup":
@@ -251,6 +254,10 @@ Commands:
   standup -w        shorthand for --days 7 (the whole week)
   standup -a name   filter by author name (default: you)
   metrics           show locally tracked habit and error metrics
+  errors            show the last 20 failed operations from the error log
+  errors -n N       show the last N entries
+  errors --path     print the error log location
+  errors --clear    delete the error log
 
   patch --create    create .patch files from commits (git format-patch)
   patch --apply     apply a .patch file (git am)
@@ -921,6 +928,55 @@ func runSSHKeygen() {
 	fmt.Println("  Gitea/Forgejo/self-hosted: Settings -> SSH Keys in your profile")
 	fmt.Println()
 	fmt.Println("then load it into the agent: ssh-add " + keyPath)
+}
+
+func runErrors(args []string) {
+	p, err := errlog.DefaultPath()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai errors:", err)
+		os.Exit(1)
+	}
+	n := 20
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--path":
+			fmt.Println(p)
+			return
+		case args[i] == "--clear":
+			if err := errlog.Clear(p); err != nil {
+				fmt.Fprintln(os.Stderr, "bonsai errors:", err)
+				os.Exit(1)
+			}
+			fmt.Println("error log cleared")
+			return
+		case args[i] == "-n" && i+1 < len(args):
+			i++
+			v, err := strconv.Atoi(args[i])
+			if err != nil || v < 1 {
+				fmt.Fprintf(os.Stderr, "bonsai errors: invalid -n value %q\n", args[i])
+				os.Exit(1)
+			}
+			n = v
+		default:
+			fmt.Fprintf(os.Stderr, "bonsai errors: unknown argument %q\n", args[i])
+			os.Exit(1)
+		}
+	}
+	entries, err := errlog.Tail(p, n)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "bonsai errors:", err)
+		os.Exit(1)
+	}
+	if len(entries) == 0 {
+		fmt.Println("no errors logged")
+		return
+	}
+	for i, e := range entries {
+		if i > 0 {
+			fmt.Println()
+		}
+		fmt.Print(e)
+	}
 }
 
 func runMetrics() {

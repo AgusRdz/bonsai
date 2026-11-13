@@ -13,6 +13,7 @@ import (
 
 	"github.com/AgusRdz/bonsai/config"
 	"github.com/AgusRdz/bonsai/conventions"
+	"github.com/AgusRdz/bonsai/errlog"
 	"github.com/AgusRdz/bonsai/git"
 	"github.com/AgusRdz/bonsai/metrics"
 	"github.com/AgusRdz/bonsai/plugins"
@@ -508,6 +509,9 @@ type model struct {
 
 	// metrics (nil when disabled)
 	mdb *metrics.DB
+
+	// error log ("" when the path could not be resolved)
+	errLogPath string
 
 	// pr integration
 	prProvider        pr.Provider
@@ -2727,7 +2731,55 @@ func (m model) Init() tea.Cmd {
 
 // --- update ---
 
+// logFailure appends operation failures carried by msg to the error log.
+// Done before Update's switch so handlers that rewrite the error for display,
+// or return early, still log the original. prStatusMsg is excluded: it is a
+// background poll whose failures are expected and ignored.
+func (m model) logFailure(msg tea.Msg) {
+	if m.errLogPath == "" {
+		return
+	}
+	var cmd string
+	var err error
+	switch msg := msg.(type) {
+	case actionDoneMsg:
+		cmd, err = msg.cmd, msg.err
+	case bisectActionMsg:
+		cmd, err = msg.cmd, msg.err
+	case prMergeResultMsg:
+		cmd, err = msg.cmd, msg.err
+	case worktreeCreatedMsg:
+		cmd, err = msg.cmd, msg.err
+	case errMsg:
+		// Starting outside a repo routes to the init panel; not a failure.
+		if msg.err != nil && strings.Contains(msg.err.Error(), "not a git repository") {
+			return
+		}
+		err = msg.err
+	case editorDoneMsg:
+		cmd, err = "open editor", msg.err
+	case hunkLoadMsg:
+		cmd, err = "load hunks", msg.err
+	case issueListMsg:
+		cmd, err = "list issues", msg.err
+	case prListMsg:
+		cmd, err = "list PRs", msg.err
+	}
+	if err == nil {
+		return
+	}
+	repo, _ := os.Getwd()
+	branch := ""
+	if m.status != nil {
+		branch = m.status.Branch
+	}
+	_ = errlog.Append(m.errLogPath, errlog.Entry{
+		Time: time.Now(), Repo: repo, Branch: branch, Cmd: cmd, Err: err.Error(),
+	})
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	m.logFailure(msg)
 	switch msg := msg.(type) {
 
 	case tea.MouseMsg:
@@ -12668,6 +12720,9 @@ func Run(cfg *config.Config, mdb *metrics.DB, version string) error {
 		prProvider:        prov,
 		mdb:               mdb,
 		diffContext:       3,
+	}
+	if p, err := errlog.DefaultPath(); err == nil {
+		m.errLogPath = p
 	}
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()

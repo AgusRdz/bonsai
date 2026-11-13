@@ -309,6 +309,25 @@ bonsai standup -a "Jane Doe"    # filter by author name
 | `-w` | Shorthand for `--days 7` |
 | `-a <name>` | Filter by author name (defaults to `user.name` from git config) |
 
+## bonsai errors
+
+Shows failed operations recorded by the TUI: git commands, PR/issue provider calls, and editor launches. Each entry has the timestamp, repo, branch, command, and full error output. Input-validation messages (e.g. an empty commit message) are not logged.
+
+The log is always on, stays local, and lives at `~/.config/bonsai/error.log` (or `$XDG_CONFIG_HOME/bonsai/error.log`). At 1 MiB it is rotated to `error.log.1`.
+
+```sh
+bonsai errors            # last 20 entries
+bonsai errors -n 50
+bonsai errors --path
+bonsai errors --clear
+```
+
+| Flag | Description |
+|------|-------------|
+| `-n N` | Show the last N entries (default: 20) |
+| `--path` | Print the log file location |
+| `--clear` | Delete the log and its rotated file |
+
 ## bonsai repo
 
 Create and open remote repositories.
