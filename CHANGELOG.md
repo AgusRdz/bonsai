@@ -2,6 +2,15 @@
 
 All notable changes to bonsai are documented here.
 
+## [0.97.0] - 2026-11-13
+
+### Documentation
+- Add GitHub social preview card
+([0828921](https://github.com/AgusRdz/bonsai/commit/0828921feae9b18359581a334fcc9298755da0c7))
+
+### Features
+- Log failed operations to error.log, add bonsai errors command
+([2380ae9](https://github.com/AgusRdz/bonsai/commit/2380ae966977d0991cc38d5ab9e2535e7ad3ab77))
 ## [0.96.1] - 2026-09-29
 
 ### Bug Fixes
